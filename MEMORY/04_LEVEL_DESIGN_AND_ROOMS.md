@@ -27,7 +27,7 @@
 
 *Target total first-clear time across all 5 stages: **~10–15 minutes**.*
 
-> **Collision Greybox Scene (`scenes/environment/colosseum_greybox.tscn` + `scripts/environment/colosseum_greybox_builder.gd`)**: Instantiates the full walkable `Y = 0.0` collision layout across `Z = -5..105` (`ColosseumGreyboxBuilder.build_greybox()`, `get_key_anchors()`), including `EntrySteppingStones`, `EntryMirrorSwitch`, `Gate01_EntryToHall`, `CrackedCentralPillar`, `Gate02_HallToGallery`, `GallerySpectralBridge` (`MirrorGeometry` + `RepairedGeometry`), `WeakStoneSupport`, `BridgeAnchorSwitch`, `Gate03_GalleryToMechanism`, `RaisedImpactDais`, `ChamberMechanismPuzzle`, `Gate04_MechanismToArena`, `CentralMirrorPlane`, and `Gate05_ArenaExit`.
+> **Collision Greybox Scene (`scenes/environment/colosseum_greybox.tscn` + `scripts/environment/colosseum_greybox_builder.gd`)**: Instantiates the full walkable `Y = 0.0` collision layout across `Z = -5..108` (`ColosseumGreyboxBuilder.build_greybox()`, `get_key_anchors()`), including perimeter containment walls, `PitKillZone_Stage01` & `PitKillZone_Stage03`, `SectionTriggerVolume`s for all 5 stages + `Trigger_RunComplete` on `SunlitExitFloor`, `EntrySteppingStones`, `EntryMirrorSwitch`, `Gate01_EntryToHall`, `CrackedCentralPillar`, `Gate02_HallToGallery`, `GallerySpectralBridge` (`MirrorGeometry` + `RepairedGeometry`), `WeakStoneSupport`, `BridgeAnchorSwitch`, `Gate03_GalleryToMechanism`, `RaisedImpactDais`, `ChamberMechanismPuzzle`, `Gate04_MechanismToArena`, `CentralMirrorPlane`, `Gate05_ArenaExit`, and all 6 live enemies (`2x SkeletonGuard`, `2x PhantomTwin`, `1x ShieldedGuard`, `1x WardenBoss`).
 
 ---
 

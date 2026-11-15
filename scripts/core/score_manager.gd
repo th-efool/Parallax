@@ -196,7 +196,8 @@ func finalize_run(award_warden_bonus: bool = true) -> Dictionary:
 		warden_bonus = add_score_event("warden_defeat", false, "warden_defeat_once")
 
 	var time_bonus: int = calculate_time_bonus(elapsed_seconds)
-	if time_bonus > 0:
+	if time_bonus > 0 and not bool(awarded_event_ids.get("time_bonus_once", false)):
+		awarded_event_ids["time_bonus_once"] = true
 		score += time_bonus
 		score_changed.emit(score, time_bonus, "time_bonus")
 

@@ -45,6 +45,14 @@ func close_gate() -> void:
 	gate_closed.emit(self)
 
 
+func seal_gate_for_encounter() -> void:
+	if not is_open:
+		return
+	is_open = false
+	_apply_gate_state()
+	gate_closed.emit(self)
+
+
 func unlock_and_open() -> void:
 	open_gate(true)
 
