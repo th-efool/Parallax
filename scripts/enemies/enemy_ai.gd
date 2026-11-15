@@ -65,6 +65,9 @@ func step_ai(delta: float) -> void:
 func start_windup(custom_windup: float = -1.0) -> void:
 	if is_dead or not is_active:
 		return
+	var p: Node3D = _resolve_target_player()
+	if p != null:
+		set_facing_direction(p.global_position - global_position)
 	var dur: float = windup_duration if custom_windup < 0.0 else custom_windup
 	velocity = Vector3.ZERO
 	_transition_to(State.WINDUP, dur)
@@ -106,6 +109,7 @@ func _process_chase(_delta: float, player: Node3D) -> void:
 	dir.y = 0.0
 	if dir.length_squared() > 0.001:
 		dir = dir.normalized()
+		set_facing_direction(dir)
 		velocity.x = dir.x * move_speed
 		velocity.z = dir.z * move_speed
 	if is_inside_tree():

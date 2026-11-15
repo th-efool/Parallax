@@ -30,6 +30,8 @@ var is_active: bool = true
 var is_section_enabled: bool = true
 var is_realm_enabled: bool = true
 var is_dead: bool = false
+var facing_direction: Vector3 = Vector3.FORWARD
+var _last_attacker: Node = null
 var _spawn_transform: Transform3D = Transform3D.IDENTITY
 
 
@@ -37,6 +39,10 @@ func _ready() -> void:
 	add_to_group("enemy")
 	add_to_group("realm_reactive")
 	_spawn_transform = global_transform
+	var fwd: Vector3 = -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.001:
+		facing_direction = fwd.normalized()
 	health = max_health
 
 	if EncounterDirector.instance != null:
@@ -87,10 +93,33 @@ func on_realm_changed(_active_realm: int) -> void:
 	pass
 
 
-func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "") -> bool:
+func get_facing_direction() -> Vector3:
+	if facing_direction.length_squared() > 0.001:
+		return facing_direction.normalized()
+	var fwd: Vector3 = -global_transform.basis.z
+	fwd.y = 0.0
+	return fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
+
+
+func set_facing_direction(dir: Vector3) -> void:
+	var flat: Vector3 = Vector3(dir.x, 0.0, dir.z)
+	if flat.length_squared() <= 0.0001:
+		return
+	facing_direction = flat.normalized()
+	var vis_root: Node3D = get_node_or_null(visual_root_path) as Node3D
+	var target_yaw: float = atan2(-facing_direction.x, -facing_direction.z)
+	if vis_root != null:
+		vis_root.rotation.y = target_yaw
+	var hb: Hitbox3D = get_attack_hitbox()
+	if hb != null and hb.get_parent() == self:
+		hb.rotation.y = target_yaw
+
+
+func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "", attacker: Node = null) -> bool:
 	if is_dead or not is_active or amount <= 0:
 		return false
 
+	_last_attacker = attacker
 	var final_damage: int = _modify_incoming_damage(amount, is_heavy, source_type)
 	if final_damage <= 0:
 		return false
@@ -114,6 +143,10 @@ func reset_enemy() -> void:
 	health = max_health
 	global_transform = _spawn_transform
 	velocity = Vector3.ZERO
+	_last_attacker = null
+	var fwd: Vector3 = -_spawn_transform.basis.z
+	fwd.y = 0.0
+	facing_direction = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
 	_on_enemy_reset()
 	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:

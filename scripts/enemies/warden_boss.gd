@@ -202,6 +202,8 @@ func _trigger_phase2_transition() -> void:
 
 
 func _on_enemy_reset() -> void:
+	var was_phase1: bool = (current_phase == Phase.PHASE_1_SPLIT)
+	var was_exposed: bool = is_chest_rune_exposed
 	current_phase = Phase.PHASE_1_SPLIT
 	current_move = BossMove.CLEAVE
 	is_chest_rune_exposed = false
@@ -209,6 +211,20 @@ func _on_enemy_reset() -> void:
 	_move_counter = 0
 	windup_duration = phase1_windup_duration
 	recover_duration = phase1_recovery_window
+
+	if not mirror_plane_prop_path.is_empty():
+		var plane: BreakableProp = get_node_or_null(mirror_plane_prop_path) as BreakableProp
+		if plane != null:
+			plane.reset_prop()
+
+	if RealmManager.instance != null and (RealmManager.instance.is_merged or RealmManager.instance.shift_locked):
+		RealmManager.instance.force_realm(RealmManager.Realm.REALITY, false)
+
+	if was_exposed:
+		chest_rune_exposed_changed.emit(false, 0.0)
+	if not was_phase1:
+		boss_phase_changed.emit(current_phase)
+
 	super._on_enemy_reset()
 
 

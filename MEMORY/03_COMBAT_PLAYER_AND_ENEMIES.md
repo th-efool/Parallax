@@ -13,7 +13,7 @@
 | *(Mouse)* | Mouse Motion | Camera yaw (unlimited) & pitch (clamped e.g. `-45°` to `+60°` to avoid floor/sky lock). Sensitivity + Invert-Y configurable. |
 | `light_attack` | `Left Mouse Button` | 3-hit sword combo (`25 / 25 / 35` dmg); combo window resets after pause. |
 | `heavy_attack` | `Right Mouse Button` | Committed slower strike (`60` dmg); shatters marked breakables & staggers exposed enemies. |
-| `dodge` / `jump` | `Space` | Ground dodge on directional/ground evade (`0.55 s` total, `~0.18 s` i-frames); Jump when airborne/gap-jumping (`jump` and `dodge` bindings share Space by context or distinct jump/dodge handling—verify crisp responsiveness in playtests!). |
+| `dodge` / `jump` | `Space` (plus `Shift` on `dodge`) | Contextual Jump (when stationary, in a jump zone, or when forward-downward floor probes detect a gap or raised dais step) vs Directional Ground Dodge (`0.55 s` total, `0.18 s` i-frames, `0.20 s` cooldown). `start_dodge()` zeroes any upward velocity so Jump and Dodge never double-fire on the same frame. |
 | `dimension_shift` | `Q` | Toggle Reality <-> Mirror (`0.60 s` cooldown; subject to safe-floor & overlap check). |
 | `landing_attack` | `F` | **Airborne only**: triggers committed downward plunge; spawns single `2.2 m` radial shockwave (`60` dmg) on ground impact. No effect on ground. |
 | `interact` | `E` | Contextual interaction with Mirror Switch, Bridge Anchor, and Mechanism/Gates when in prompt range. |

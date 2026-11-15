@@ -44,6 +44,8 @@ func receive_hit(amount: int, is_heavy: bool, source_type: String, attacker: Nod
 		if actor.has_method("apply_damage"):
 			var res: Variant = actor.call("apply_damage", amount, attacker)
 			accepted = bool(res) if typeof(res) == TYPE_BOOL else true
+	elif actor is EnemyBase:
+		accepted = (actor as EnemyBase).apply_damage(amount, is_heavy, source_type, attacker)
 	elif actor.has_method("apply_damage"):
 		var res: Variant = actor.call("apply_damage", amount, is_heavy, source_type)
 		accepted = bool(res) if typeof(res) == TYPE_BOOL else true

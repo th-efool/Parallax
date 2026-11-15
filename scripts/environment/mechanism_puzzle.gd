@@ -17,10 +17,53 @@ signal mechanism_solved()
 
 var is_solved: bool = false
 var is_plate_pressed: bool = false
+var _initial_weight_position: Vector3 = Vector3(0.0, 2.5, 0.0)
 
 
 func _ready() -> void:
 	add_to_group("mechanism_target")
+	add_to_group("realm_reactive")
+	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
+	if weight_node != null:
+		_initial_weight_position = weight_node.position
+
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null:
+		if not rm.realm_changed.is_connected(_on_realm_changed):
+			rm.realm_changed.connect(_on_realm_changed)
+		if not rm.realms_merged.is_connected(_on_realms_merged):
+			rm.realms_merged.connect(_on_realms_merged)
+		evaluate_for_realm(int(rm.current_realm), rm.is_merged)
+	else:
+		evaluate_for_realm(0, false)
+
+
+func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
+	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
+	if weight_node == null:
+		return
+	var should_show_weight: bool = is_solved or realms_merged or (active_realm == 1)
+	weight_node.visible = should_show_weight
+	for child in weight_node.get_children():
+		if child is Hurtbox3D:
+			var hb: Hurtbox3D = child as Hurtbox3D
+			var can_hit: bool = (not is_solved) and should_show_weight
+			hb.is_invulnerable = not can_hit
+			hb.monitorable = can_hit
+			hb.set_deferred("monitorable", can_hit)
+
+
+func reset_puzzle() -> void:
+	is_solved = false
+	is_plate_pressed = false
+	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
+	if weight_node != null:
+		weight_node.position = _initial_weight_position
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null:
+		evaluate_for_realm(int(rm.current_realm), rm.is_merged)
+	else:
+		evaluate_for_realm(0, false)
 
 
 func on_landing_slam_impact(_damage: int = 60, source_type: String = "player_landing") -> bool:
@@ -43,6 +86,12 @@ func on_landing_slam_impact(_damage: int = 60, source_type: String = "player_lan
 			if child is RealmReactive:
 				(child as RealmReactive).repair_for_reality()
 
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null:
+		evaluate_for_realm(int(rm.current_realm), rm.is_merged)
+	else:
+		evaluate_for_realm(0, false)
+
 	weight_slammed.emit()
 	pressure_plate_depressed.emit()
 
@@ -52,3 +101,12 @@ func on_landing_slam_impact(_damage: int = 60, source_type: String = "player_lan
 
 	mechanism_solved.emit()
 	return true
+
+
+func _on_realm_changed(new_realm: int) -> void:
+	var merged: bool = bool(RealmManager.instance.is_merged) if RealmManager.instance != null else false
+	evaluate_for_realm(new_realm, merged)
+
+
+func _on_realms_merged() -> void:
+	evaluate_for_realm(0, true)

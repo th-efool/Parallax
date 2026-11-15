@@ -103,6 +103,8 @@ func try_hit_target(candidate: Node) -> bool:
 	elif is_target_player and logical_target.has_method("apply_damage"):
 		var res_p: Variant = logical_target.call("apply_damage", damage, my_owner)
 		hit_accepted = bool(res_p) if typeof(res_p) == TYPE_BOOL else true
+	elif logical_target is EnemyBase:
+		hit_accepted = (logical_target as EnemyBase).apply_damage(damage, is_heavy, source_type, my_owner)
 	elif logical_target.has_method("apply_damage"):
 		var res_e: Variant = logical_target.call("apply_damage", damage, is_heavy, source_type)
 		hit_accepted = bool(res_e) if typeof(res_e) == TYPE_BOOL else true
@@ -128,7 +130,13 @@ func pulse_radial_targets(center: Vector3, radius: float, candidates: Array[Node
 		if not is_instance_valid(node):
 			continue
 		var node3d: Node3D = node as Node3D
-		if node3d != null and node3d.global_position.distance_to(center) <= radius:
+		if node3d == null:
+			continue
+		var dist_3d: float = node3d.global_position.distance_to(center)
+		var dist_xz: float = Vector2(node3d.global_position.x - center.x, node3d.global_position.z - center.z).length()
+		var dy: float = absf(node3d.global_position.y - center.y)
+		var is_mechanism: bool = node.is_in_group("mechanism_target") or node.has_method("on_landing_slam_impact")
+		if dist_3d <= radius or (is_mechanism and dist_xz <= radius and dy <= 3.5):
 			if try_hit_target(node):
 				hits += 1
 	end_swing()

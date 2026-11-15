@@ -15,8 +15,10 @@ var _settings: Dictionary = {}
 
 
 func _ready() -> void:
+	_ensure_audio_buses()
 	_load_leaderboard_from_disk()
 	_load_settings_from_disk()
+	apply_settings()
 
 
 func sanitize_initials(raw: String) -> String:
@@ -138,11 +140,39 @@ func restore_default_settings() -> Dictionary:
 
 
 func apply_settings() -> void:
-	var master_idx: int = AudioServer.get_bus_index("Master")
-	if master_idx >= 0:
-		var vol: float = clampf(float(_settings.get("master_volume", 1.0)), 0.0, 1.0)
-		AudioServer.set_bus_volume_db(master_idx, linear_to_db(maxf(vol, 0.0001)))
-		AudioServer.set_bus_mute(master_idx, vol <= 0.001)
+	_ensure_audio_buses()
+	_apply_bus_volume("Master", float(_settings.get("master_volume", 1.0)))
+	_apply_bus_volume("Music", float(_settings.get("music_volume", 0.85)))
+	_apply_bus_volume("SFX", float(_settings.get("sfx_volume", 0.90)))
+
+	if DisplayServer.get_name() != "headless":
+		var is_fs: bool = bool(_settings.get("fullscreen", false))
+		var target_mode: int = DisplayServer.WINDOW_MODE_FULLSCREEN if is_fs else DisplayServer.WINDOW_MODE_WINDOWED
+		if DisplayServer.window_get_mode() != target_mode:
+			DisplayServer.window_set_mode(target_mode)
+		if not is_fs:
+			var res_val: Variant = _settings.get("resolution", Vector2i(1920, 1080))
+			if res_val is Vector2i:
+				var res: Vector2i = res_val as Vector2i
+				if res.x >= 640 and res.y >= 360:
+					DisplayServer.window_set_size(res)
+
+
+func _ensure_audio_buses() -> void:
+	for bus_name in ["Music", "SFX"]:
+		if AudioServer.get_bus_index(bus_name) < 0:
+			var idx: int = AudioServer.bus_count
+			AudioServer.add_bus(idx)
+			AudioServer.set_bus_name(idx, bus_name)
+			AudioServer.set_bus_send(idx, "Master")
+
+
+func _apply_bus_volume(bus_name: String, linear_vol: float) -> void:
+	var idx: int = AudioServer.get_bus_index(bus_name)
+	if idx >= 0:
+		var vol: float = clampf(linear_vol, 0.0, 1.0)
+		AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(vol, 0.0001)))
+		AudioServer.set_bus_mute(idx, vol <= 0.001)
 
 
 func _sort_entries() -> void:
