@@ -1,0 +1,224 @@
+class_name WardenBoss
+extends EnemyAI
+## Stage 05 Execution Arena Final Boss — The Warden (1,000 shared HP).
+## Phase 1 (1000 -> 501 HP): Armored in Reality; after Cleave (20 dmg) or Lunge (25 dmg), enters 1.4s recovery
+## where Mirror reflection exposes glowing chest rune for full damage & stagger.
+## Phase 2 Transition (<= 500 HP): Cancels attack, shatters Mirror Plane, forces RealmManager.force_merge_realms() (locks Q).
+## Phase 2 (500 -> 0 HP): Directly vulnerable in Reality with faster Cleave/Lunge cadence.
+
+enum Phase {
+	PHASE_1_SPLIT = 1,
+	PHASE_2_TRANSITION = 2,
+	PHASE_2_MERGED = 3,
+}
+
+enum BossMove {
+	CLEAVE = 0,
+	LUNGE = 1,
+}
+
+signal boss_phase_changed(new_phase: int)
+signal chest_rune_exposed_changed(is_exposed: bool, window_duration: float)
+signal mirror_plane_shattered()
+signal boss_defeated()
+
+@export_group("Warden Tuning")
+@export var cleave_damage: int = 20
+@export var lunge_damage: int = 25
+@export var cleave_range: float = 2.8
+@export var lunge_range: float = 5.0
+@export var lunge_speed: float = 11.0
+@export var phase1_windup_duration: float = 0.90
+@export var phase1_recovery_window: float = 1.40
+@export var phase1_reality_armor_cap: int = 5
+@export var phase2_hp_threshold: int = 500
+@export var phase2_transition_duration: float = 1.60
+@export var phase2_windup_duration: float = 0.65
+@export var phase2_recovery_window: float = 0.85
+@export var mirror_plane_prop_path: NodePath
+@export var auto_finalize_run_on_death: bool = true
+
+var current_phase: Phase = Phase.PHASE_1_SPLIT
+var current_move: BossMove = BossMove.CLEAVE
+var is_chest_rune_exposed: bool = false
+var _transition_timer: float = 0.0
+var _move_counter: int = 0
+var _lunge_dir: Vector3 = Vector3.BACK
+
+
+func _init() -> void:
+	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
+	award_standard_kill_score = false
+	max_health = 1000
+	health = 1000
+	detection_range = 24.0
+	attack_range = 2.8
+	move_speed = 3.5
+	windup_duration = 0.90
+	attack_active_duration = 0.30
+	recover_duration = 1.40
+	stagger_duration = 0.80
+	attack_damage = 20
+	attack_name = "warden_cleave"
+	section_id = EncounterDirector.Section.EXECUTION_ARENA
+	encounter_id = "the_warden"
+
+
+func step_ai(delta: float) -> void:
+	if is_dead:
+		return
+
+	if current_phase == Phase.PHASE_2_TRANSITION:
+		_transition_timer = maxf(0.0, _transition_timer - delta)
+		if _transition_timer <= 0.0:
+			complete_phase2_transition_now()
+		return
+
+	super.step_ai(delta)
+
+
+func select_next_move(move: BossMove) -> void:
+	current_move = move
+	if current_move == BossMove.CLEAVE:
+		attack_name = "warden_cleave"
+		attack_damage = cleave_damage
+		attack_range = cleave_range
+	else:
+		attack_name = "warden_lunge"
+		attack_damage = lunge_damage
+		attack_range = lunge_range
+
+
+func start_windup(custom_windup: float = -1.0) -> void:
+	if current_phase == Phase.PHASE_2_TRANSITION:
+		return
+
+	if _move_counter % 2 == 0:
+		select_next_move(BossMove.CLEAVE)
+	else:
+		select_next_move(BossMove.LUNGE)
+	_move_counter += 1
+
+	var p: Node3D = _resolve_target_player()
+	if p != null:
+		var dir: Vector3 = p.global_position - global_position
+		dir.y = 0.0
+		if dir.length_squared() > 0.001:
+			_lunge_dir = dir.normalized()
+
+	var w_dur: float = phase1_windup_duration if current_phase == Phase.PHASE_1_SPLIT else phase2_windup_duration
+	if custom_windup >= 0.0:
+		w_dur = custom_windup
+	super.start_windup(w_dur)
+
+
+func complete_phase2_transition_now() -> void:
+	if current_phase != Phase.PHASE_2_TRANSITION:
+		return
+	current_phase = Phase.PHASE_2_MERGED
+	_transition_timer = 0.0
+	windup_duration = phase2_windup_duration
+	recover_duration = phase2_recovery_window
+	_transition_to(State.CHASE, 0.0)
+	boss_phase_changed.emit(current_phase)
+
+
+func is_vulnerable_to_full_damage() -> bool:
+	if current_phase == Phase.PHASE_2_MERGED:
+		return true
+	if current_phase == Phase.PHASE_2_TRANSITION:
+		return false
+	# Phase 1: vulnerable in Mirror during recovery chest-rune opening or stagger
+	var in_mirror: bool = (RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR)
+	return in_mirror and (is_chest_rune_exposed or current_state == State.STAGGER)
+
+
+func _begin_attack_strike() -> void:
+	super._begin_attack_strike()
+	if current_move == BossMove.LUNGE:
+		velocity = _lunge_dir * lunge_speed
+	else:
+		velocity = Vector3.ZERO
+
+
+func _enter_recover(custom_recover: float = -1.0) -> void:
+	var r_dur: float = phase1_recovery_window if current_phase == Phase.PHASE_1_SPLIT else phase2_recovery_window
+	if custom_recover >= 0.0:
+		r_dur = custom_recover
+	super._enter_recover(r_dur)
+	if current_phase == Phase.PHASE_1_SPLIT:
+		is_chest_rune_exposed = true
+		chest_rune_exposed_changed.emit(true, r_dur)
+
+
+func _on_recover_finished() -> void:
+	if is_chest_rune_exposed:
+		is_chest_rune_exposed = false
+		chest_rune_exposed_changed.emit(false, 0.0)
+
+
+func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) -> int:
+	if current_phase == Phase.PHASE_2_TRANSITION:
+		return 0
+	if source_type == "environmental":
+		return amount
+	if is_vulnerable_to_full_damage():
+		return amount
+	return mini(amount, phase1_reality_armor_cap)
+
+
+func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:
+	return is_heavy and is_vulnerable_to_full_damage()
+
+
+func _on_damage_taken(_final_damage: int, _is_heavy: bool, _source_type: String) -> void:
+	if current_phase == Phase.PHASE_1_SPLIT and health > 0 and health <= phase2_hp_threshold:
+		_trigger_phase2_transition()
+
+
+func _trigger_phase2_transition() -> void:
+	current_phase = Phase.PHASE_2_TRANSITION
+	_transition_timer = phase2_transition_duration
+	velocity = Vector3.ZERO
+
+	var hb: Hitbox3D = get_attack_hitbox()
+	if hb != null:
+		hb.end_swing()
+
+	if is_chest_rune_exposed:
+		is_chest_rune_exposed = false
+		chest_rune_exposed_changed.emit(false, 0.0)
+
+	if not mirror_plane_prop_path.is_empty():
+		var plane: BreakableProp = get_node_or_null(mirror_plane_prop_path) as BreakableProp
+		if plane != null:
+			plane.complete_break_now()
+
+	if RealmManager.instance != null and not RealmManager.instance.is_merged:
+		RealmManager.instance.force_merge_realms()
+
+	mirror_plane_shattered.emit()
+	boss_phase_changed.emit(current_phase)
+
+
+func _on_enemy_reset() -> void:
+	current_phase = Phase.PHASE_1_SPLIT
+	current_move = BossMove.CLEAVE
+	is_chest_rune_exposed = false
+	_transition_timer = 0.0
+	_move_counter = 0
+	windup_duration = phase1_windup_duration
+	recover_duration = phase1_recovery_window
+	super._on_enemy_reset()
+
+
+func _die(source_type: String) -> void:
+	if is_chest_rune_exposed:
+		is_chest_rune_exposed = false
+		chest_rune_exposed_changed.emit(false, 0.0)
+	super._die(source_type)
+	if auto_finalize_run_on_death:
+		var run_state: Node = _get_run_state()
+		if run_state != null and run_state.has_method("finalize_run"):
+			run_state.call("finalize_run", true)
+	boss_defeated.emit()

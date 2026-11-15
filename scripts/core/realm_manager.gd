@@ -28,7 +28,7 @@ const LAYER_HITBOX: int = 1 << 6
 @export var player_capsule_radius: float = 0.38
 @export var player_capsule_height: float = 1.75
 
-static var instance: RealmManager = null
+static var instance = null
 
 var current_realm: Realm = Realm.REALITY
 var shift_locked: bool = false
@@ -43,6 +43,7 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	player_ref = null
 	if instance == self:
 		instance = null
 

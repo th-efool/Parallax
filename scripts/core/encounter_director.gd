@@ -18,7 +18,7 @@ signal checkpoint_updated(section_id: int, spawn_transform: Transform3D)
 signal player_respawned(section_id: int, spawn_transform: Transform3D)
 signal section_reset_requested(section_id: int)
 
-static var instance: EncounterDirector = null
+static var instance = null
 
 var current_section: Section = Section.ENTRY
 var active_enemy_count: int = 0
@@ -40,6 +40,7 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	_section_enemies.clear()
 	if instance == self:
 		instance = null
 
@@ -78,7 +79,7 @@ func advance_to_section(next_section: Section, new_checkpoint_xform: Transform3D
 		current_section = next_section
 
 	if save_checkpoint:
-		var rm: RealmManager = RealmManager.instance
+		var rm: RealmManager = RealmManager.instance as RealmManager
 		var realm_val: int = int(rm.current_realm) if rm != null else 0
 		set_checkpoint(next_section, new_checkpoint_xform, realm_val)
 
@@ -112,7 +113,7 @@ func begin_combat_encounter(encounter_id: String, enemy_count: int = 0) -> bool:
 
 func register_enemy_kill(encounter_id: String = "") -> void:
 	var target_id: String = encounter_id if not encounter_id.is_empty() else current_encounter_id
-	if target_id.is_empty() or bool(completed_encounters.get(target_id, false)):
+	if target_id.is_empty() or current_encounter_id.is_empty() or target_id != current_encounter_id or bool(completed_encounters.get(target_id, false)):
 		return
 
 	active_enemy_count = maxi(0, active_enemy_count - 1)

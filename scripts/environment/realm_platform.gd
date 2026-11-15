@@ -18,7 +18,7 @@ func _ready() -> void:
 	reality_node = get_node_or_null(reality_node_path)
 	mirror_node = get_node_or_null(mirror_node_path)
 
-	var rm: RealmManager = RealmManager.instance
+	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:
 		if not rm.realm_changed.is_connected(on_realm_changed):
 			rm.realm_changed.connect(on_realm_changed)
@@ -43,7 +43,7 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 
 
 func on_realm_changed(active_realm: int) -> void:
-	var merged: bool = RealmManager.instance.is_merged if RealmManager.instance != null else false
+	var merged: bool = bool(RealmManager.instance.is_merged) if RealmManager.instance != null else false
 	evaluate_for_realm(active_realm, merged)
 
 
@@ -52,7 +52,7 @@ func repair_for_reality() -> void:
 		return
 	is_permanently_repaired = true
 	var cur_realm: int = int(RealmManager.instance.current_realm) if RealmManager.instance != null else 0
-	var merged: bool = RealmManager.instance.is_merged if RealmManager.instance != null else false
+	var merged: bool = bool(RealmManager.instance.is_merged) if RealmManager.instance != null else false
 	evaluate_for_realm(cur_realm, merged)
 	platform_repaired.emit()
 
