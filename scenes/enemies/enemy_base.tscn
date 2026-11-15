@@ -1,0 +1,57 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_ai.gd" id="1_enemy"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/Skeleton_Warrior.glb" id="2_skel"]
+[ext_resource type="Script" path="res://scripts/core/character_animation_bridge.gd" id="3_anim"]
+[ext_resource type="Script" path="res://scripts/core/hurtbox_3d.gd" id="4_hurtbox"]
+[ext_resource type="Script" path="res://scripts/core/hitbox_3d.gd" id="5_hitbox"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.4
+height = 1.8
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_hurt"]
+size = Vector3(0.95, 1.85, 0.95)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_atk"]
+size = Vector3(1.6, 1.4, 1.8)
+
+[node name="EnemyBase" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 28
+script = ExtResource("1_enemy")
+
+[node name="BodyCollider" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="VisualRoot" type="Node3D" parent="."]
+
+[node name="ModelRoot" parent="VisualRoot" instance=ExtResource("2_skel")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+
+[node name="CharacterAnimationBridge" type="Node" parent="."]
+script = ExtResource("3_anim")
+
+[node name="Hurtbox3D" type="Area3D" parent="."]
+collision_layer = 66
+collision_mask = 64
+script = ExtResource("4_hurtbox")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hurtbox3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.92, 0)
+shape = SubResource("BoxShape3D_hurt")
+
+[node name="AttackHitbox" type="Area3D" parent="."]
+collision_layer = 64
+collision_mask = 65
+monitoring = false
+script = ExtResource("5_hitbox")
+affects_player = true
+affects_enemies = false
+affects_breakables = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="AttackHitbox"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -1.0)
+disabled = true
+shape = SubResource("BoxShape3D_atk")

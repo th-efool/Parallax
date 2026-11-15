@@ -1,0 +1,40 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/environment/realm_platform.gd" id="1_platform"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_span"]
+size = Vector3(3.0, 0.5, 4.0)
+
+[sub_resource type="BoxMesh" id="BoxMesh_span"]
+size = Vector3(3.0, 0.5, 4.0)
+
+[node name="RealmPlatform" type="Node3D"]
+script = ExtResource("1_platform")
+
+[node name="RealityGeometry" type="Node3D" parent="."]
+
+[node name="MirrorGeometry" type="Node3D" parent="."]
+
+[node name="MirrorBody" type="StaticBody3D" parent="MirrorGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+collision_layer = 16
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MirrorGeometry/MirrorBody"]
+shape = SubResource("BoxShape3D_span")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MirrorGeometry/MirrorBody"]
+mesh = SubResource("BoxMesh_span")
+
+[node name="RepairedGeometry" type="Node3D" parent="."]
+
+[node name="RepairedBody" type="StaticBody3D" parent="RepairedGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+collision_layer = 12
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RepairedGeometry/RepairedBody"]
+shape = SubResource("BoxShape3D_span")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="RepairedGeometry/RepairedBody"]
+mesh = SubResource("BoxMesh_span")

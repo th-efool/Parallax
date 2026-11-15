@@ -94,7 +94,7 @@ func trigger_for_player(player: Node = null) -> bool:
 
 func _on_body_entered(body: Node3D) -> void:
 	if body != null and (body.is_in_group("player") or body is PlayerController):
-		trigger_for_player(body)
+		call_deferred("trigger_for_player", body)
 
 
 func _on_encounter_cleared(cleared_id: String, _sec_id: int) -> void:

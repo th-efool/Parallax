@@ -220,11 +220,10 @@ func _refresh_active_state() -> void:
 	var should_be_active: bool = is_section_enabled and is_realm_enabled and not is_dead
 	is_active = should_be_active
 
+	visible = should_be_active
 	var vis_root: Node3D = get_node_or_null(visual_root_path) as Node3D
 	if vis_root != null:
 		vis_root.visible = should_be_active
-	else:
-		visible = should_be_active
 
 	set_physics_process(should_be_active)
 	set_process(should_be_active)
