@@ -152,6 +152,6 @@ func _on_body_entered(body: Node3D) -> void:
 
 
 func _get_run_state() -> Node:
-	if get_tree() != null and get_tree().root != null:
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
 		return get_tree().root.get_node_or_null("RunState")
 	return null
