@@ -64,6 +64,10 @@ var current_state: State = State.LOCOMOTION
 var camera_yaw: float = 0.0
 var camera_pitch: float = deg_to_rad(-15.0)
 var facing_direction: Vector3 = Vector3.FORWARD
+var mouse_sensitivity: float = 0.0025
+var invert_y: bool = false
+var camera_shake_intensity: float = 1.0
+var hit_stop_enabled: bool = true
 
 var combo_step: int = 0
 var _combo_window_timer: float = 0.0
@@ -86,7 +90,18 @@ func _ready() -> void:
 		facing_direction = fwd.normalized()
 	if RealmManager.instance != null:
 		RealmManager.instance.register_player(self)
+	_load_mouse_settings_from_store()
 	health_changed.emit(health, max_health)
+
+
+func _load_mouse_settings_from_store() -> void:
+	var store: Node = _get_leaderboard_store()
+	if store != null and store.has_method("get_settings"):
+		var s: Dictionary = store.call("get_settings")
+		mouse_sensitivity = float(s.get("mouse_sensitivity", 0.0025))
+		invert_y = bool(s.get("invert_y", false))
+		camera_shake_intensity = float(s.get("camera_shake_intensity", 1.0))
+		hit_stop_enabled = bool(s.get("hit_stop_enabled", true))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -98,16 +113,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func apply_look_delta(relative_motion: Vector2) -> void:
-	var sens: float = 0.0025
-	var invert_y: bool = false
-	var store: Node = _get_leaderboard_store()
-	if store != null and store.has_method("get_settings"):
-		var s: Dictionary = store.call("get_settings")
-		sens = float(s.get("mouse_sensitivity", 0.0025))
-		invert_y = bool(s.get("invert_y", false))
+	_load_mouse_settings_from_store()
+	var sens: float = mouse_sensitivity
+	var inv_y: bool = invert_y
 
 	camera_yaw -= relative_motion.x * sens
-	var y_sign: float = 1.0 if invert_y else -1.0
+	var y_sign: float = 1.0 if inv_y else -1.0
 	camera_pitch = clampf(
 		camera_pitch + relative_motion.y * sens * y_sign,
 		deg_to_rad(pitch_min_degrees),

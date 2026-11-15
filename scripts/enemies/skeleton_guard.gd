@@ -5,7 +5,7 @@ extends EnemyAI
 
 signal mirror_hint_requested()
 
-static var _first_hall_skeleton_hint_emitted: bool = false
+var _first_hall_skeleton_hint_emitted: bool = false
 
 
 func _init() -> void:
@@ -24,7 +24,7 @@ func _init() -> void:
 	encounter_id = "hall_of_echoes"
 
 
-static func reset_hall_hint_flag() -> void:
+func reset_hall_hint_flag() -> void:
 	_first_hall_skeleton_hint_emitted = false
 
 

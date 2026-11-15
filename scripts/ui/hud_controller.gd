@@ -1,13 +1,13 @@
 class_name HUDController
 extends CanvasLayer
 ## Persistent single-instance HUD state & signal controller bound to Player, RealmManager,
-## EncounterDirector, RunState, and The Warden. Holds deterministic display fields and optional
-## Control/Label/ProgressBar node bindings for scene composition.
+## EncounterDirector, RunState, LeaderboardStore (live control prompts), and The Warden.
 
 @export_group("Optional Scene Node Bindings")
 @export var hp_label_path: NodePath
 @export var hp_bar_path: NodePath
 @export var realm_chip_label_path: NodePath
+@export var shift_key_label_path: NodePath
 @export var score_label_path: NodePath
 @export var combo_label_path: NodePath
 @export var timer_label_path: NodePath
@@ -15,6 +15,7 @@ extends CanvasLayer
 @export var boss_label_path: NodePath
 @export var boss_bar_path: NodePath
 @export var toast_label_path: NodePath
+@export var attack_prompt_path: NodePath
 @export var interact_prompt_path: NodePath
 @export var landing_prompt_path: NodePath
 
@@ -23,6 +24,7 @@ var displayed_max_hp: int = 100
 var hp_text: String = "100 / 100"
 
 var active_realm_chip: String = "REALITY"
+var shift_key_text: String = "[Q]"
 var shift_rejection_flash_timer: float = 0.0
 var last_shift_rejection_reason: String = ""
 
@@ -36,7 +38,10 @@ var boss_hp_percent: float = 100.0
 var boss_label_text: String = "THE WARDEN"
 
 var landing_prompt_bright: bool = false
+var attack_prompt_text: String = "LMB ATTACK  |  RMB HEAVY  |  SPACE DODGE  |  "
+var landing_prompt_text: String = "F LAND"
 var interact_prompt_visible: bool = false
+var interact_action_verb: String = "Interact"
 var interact_prompt_text: String = "E: Interact"
 var active_toast_text: String = ""
 var toast_timer: float = 0.0
@@ -46,9 +51,21 @@ var _player_ref: Node = null
 var _boss_ref: Node = null
 
 
+func _exit_tree() -> void:
+	var store: Node = _get_leaderboard_store()
+	if store != null:
+		if store.has_signal("controls_rebound") and store.is_connected("controls_rebound", _on_controls_rebound):
+			store.disconnect("controls_rebound", _on_controls_rebound)
+		if store.has_signal("settings_changed") and store.is_connected("settings_changed", _on_settings_changed):
+			store.disconnect("settings_changed", _on_settings_changed)
+	_player_ref = null
+	_boss_ref = null
+
+
 func _ready() -> void:
 	add_to_group("hud")
 	bind_singletons()
+	refresh_input_prompts()
 	_sync_ui_nodes()
 
 
@@ -110,6 +127,69 @@ func bind_singletons() -> void:
 		var mult: int = int(run_state.call("get_combo_multiplier")) if run_state.has_method("get_combo_multiplier") else 1
 		_on_combo_changed(mult, int(run_state.get("combo_hits")), float(run_state.get("combo_timer")))
 
+	var store: Node = _get_leaderboard_store()
+	if store != null:
+		if store.has_signal("controls_rebound") and not store.is_connected("controls_rebound", _on_controls_rebound):
+			store.connect("controls_rebound", _on_controls_rebound)
+		if store.has_signal("settings_changed") and not store.is_connected("settings_changed", _on_settings_changed):
+			store.connect("settings_changed", _on_settings_changed)
+	refresh_input_prompts()
+
+
+func refresh_input_prompts() -> void:
+	var store: Node = _get_leaderboard_store()
+	var lmb_lbl: String = "LMB"
+	var rmb_lbl: String = "RMB"
+	var dodge_lbl: String = "SPACE"
+	var land_lbl: String = "F"
+	var interact_lbl: String = "E"
+	var shift_lbl: String = "Q"
+
+	if store != null and store.has_method("get_action_display_label"):
+		lmb_lbl = String(store.call("get_action_display_label", "light_attack"))
+		rmb_lbl = String(store.call("get_action_display_label", "heavy_attack"))
+		dodge_lbl = String(store.call("get_action_display_label", "dodge"))
+		land_lbl = String(store.call("get_action_display_label", "landing_attack"))
+		interact_lbl = String(store.call("get_action_display_label", "interact"))
+		shift_lbl = String(store.call("get_action_display_label", "dimension_shift"))
+
+	shift_key_text = "[%s]" % shift_lbl
+	attack_prompt_text = "%s ATTACK  |  %s HEAVY  |  %s DODGE  |  " % [lmb_lbl, rmb_lbl, dodge_lbl]
+	landing_prompt_text = "%s LAND" % land_lbl
+	interact_prompt_text = "%s: %s" % [interact_lbl, interact_action_verb]
+	_sync_ui_nodes()
+
+
+func get_tutorial_prompt_text(tutorial_id: String) -> String:
+	var store: Node = _get_leaderboard_store()
+	var w_lbl: String = "W"
+	var a_lbl: String = "A"
+	var s_lbl: String = "S"
+	var d_lbl: String = "D"
+	var shift_lbl: String = "Q"
+	var interact_lbl: String = "E"
+	var land_lbl: String = "F"
+
+	if store != null and store.has_method("get_action_display_label"):
+		w_lbl = String(store.call("get_action_display_label", "move_forward"))
+		a_lbl = String(store.call("get_action_display_label", "move_left"))
+		s_lbl = String(store.call("get_action_display_label", "move_back"))
+		d_lbl = String(store.call("get_action_display_label", "move_right"))
+		shift_lbl = String(store.call("get_action_display_label", "dimension_shift"))
+		interact_lbl = String(store.call("get_action_display_label", "interact"))
+		land_lbl = String(store.call("get_action_display_label", "landing_attack"))
+
+	match tutorial_id:
+		"move":
+			return "%s/%s/%s/%s: Move" % [w_lbl, a_lbl, s_lbl, d_lbl]
+		"q_shift":
+			return "%s: Shift" % shift_lbl
+		"e_interact":
+			return "%s: Interact" % interact_lbl
+		"f_landing":
+			return "%s in Air: Landing Attack" % land_lbl
+	return ""
+
 
 func bind_player(player: Node) -> void:
 	_player_ref = player
@@ -144,8 +224,12 @@ func bind_boss(boss: Node) -> void:
 func set_interact_prompt(visible_flag: bool, text: String = "E: Interact") -> void:
 	interact_prompt_visible = visible_flag
 	if not text.is_empty():
-		interact_prompt_text = text
-	_sync_ui_nodes()
+		var colon_idx: int = text.find(":")
+		if colon_idx >= 0 and colon_idx + 1 < text.length():
+			interact_action_verb = text.substr(colon_idx + 1).strip_edges()
+		else:
+			interact_action_verb = text.strip_edges()
+	refresh_input_prompts()
 
 
 func mark_tutorial_completed(tutorial_id: String) -> void:
@@ -155,6 +239,14 @@ func mark_tutorial_completed(tutorial_id: String) -> void:
 
 func is_tutorial_visible(tutorial_id: String) -> bool:
 	return not bool(dismissed_tutorials.get(tutorial_id, false))
+
+
+func _on_controls_rebound(_action_name: String, _display_label: String, _all_bindings: Dictionary) -> void:
+	refresh_input_prompts()
+
+
+func _on_settings_changed(_new_settings: Dictionary) -> void:
+	refresh_input_prompts()
 
 
 func _on_player_health_changed(current_hp: int, max_hp: int) -> void:
@@ -250,11 +342,13 @@ func _on_boss_defeated() -> void:
 func _sync_ui_nodes() -> void:
 	_set_label_text(hp_label_path, hp_text)
 	_set_label_text(realm_chip_label_path, active_realm_chip)
+	_set_label_text(shift_key_label_path, shift_key_text)
 	_set_label_text(score_label_path, score_text)
 	_set_label_text(combo_label_path, combo_text)
 	_set_label_text(timer_label_path, timer_text)
 	_set_label_text(boss_label_path, boss_label_text)
 	_set_label_text(toast_label_path, active_toast_text)
+	_set_label_text(attack_prompt_path, attack_prompt_text)
 
 	if not hp_bar_path.is_empty():
 		var hp_bar: Range = get_node_or_null(hp_bar_path) as Range
@@ -284,6 +378,8 @@ func _sync_ui_nodes() -> void:
 		var lctrl: CanvasItem = get_node_or_null(landing_prompt_path) as CanvasItem
 		if lctrl != null:
 			lctrl.modulate = Color.WHITE if landing_prompt_bright else Color(1, 1, 1, 0.45)
+			if lctrl is Label:
+				(lctrl as Label).text = landing_prompt_text
 
 
 func _set_label_text(path: NodePath, value: String) -> void:
@@ -297,4 +393,10 @@ func _set_label_text(path: NodePath, value: String) -> void:
 func _get_run_state() -> Node:
 	if is_inside_tree() and get_tree() != null and get_tree().root != null:
 		return get_tree().root.get_node_or_null("RunState")
+	return null
+
+
+func _get_leaderboard_store() -> Node:
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
+		return get_tree().root.get_node_or_null("LeaderboardStore")
 	return null

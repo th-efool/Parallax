@@ -7,6 +7,7 @@ script = ExtResource("1_hud")
 hp_label_path = NodePath("RootControl/TopLeftPanel/HPLabel")
 hp_bar_path = NodePath("RootControl/TopLeftPanel/HPBar")
 realm_chip_label_path = NodePath("RootControl/TopCenterPanel/RealmChipLabel")
+shift_key_label_path = NodePath("RootControl/TopCenterPanel/ShiftKeyLabel")
 score_label_path = NodePath("RootControl/TopRightPanel/ScoreLabel")
 combo_label_path = NodePath("RootControl/TopRightPanel/ComboLabel")
 timer_label_path = NodePath("RootControl/TopRightPanel/TimerLabel")
@@ -14,6 +15,7 @@ boss_container_path = NodePath("RootControl/BottomCenterBossPanel")
 boss_label_path = NodePath("RootControl/BottomCenterBossPanel/BossLabel")
 boss_bar_path = NodePath("RootControl/BottomCenterBossPanel/BossHPBar")
 toast_label_path = NodePath("RootControl/CenterToastLabel")
+attack_prompt_path = NodePath("RootControl/BottomRightActions/AttackPromptLabel")
 interact_prompt_path = NodePath("RootControl/BottomRightActions/InteractPromptLabel")
 landing_prompt_path = NodePath("RootControl/BottomRightActions/LandingPromptLabel")
 
@@ -53,6 +55,10 @@ alignment = 1
 [node name="RealmChipLabel" type="Label" parent="RootControl/TopCenterPanel"]
 layout_mode = 2
 text = "REALITY"
+
+[node name="ShiftKeyLabel" type="Label" parent="RootControl/TopCenterPanel"]
+layout_mode = 2
+text = "[Q]"
 
 [node name="TopRightPanel" type="VBoxContainer" parent="RootControl"]
 layout_mode = 1

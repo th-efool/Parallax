@@ -204,6 +204,14 @@ func finalize_run(award_warden_bonus: bool = true) -> Dictionary:
 	banked_score = score
 	_banked_event_ids = awarded_event_ids.duplicate()
 	var final_rank: String = calculate_rank(score)
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null:
+			if store.has_method("update_profile_stat"):
+				store.call("update_profile_stat", "total_runs_completed", 1, true)
+			if store.has_method("clear_saved_run"):
+				store.call("clear_saved_run", true)
+
 	var summary: Dictionary = {
 		"score": score,
 		"time_sec": elapsed_seconds,

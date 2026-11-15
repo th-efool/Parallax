@@ -3,6 +3,7 @@ extends Area3D
 ## Contextual `E: Interact` switch used for:
 ## - Stage 01 Mirror Switch (opens Gate 1 in both realms)
 ## - Stage 03 Bridge Anchor Switch (permanently repairs the Collapsed Gallery Reality bridge)
+## Automatically formats its prompt text using the live `interact` keybinding from `LeaderboardStore`.
 
 enum SwitchRole {
 	GATE_OPENER = 0,
@@ -21,6 +22,14 @@ signal prompt_changed(show_prompt: bool, prompt_text: String)
 @export var prompt_text: String = "E: Interact"
 
 var is_activated: bool = false
+var _player_inside: bool = false
+
+
+func _exit_tree() -> void:
+	var store: Node = _get_leaderboard_store()
+	if store != null and store.has_signal("controls_rebound"):
+		if store.is_connected("controls_rebound", _on_controls_rebound):
+			store.disconnect("controls_rebound", _on_controls_rebound)
 
 
 func _ready() -> void:
@@ -29,6 +38,26 @@ func _ready() -> void:
 		body_entered.connect(_on_body_entered)
 	if not body_exited.is_connected(_on_body_exited):
 		body_exited.connect(_on_body_exited)
+
+	var store: Node = _get_leaderboard_store()
+	if store != null and store.has_signal("controls_rebound"):
+		if not store.is_connected("controls_rebound", _on_controls_rebound):
+			store.connect("controls_rebound", _on_controls_rebound)
+
+
+func get_action_verb() -> String:
+	var idx: int = prompt_text.find(":")
+	if idx >= 0 and idx + 1 < prompt_text.length():
+		return prompt_text.substr(idx + 1).strip_edges()
+	return prompt_text if not prompt_text.is_empty() else "Interact"
+
+
+func get_formatted_prompt_text() -> String:
+	var key_label: String = "E"
+	var store: Node = _get_leaderboard_store()
+	if store != null and store.has_method("get_action_display_label"):
+		key_label = String(store.call("get_action_display_label", "interact"))
+	return "%s: %s" % [key_label, get_action_verb()]
 
 
 func can_interact() -> bool:
@@ -69,14 +98,27 @@ func interact() -> bool:
 
 func _on_body_entered(body: Node3D) -> void:
 	if body != null and body.is_in_group("player"):
+		_player_inside = true
 		if body.has_method("register_nearby_interactable"):
 			body.call("register_nearby_interactable", self)
 		if can_interact():
-			prompt_changed.emit(true, prompt_text)
+			prompt_changed.emit(true, get_formatted_prompt_text())
 
 
 func _on_body_exited(body: Node3D) -> void:
 	if body != null and body.is_in_group("player"):
+		_player_inside = false
 		if body.has_method("unregister_nearby_interactable"):
 			body.call("unregister_nearby_interactable", self)
 		prompt_changed.emit(false, "")
+
+
+func _on_controls_rebound(_action_name: String, _display_label: String, _all_bindings: Dictionary) -> void:
+	if _player_inside and can_interact():
+		prompt_changed.emit(true, get_formatted_prompt_text())
+
+
+func _get_leaderboard_store() -> Node:
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
+		return get_tree().root.get_node_or_null("LeaderboardStore")
+	return null

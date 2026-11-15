@@ -20,6 +20,8 @@ signal section_reset_requested(section_id: int)
 
 static var instance = null
 
+@export var auto_save_on_checkpoint: bool = true
+
 var current_section: Section = Section.ENTRY
 var active_enemy_count: int = 0
 var current_encounter_id: String = ""
@@ -96,6 +98,7 @@ func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: in
 	if run_state != null and run_state.has_method("bank_section_score"):
 		run_state.call("bank_section_score")
 	checkpoint_updated.emit(checkpoint_section, checkpoint_transform)
+	_trigger_auto_save()
 
 
 func begin_combat_encounter(encounter_id: String, enemy_count: int = 0) -> bool:
@@ -138,6 +141,7 @@ func complete_combat_encounter(encounter_id: String) -> bool:
 			run_state.call("bank_section_score")
 
 	encounter_cleared.emit(encounter_id, current_section)
+	_trigger_auto_save()
 	return true
 
 
@@ -198,6 +202,16 @@ func _update_section_enemy_activation() -> void:
 				else:
 					enemy.set_physics_process(is_current)
 					enemy.set_process(is_current)
+
+
+func _trigger_auto_save() -> void:
+	if not auto_save_on_checkpoint or not is_inside_tree() or get_tree() == null or get_tree().root == null:
+		return
+	if current_section == Section.COMPLETE:
+		return
+	var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+	if store != null and store.has_method("capture_and_save_world_state"):
+		store.call("capture_and_save_world_state")
 
 
 func _get_run_state() -> Node:

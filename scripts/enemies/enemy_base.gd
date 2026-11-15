@@ -6,7 +6,7 @@ extends CharacterBody3D
 signal health_changed(current_hp: int, max_hp: int)
 signal damaged(amount: int, is_heavy: bool, source_type: String)
 signal staggered(duration: float)
-signal died(enemy: EnemyBase, kill_context: Dictionary)
+signal died(enemy: Node, kill_context: Dictionary)
 signal realm_activity_changed(active: bool)
 
 @export_group("Identity & Realm")

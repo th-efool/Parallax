@@ -46,6 +46,15 @@ func _wire_all_subsystems() -> void:
 			hud.bind_player(player)
 		if warden != null:
 			hud.bind_boss(warden)
+		if get_tree() != null:
+			for sw in get_tree().get_nodes_in_group("interactable_switch"):
+				if sw != null and sw.has_signal("prompt_changed") and not sw.is_connected("prompt_changed", hud.set_interact_prompt):
+					sw.connect("prompt_changed", hud.set_interact_prompt)
+
+	if get_tree() != null and get_tree().root != null:
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null and store.has_method("apply_settings"):
+			store.call("apply_settings")
 
 	if death_ui != null and player != null:
 		death_ui.bind_player(player)
@@ -121,6 +130,7 @@ func _on_close_subscreen(subscreen: Control) -> void:
 func _on_return_to_title() -> void:
 	var title_ui: TitleScreenController = get_node_or_null(title_screen_path) as TitleScreenController
 	if title_ui != null:
+		title_ui._sync_ui_nodes()
 		title_ui.visible = true
 
 
