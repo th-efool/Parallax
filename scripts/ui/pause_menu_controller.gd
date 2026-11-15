@@ -53,6 +53,7 @@ func _exit_tree() -> void:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("pause_menu")
+	MenuStyle.enforce_full_rect(self)
 	visible = false
 	if build_default_ui_if_empty and get_child_count() == 0:
 		_build_default_ui()
@@ -139,6 +140,16 @@ func press_restart_run(confirmed: bool = false) -> void:
 
 func press_options() -> void:
 	options_requested.emit()
+	if options_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var opts: Node = get_tree().get_first_node_in_group("options_screen")
+		if opts is CanvasItem:
+			visible = false
+			if opts.has_method("open_options"):
+				opts.call("open_options")
+			else:
+				if opts.has_method("reload_from_store"):
+					opts.call("reload_from_store")
+				(opts as CanvasItem).visible = true
 
 
 func press_main_menu(confirmed: bool = false) -> void:
@@ -156,6 +167,10 @@ func press_main_menu(confirmed: bool = false) -> void:
 	if run_state != null and run_state.has_method("pause_timer"):
 		run_state.call("pause_timer")
 	main_menu_requested.emit()
+	if main_menu_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var title: Node = get_tree().get_first_node_in_group("title_screen")
+		if title is CanvasItem:
+			(title as CanvasItem).visible = true
 
 
 func confirm_pending_action() -> void:
@@ -172,65 +187,70 @@ func cancel_pending_action() -> void:
 
 
 func _build_default_ui() -> void:
-	var bg := ColorRect.new()
-	bg.name = "PauseDimmer"
-	bg.color = Color(0.04, 0.05, 0.08, 0.78)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	var modal := MenuStyle.build_centered_modal(self, "PauseDimmer", "PausePanel", Vector2(460, 480), 0.78, 30, 26)
+	var panel: PanelContainer = modal["panel"] as PanelContainer
 
-	var panel := PanelContainer.new()
-	panel.name = "PausePanel"
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2(420, 440)
-	panel.offset_left = -210.0
-	panel.offset_top = -220.0
-	panel.offset_right = 210.0
-	panel.offset_bottom = 220.0
-	add_child(panel)
+	var scroll := ScrollContainer.new()
+	scroll.name = "MenuScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
 	vbox.name = "MenuVBox"
-	panel.add_child(vbox)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 10)
+	scroll.add_child(vbox)
 
 	var title_lbl := Label.new()
 	title_lbl.name = "PauseTitleLabel"
 	title_lbl.text = "PAUSED"
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_title(title_lbl, 30)
 	vbox.add_child(title_lbl)
+
+	MenuStyle.style_divider(vbox)
 
 	var resume_btn := Button.new()
 	resume_btn.name = "ResumeButton"
 	resume_btn.text = "Resume"
+	MenuStyle.style_button(resume_btn, 18, 42.0)
 	vbox.add_child(resume_btn)
 	resume_button_path = get_path_to(resume_btn)
 
 	var save_btn := Button.new()
 	save_btn.name = "SaveCheckpointButton"
 	save_btn.text = "Save Checkpoint"
+	MenuStyle.style_button(save_btn, 18, 42.0)
 	vbox.add_child(save_btn)
 	save_checkpoint_button_path = get_path_to(save_btn)
 
 	var restart_sec_btn := Button.new()
 	restart_sec_btn.name = "RestartSectionButton"
 	restart_sec_btn.text = "Restart Section"
+	MenuStyle.style_button(restart_sec_btn, 18, 42.0)
 	vbox.add_child(restart_sec_btn)
 	restart_section_button_path = get_path_to(restart_sec_btn)
 
 	var restart_run_btn := Button.new()
 	restart_run_btn.name = "RestartRunButton"
 	restart_run_btn.text = "Restart Run"
+	MenuStyle.style_button(restart_run_btn, 18, 42.0)
 	vbox.add_child(restart_run_btn)
 	restart_run_button_path = get_path_to(restart_run_btn)
 
 	var opts_btn := Button.new()
 	opts_btn.name = "OptionsButton"
 	opts_btn.text = "Options & Controls"
+	MenuStyle.style_button(opts_btn, 18, 42.0)
 	vbox.add_child(opts_btn)
 	options_button_path = get_path_to(opts_btn)
 
 	var main_menu_btn := Button.new()
 	main_menu_btn.name = "MainMenuButton"
 	main_menu_btn.text = "Save & Main Menu"
+	MenuStyle.style_button(main_menu_btn, 18, 42.0)
 	vbox.add_child(main_menu_btn)
 	main_menu_button_path = get_path_to(main_menu_btn)
 
@@ -238,12 +258,14 @@ func _build_default_ui() -> void:
 	status_lbl.name = "SaveStatusLabel"
 	status_lbl.text = ""
 	status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_label(status_lbl, 16, MenuStyle.SUCCESS_TEXT)
 	vbox.add_child(status_lbl)
 	save_status_label_path = get_path_to(status_lbl)
 
 	var confirm_box := VBoxContainer.new()
 	confirm_box.name = "ConfirmDialog"
 	confirm_box.visible = false
+	confirm_box.add_theme_constant_override("separation", 8)
 	vbox.add_child(confirm_box)
 	confirm_dialog_path = get_path_to(confirm_box)
 
@@ -251,21 +273,28 @@ func _build_default_ui() -> void:
 	confirm_lbl.name = "ConfirmLabel"
 	confirm_lbl.text = "Confirm Action?"
 	confirm_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	confirm_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	MenuStyle.style_label(confirm_lbl, 16, MenuStyle.GOLD_TEXT)
 	confirm_box.add_child(confirm_lbl)
 
 	var confirm_btns := HBoxContainer.new()
 	confirm_btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	confirm_btns.add_theme_constant_override("separation", 12)
 	confirm_box.add_child(confirm_btns)
 
 	var yes_btn := Button.new()
 	yes_btn.name = "ConfirmYesButton"
 	yes_btn.text = "Confirm"
+	yes_btn.custom_minimum_size = Vector2(120, 38)
+	MenuStyle.style_button(yes_btn, 16, 38.0)
 	confirm_btns.add_child(yes_btn)
 	confirm_yes_button_path = get_path_to(yes_btn)
 
 	var no_btn := Button.new()
 	no_btn.name = "ConfirmNoButton"
 	no_btn.text = "Cancel"
+	no_btn.custom_minimum_size = Vector2(120, 38)
+	MenuStyle.style_button(no_btn, 16, 38.0)
 	confirm_btns.add_child(no_btn)
 	confirm_no_button_path = get_path_to(no_btn)
 

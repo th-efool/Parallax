@@ -85,11 +85,18 @@ func _exit_tree() -> void:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("options_screen")
+	MenuStyle.enforce_full_rect(self)
 	if build_default_ui_if_empty and get_child_count() == 0:
 		_build_default_ui()
 	reload_from_store()
 	_bind_buttons()
 	_sync_ui_from_working_settings()
+
+
+func open_options() -> void:
+	reload_from_store()
+	_sync_ui_from_working_settings()
+	visible = true
 
 
 func _input(event: InputEvent) -> void:
@@ -400,102 +407,139 @@ func press_back() -> void:
 	listening_for_action = ""
 	conflict_warning_text = ""
 	back_requested.emit()
+	if back_requested.get_connections().is_empty():
+		visible = false
 
 
 # ============================================================================
 # DEFAULT INTERACTIVE UI BUILDER & SYNC
 # ============================================================================
 
-func _build_default_ui() -> void:
-	var bg := ColorRect.new()
-	bg.name = "DimmerBackground"
-	bg.color = Color(0.05, 0.06, 0.09, 0.88)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+func _make_tab_scroll(parent_tab: VBoxContainer, vbox_name: String) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.name = vbox_name + "Scroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	parent_tab.add_child(scroll)
 
-	var panel := PanelContainer.new()
-	panel.name = "OptionsPanel"
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2(860, 620)
-	panel.offset_left = -430.0
-	panel.offset_top = -310.0
-	panel.offset_right = 430.0
-	panel.offset_bottom = 310.0
-	add_child(panel)
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 8)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 8)
+	scroll.add_child(pad)
+
+	var inner := VBoxContainer.new()
+	inner.name = vbox_name
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_theme_constant_override("separation", 12)
+	pad.add_child(inner)
+	return inner
+
+
+func _build_default_ui() -> void:
+	var modal := MenuStyle.build_centered_modal(self, "DimmerBackground", "OptionsPanel", Vector2(880, 640), 0.88, 28, 22)
+	var panel: PanelContainer = modal["panel"] as PanelContainer
 
 	var root_vbox := VBoxContainer.new()
 	root_vbox.name = "RootVBox"
+	root_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_vbox.add_theme_constant_override("separation", 12)
 	panel.add_child(root_vbox)
 
 	var header := Label.new()
 	header.name = "HeaderLabel"
 	header.text = "OPTIONS & SETTINGS"
 	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_title(header, 28)
 	root_vbox.add_child(header)
+
+	MenuStyle.style_divider(root_vbox)
 
 	var tabs := TabContainer.new()
 	tabs.name = "SettingsTabs"
+	tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.add_theme_stylebox_override("panel", MenuStyle.make_panel_box(MenuStyle.PANEL_INNER_BG, MenuStyle.BORDER_SUBTLE, 8, 1, 14, 12))
+	tabs.add_theme_font_size_override("font_size", 17)
+	tabs.add_theme_color_override("font_selected_color", MenuStyle.GOLD_TEXT)
+	tabs.add_theme_color_override("font_unselected_color", MenuStyle.MUTED_TEXT)
 	root_vbox.add_child(tabs)
 
 	# TAB 1: DISPLAY & GRAPHICS
 	var gfx_tab := VBoxContainer.new()
 	gfx_tab.name = "Display_Graphics"
 	tabs.add_child(gfx_tab)
+	tabs.set_tab_title(0, "Display & Graphics")
+	var gfx_rows := _make_tab_scroll(gfx_tab, "DisplayRows")
 
-	_screen_mode_option = _make_option_row(gfx_tab, "Screen Type", ["Windowed", "Borderless", "Fullscreen"], _on_screen_mode_selected)
-	_resolution_option = _make_option_row(gfx_tab, "Resolution", ["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"], _on_resolution_selected)
-	_vsync_option = _make_option_row(gfx_tab, "VSync", ["Disabled", "Enabled", "Adaptive"], set_vsync_mode)
-	_preset_option = _make_option_row(gfx_tab, "Graphics Preset", ["Low", "Medium", "High", "Ultra", "Custom"], _on_preset_selected)
-	_msaa_option = _make_option_row(gfx_tab, "3D Anti-Aliasing (MSAA)", ["Off", "2x MSAA", "4x MSAA", "8x MSAA"], set_msaa_3d)
-	_shadow_option = _make_option_row(gfx_tab, "Shadow Quality", ["Off", "Low", "Medium", "High"], set_shadow_quality)
-	_glow_toggle = _make_toggle_row(gfx_tab, "Bloom / Glow", true, set_glow_enabled)
-	_fog_toggle = _make_toggle_row(gfx_tab, "Atmospheric Fog", true, set_fog_enabled)
-	_brightness_slider = _make_slider_row(gfx_tab, "Brightness / Exposure", 0.5, 1.5, 0.05, 1.0, set_brightness)
+	_screen_mode_option = _make_option_row(gfx_rows, "Screen Type", ["Windowed", "Borderless", "Fullscreen"], _on_screen_mode_selected)
+	_resolution_option = _make_option_row(gfx_rows, "Resolution", ["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"], _on_resolution_selected)
+	_vsync_option = _make_option_row(gfx_rows, "VSync", ["Disabled", "Enabled", "Adaptive"], set_vsync_mode)
+	_preset_option = _make_option_row(gfx_rows, "Graphics Preset", ["Low", "Medium", "High", "Ultra", "Custom"], _on_preset_selected)
+	_msaa_option = _make_option_row(gfx_rows, "3D Anti-Aliasing (MSAA)", ["Off", "2x MSAA", "4x MSAA", "8x MSAA"], set_msaa_3d)
+	_shadow_option = _make_option_row(gfx_rows, "Shadow Quality", ["Off", "Low", "Medium", "High"], set_shadow_quality)
+	_glow_toggle = _make_toggle_row(gfx_rows, "Bloom / Glow", true, set_glow_enabled)
+	_fog_toggle = _make_toggle_row(gfx_rows, "Atmospheric Fog", true, set_fog_enabled)
+	_brightness_slider = _make_slider_row(gfx_rows, "Brightness / Exposure", 0.5, 1.5, 0.05, 1.0, set_brightness)
 
 	# TAB 2: SOUND / AUDIO
 	var audio_tab := VBoxContainer.new()
 	audio_tab.name = "Sound"
 	tabs.add_child(audio_tab)
+	tabs.set_tab_title(1, "Sound")
+	var audio_rows := _make_tab_scroll(audio_tab, "SoundRows")
 
-	_master_slider = _make_slider_row(audio_tab, "Master Volume", 0.0, 1.0, 0.05, 1.0, _on_master_volume_changed)
-	_music_slider = _make_slider_row(audio_tab, "Music Volume", 0.0, 1.0, 0.05, 0.85, _on_music_volume_changed)
-	_sfx_slider = _make_slider_row(audio_tab, "SFX Volume", 0.0, 1.0, 0.05, 0.90, _on_sfx_volume_changed)
+	_master_slider = _make_slider_row(audio_rows, "Master Volume", 0.0, 1.0, 0.05, 1.0, _on_master_volume_changed)
+	_music_slider = _make_slider_row(audio_rows, "Music Volume", 0.0, 1.0, 0.05, 0.85, _on_music_volume_changed)
+	_sfx_slider = _make_slider_row(audio_rows, "SFX Volume", 0.0, 1.0, 0.05, 0.90, _on_sfx_volume_changed)
 
 	# TAB 3: CONTROLS (INTERACTIVE REBINDING)
 	var controls_tab := VBoxContainer.new()
 	controls_tab.name = "Controls"
+	controls_tab.add_theme_constant_override("separation", 10)
 	tabs.add_child(controls_tab)
+	tabs.set_tab_title(2, "Controls")
 
 	_conflict_label = Label.new()
 	_conflict_label.name = "ConflictWarningLabel"
 	_conflict_label.text = ""
-	_conflict_label.modulate = Color(1.0, 0.35, 0.30, 1.0)
+	_conflict_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	MenuStyle.style_label(_conflict_label, 16, MenuStyle.DANGER_TEXT)
 	controls_tab.add_child(_conflict_label)
 	conflict_warning_label_path = get_path_to(_conflict_label)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "ControlsScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	controls_tab.add_child(scroll)
 
 	var binds_vbox := VBoxContainer.new()
 	binds_vbox.name = "KeybindsVBox"
 	binds_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	binds_vbox.add_theme_constant_override("separation", 8)
 	scroll.add_child(binds_vbox)
 
 	keybind_buttons.clear()
 	for act in LeaderboardManager.REBINDABLE_ACTIONS:
 		var row := HBoxContainer.new()
 		row.name = "Row_" + act
+		row.add_theme_constant_override("separation", 12)
 		var lbl := Label.new()
 		lbl.text = String(LeaderboardManager.ACTION_DISPLAY_NAMES.get(act, act))
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		MenuStyle.style_label(lbl, 17)
 		row.add_child(lbl)
 
 		var btn := Button.new()
 		btn.name = "BindBtn_" + act
-		btn.custom_minimum_size = Vector2(180, 32)
+		btn.custom_minimum_size = Vector2(210, 38)
+		MenuStyle.style_button(btn, 16, 38.0)
 		btn.pressed.connect(_on_keybind_button_pressed.bind(act))
 		row.add_child(btn)
 		binds_vbox.add_child(row)
@@ -504,6 +548,7 @@ func _build_default_ui() -> void:
 	var reset_ctrl_btn := Button.new()
 	reset_ctrl_btn.name = "ResetControlsButton"
 	reset_ctrl_btn.text = "Reset Controls to Default"
+	MenuStyle.style_button(reset_ctrl_btn, 16, 38.0)
 	controls_tab.add_child(reset_ctrl_btn)
 	reset_controls_button_path = get_path_to(reset_ctrl_btn)
 
@@ -511,59 +556,71 @@ func _build_default_ui() -> void:
 	var gp_tab := VBoxContainer.new()
 	gp_tab.name = "Gameplay_Save"
 	tabs.add_child(gp_tab)
+	tabs.set_tab_title(3, "Gameplay & Save")
+	var gp_rows := _make_tab_scroll(gp_tab, "GameplayRows")
 
-	_sens_slider = _make_slider_row(gp_tab, "Mouse Sensitivity", 0.0005, 0.01, 0.00025, 0.0025, set_mouse_sensitivity)
-	_invert_y_toggle = _make_toggle_row(gp_tab, "Invert Look Y-Axis", false, set_invert_y)
-	_fov_slider = _make_slider_row(gp_tab, "Camera FOV", 55.0, 95.0, 1.0, 65.0, set_camera_fov)
-	_shake_slider = _make_slider_row(gp_tab, "Camera Shake Intensity", 0.0, 1.0, 0.05, 1.0, set_camera_shake_intensity)
-	_hitstop_toggle = _make_toggle_row(gp_tab, "Combat Hit-Stop", true, set_hit_stop_enabled)
+	_sens_slider = _make_slider_row(gp_rows, "Mouse Sensitivity", 0.0005, 0.01, 0.00025, 0.0025, set_mouse_sensitivity)
+	_invert_y_toggle = _make_toggle_row(gp_rows, "Invert Look Y-Axis", false, set_invert_y)
+	_fov_slider = _make_slider_row(gp_rows, "Camera FOV", 55.0, 95.0, 1.0, 65.0, set_camera_fov)
+	_shake_slider = _make_slider_row(gp_rows, "Camera Shake Intensity", 0.0, 1.0, 0.05, 1.0, set_camera_shake_intensity)
+	_hitstop_toggle = _make_toggle_row(gp_rows, "Combat Hit-Stop", true, set_hit_stop_enabled)
 
 	var clear_save_btn := Button.new()
 	clear_save_btn.name = "ClearSaveButton"
 	clear_save_btn.text = "Clear Active Checkpoint Save (Confirm)"
-	gp_tab.add_child(clear_save_btn)
+	MenuStyle.style_button(clear_save_btn, 16, 40.0)
+	gp_rows.add_child(clear_save_btn)
 	clear_save_button_path = get_path_to(clear_save_btn)
 
 	var reset_lb_btn := Button.new()
 	reset_lb_btn.name = "ResetLeaderboardButton"
 	reset_lb_btn.text = "Reset Local Top-5 Leaderboard (Confirm)"
-	gp_tab.add_child(reset_lb_btn)
+	MenuStyle.style_button(reset_lb_btn, 16, 40.0)
+	gp_rows.add_child(reset_lb_btn)
 	reset_leaderboard_button_path = get_path_to(reset_lb_btn)
 
 	# BOTTOM ACTION BAR
 	var bottom_bar := HBoxContainer.new()
 	bottom_bar.name = "BottomActionBar"
 	bottom_bar.alignment = BoxContainer.ALIGNMENT_END
+	bottom_bar.add_theme_constant_override("separation", 12)
 	root_vbox.add_child(bottom_bar)
 
 	var apply_btn := Button.new()
 	apply_btn.name = "ApplyButton"
 	apply_btn.text = "Apply & Save"
+	MenuStyle.style_button(apply_btn, 17, 40.0)
 	bottom_bar.add_child(apply_btn)
 	apply_button_path = get_path_to(apply_btn)
 
 	var defaults_btn := Button.new()
 	defaults_btn.name = "RestoreDefaultsButton"
 	defaults_btn.text = "Restore All Defaults"
+	MenuStyle.style_button(defaults_btn, 17, 40.0)
 	bottom_bar.add_child(defaults_btn)
 	restore_defaults_button_path = get_path_to(defaults_btn)
 
 	var back_btn := Button.new()
 	back_btn.name = "BackButton"
 	back_btn.text = "Back"
+	MenuStyle.style_button(back_btn, 17, 40.0)
 	bottom_bar.add_child(back_btn)
 	back_button_path = get_path_to(back_btn)
 
 
 func _make_option_row(parent: Node, title: String, items: Array[String], on_selected: Callable) -> OptionButton:
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
 	var lbl := Label.new()
 	lbl.text = title
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(lbl, 17)
 	row.add_child(lbl)
 	var opt := OptionButton.new()
+	opt.custom_minimum_size = Vector2(210, 38)
 	for it in items:
 		opt.add_item(it)
+	MenuStyle.style_button(opt, 16, 38.0)
 	opt.item_selected.connect(on_selected)
 	row.add_child(opt)
 	parent.add_child(row)
@@ -572,12 +629,15 @@ func _make_option_row(parent: Node, title: String, items: Array[String], on_sele
 
 func _make_toggle_row(parent: Node, title: String, initial: bool, on_toggled: Callable) -> CheckButton:
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
 	var lbl := Label.new()
 	lbl.text = title
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(lbl, 17)
 	row.add_child(lbl)
 	var chk := CheckButton.new()
 	chk.button_pressed = initial
+	chk.add_theme_font_size_override("font_size", 16)
 	chk.toggled.connect(on_toggled)
 	row.add_child(chk)
 	parent.add_child(row)
@@ -586,12 +646,14 @@ func _make_toggle_row(parent: Node, title: String, initial: bool, on_toggled: Ca
 
 func _make_slider_row(parent: Node, title: String, min_v: float, max_v: float, step_v: float, initial: float, on_changed: Callable) -> HSlider:
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
 	var lbl := Label.new()
 	lbl.text = title
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(lbl, 17)
 	row.add_child(lbl)
 	var sld := HSlider.new()
-	sld.custom_minimum_size = Vector2(220, 24)
+	sld.custom_minimum_size = Vector2(220, 26)
 	sld.min_value = min_v
 	sld.max_value = max_v
 	sld.step = step_v
@@ -629,6 +691,18 @@ func _sync_ui_from_working_settings() -> void:
 		var m: String = String(working_settings.get("screen_mode", "windowed")).to_lower()
 		var idx: int = ["windowed", "borderless", "fullscreen"].find(m)
 		_screen_mode_option.select(maxi(0, idx))
+	if _resolution_option != null:
+		var raw_res: Variant = working_settings.get("resolution", Vector2i(1280, 720))
+		var target_res: Vector2i = raw_res if raw_res is Vector2i else Vector2i(1280, 720)
+		var res_idx: int = LeaderboardManager.SUPPORTED_RESOLUTIONS.find(target_res)
+		if res_idx >= 0:
+			_resolution_option.select(res_idx)
+	if _vsync_option != null:
+		_vsync_option.select(clampi(int(working_settings.get("vsync_mode", 1)), 0, 2))
+	if _preset_option != null:
+		var p: String = String(working_settings.get("graphics_preset", "high")).to_lower()
+		var p_idx: int = ["low", "medium", "high", "ultra", "custom"].find(p)
+		_preset_option.select(p_idx if p_idx >= 0 else 4)
 	if _msaa_option != null:
 		_msaa_option.select(clampi(int(working_settings.get("msaa_3d", 1)), 0, 3))
 	if _shadow_option != null:

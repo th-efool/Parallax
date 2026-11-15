@@ -107,7 +107,9 @@ func set_facing_direction(dir: Vector3) -> void:
 		return
 	facing_direction = flat.normalized()
 	var vis_root: Node3D = get_node_or_null(visual_root_path) as Node3D
-	var target_yaw: float = atan2(-facing_direction.x, -facing_direction.z)
+	var target_world_yaw: float = atan2(-facing_direction.x, -facing_direction.z)
+	var parent_yaw: float = global_rotation.y if is_inside_tree() else rotation.y
+	var target_yaw: float = wrapf(target_world_yaw - parent_yaw, -PI, PI)
 	if vis_root != null:
 		vis_root.rotation.y = target_yaw
 	var hb: Hitbox3D = get_attack_hitbox()

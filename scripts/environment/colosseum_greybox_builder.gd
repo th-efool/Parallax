@@ -592,10 +592,43 @@ func _configure_enemy_actor(
 
 	var vis_root := Node3D.new()
 	vis_root.name = "VisualRoot"
-	var mesh := _make_mesh_box("ProxyMesh", body_size, color)
-	mesh.position = Vector3(0.0, body_size.y * 0.5, 0.0)
-	vis_root.add_child(mesh)
+	var model_path: String = "res://assets/models/characters/Skeleton_Warrior.glb"
+	var model_scale: Vector3 = Vector3.ONE
+	if enemy is ShieldedGuard:
+		model_path = "res://assets/models/characters/Knight.glb"
+		model_scale = Vector3(1.06, 1.06, 1.06)
+	elif enemy is WardenBoss:
+		model_path = "res://assets/models/characters/Barbarian.glb"
+		model_scale = Vector3(1.42, 1.42, 1.42)
+	elif node_name.ends_with("_2") and not (enemy is PhantomTwin):
+		model_path = "res://assets/models/characters/Skeleton_Rogue.glb"
+
+	var model_added: bool = false
+	if ResourceLoader.exists(model_path):
+		var packed: PackedScene = load(model_path) as PackedScene
+		if packed != null:
+			var model_inst: Node3D = packed.instantiate() as Node3D
+			if model_inst != null:
+				model_inst.name = "ModelRoot"
+				model_inst.transform = Transform3D(Basis.IDENTITY.rotated(Vector3.UP, PI), Vector3.ZERO)
+				model_inst.scale = model_scale
+				vis_root.add_child(model_inst)
+				model_added = true
+
+	if not model_added:
+		var mesh := _make_mesh_box("ProxyMesh", body_size, color)
+		mesh.position = Vector3(0.0, body_size.y * 0.5, 0.0)
+		vis_root.add_child(mesh)
 	enemy.add_child(vis_root)
+
+	var anim_bridge := CharacterAnimationBridge.new()
+	anim_bridge.name = "CharacterAnimationBridge"
+	anim_bridge.actor_path = NodePath("..")
+	anim_bridge.model_root_path = NodePath("../VisualRoot/ModelRoot")
+	anim_bridge.apply_spectral_shader = (enemy is PhantomTwin)
+	enemy.add_child(anim_bridge)
+
+	_attach_enemy_hp_bar(enemy, body_size.y + 0.55)
 
 	var hurt := Hurtbox3D.new()
 	hurt.name = "Hurtbox3D"
@@ -632,3 +665,29 @@ func _on_hall_skeleton_died(_enemy: EnemyBase, _context: Dictionary) -> void:
 	if not _hall_mirror_hint_emitted:
 		_hall_mirror_hint_emitted = true
 		hall_mirror_hint_pulsed.emit()
+
+
+func _attach_enemy_hp_bar(enemy: EnemyBase, height_offset: float) -> void:
+	var lbl := Label3D.new()
+	lbl.name = "FloatingHPBar"
+	lbl.position = Vector3(0.0, height_offset, 0.0)
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.pixel_size = 0.0085
+	lbl.font_size = 24
+	lbl.outline_size = 6
+	lbl.outline_modulate = Color(0.05, 0.05, 0.08, 0.95)
+	lbl.modulate = Color(0.28, 0.85, 1.0, 0.95) if (enemy is PhantomTwin) else Color(0.95, 0.30, 0.25, 0.95)
+	enemy.add_child(lbl)
+
+	var update_fn := func(cur_hp: int, m_hp: int) -> void:
+		if not is_instance_valid(lbl):
+			return
+		var ratio: float = clampf(float(cur_hp) / float(maxi(1, m_hp)), 0.0, 1.0)
+		var filled: int = int(round(ratio * 10.0))
+		var bar_str: String = "█".repeat(filled) + "░".repeat(10 - filled)
+		lbl.text = "%s  %d/%d" % [bar_str, cur_hp, m_hp]
+		lbl.visible = cur_hp > 0
+
+	enemy.health_changed.connect(update_fn)
+	update_fn.call(enemy.health, enemy.max_health)

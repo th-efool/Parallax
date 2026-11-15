@@ -38,6 +38,7 @@ var quote_timer: float = 0.0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("title_screen")
+	MenuStyle.enforce_full_rect(self)
 	if build_default_ui_if_empty and get_child_count() == 0:
 		_build_default_ui()
 	_bind_buttons()
@@ -103,10 +104,27 @@ func dismiss_quote_card() -> void:
 
 func press_leaderboard() -> void:
 	leaderboard_requested.emit()
+	if leaderboard_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var lb: Node = get_tree().get_first_node_in_group("leaderboard_screen")
+		if lb is CanvasItem:
+			visible = false
+			if lb.has_method("refresh_entries"):
+				lb.call("refresh_entries")
+			(lb as CanvasItem).visible = true
 
 
 func press_options() -> void:
 	options_requested.emit()
+	if options_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var opts: Node = get_tree().get_first_node_in_group("options_screen")
+		if opts is CanvasItem:
+			visible = false
+			if opts.has_method("open_options"):
+				opts.call("open_options")
+			else:
+				if opts.has_method("reload_from_store"):
+					opts.call("reload_from_store")
+				(opts as CanvasItem).visible = true
 
 
 func press_quit() -> void:
@@ -126,26 +144,27 @@ func _complete_start_sequence() -> void:
 
 
 func _build_default_ui() -> void:
-	var bg := ColorRect.new()
-	bg.name = "TitleBackground"
-	bg.color = Color(0.06, 0.07, 0.11, 0.96)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	var modal := MenuStyle.build_centered_modal(self, "TitleBackground", "TitlePanel", Vector2(520, 490), 0.96, 36, 32)
+	var panel: PanelContainer = modal["panel"] as PanelContainer
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "TitleScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
 	vbox.name = "TitleVBox"
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	vbox.custom_minimum_size = Vector2(460, 380)
-	vbox.offset_left = -230.0
-	vbox.offset_top = -190.0
-	vbox.offset_right = 230.0
-	vbox.offset_bottom = 190.0
-	add_child(vbox)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 12)
+	scroll.add_child(vbox)
 
 	var t_lbl := Label.new()
 	t_lbl.name = "TitleLabel"
 	t_lbl.text = TITLE_TEXT
 	t_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_title(t_lbl, 46)
 	vbox.add_child(t_lbl)
 	title_label_path = get_path_to(t_lbl)
 
@@ -153,52 +172,79 @@ func _build_default_ui() -> void:
 	tag_lbl.name = "TaglineLabel"
 	tag_lbl.text = TAGLINE_TEXT
 	tag_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	MenuStyle.style_label(tag_lbl, 18, MenuStyle.MUTED_TEXT)
 	vbox.add_child(tag_lbl)
 	tagline_label_path = get_path_to(tag_lbl)
+
+	MenuStyle.style_divider(vbox)
 
 	var cont_btn := Button.new()
 	cont_btn.name = "ContinueButton"
 	cont_btn.text = "Continue Saved Run"
+	MenuStyle.style_button(cont_btn, 19, 46.0)
 	vbox.add_child(cont_btn)
 	continue_button_path = get_path_to(cont_btn)
 
 	var start_btn := Button.new()
 	start_btn.name = "StartButton"
 	start_btn.text = "Start New Run"
+	MenuStyle.style_button(start_btn, 19, 46.0)
 	vbox.add_child(start_btn)
 	start_button_path = get_path_to(start_btn)
 
 	var lb_btn := Button.new()
 	lb_btn.name = "LeaderboardButton"
 	lb_btn.text = "Leaderboard"
+	MenuStyle.style_button(lb_btn, 19, 46.0)
 	vbox.add_child(lb_btn)
 	leaderboard_button_path = get_path_to(lb_btn)
 
 	var opts_btn := Button.new()
 	opts_btn.name = "OptionsButton"
 	opts_btn.text = "Options & Controls"
+	MenuStyle.style_button(opts_btn, 19, 46.0)
 	vbox.add_child(opts_btn)
 	options_button_path = get_path_to(opts_btn)
 
 	var quit_btn := Button.new()
 	quit_btn.name = "QuitButton"
 	quit_btn.text = "Quit"
+	MenuStyle.style_button(quit_btn, 19, 46.0)
 	vbox.add_child(quit_btn)
 	quit_button_path = get_path_to(quit_btn)
 
 	var quote_card := PanelContainer.new()
 	quote_card.name = "QuoteOverlay"
 	quote_card.visible = false
-	quote_card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	MenuStyle.enforce_full_rect(quote_card)
+	quote_card.add_theme_stylebox_override("panel", MenuStyle.make_panel_box(Color(0.03, 0.035, 0.055, 0.98), MenuStyle.BORDER_GOLD, 0, 0, 0, 0))
 	add_child(quote_card)
 	quote_overlay_path = get_path_to(quote_card)
+
+	var q_margin := MarginContainer.new()
+	MenuStyle.enforce_full_rect(q_margin)
+	q_margin.add_theme_constant_override("margin_left", 64)
+	q_margin.add_theme_constant_override("margin_right", 64)
+	q_margin.add_theme_constant_override("margin_top", 48)
+	q_margin.add_theme_constant_override("margin_bottom", 48)
+	quote_card.add_child(q_margin)
+
+	var q_vbox := VBoxContainer.new()
+	q_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	q_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	q_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	q_margin.add_child(q_vbox)
 
 	var q_lbl := Label.new()
 	q_lbl.name = "QuoteLabel"
 	q_lbl.text = OPENING_QUOTE_TEXT
 	q_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	q_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	quote_card.add_child(q_lbl)
+	q_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	q_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_title(q_lbl, 24, MenuStyle.GOLD_TEXT)
+	q_vbox.add_child(q_lbl)
 	quote_label_path = get_path_to(q_lbl)
 
 

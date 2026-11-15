@@ -28,6 +28,8 @@ const SFX_PATHS: Dictionary = {
 @export var auto_start_music: bool = true
 @export var sfx_pool_size: int = 8
 
+static var instance: AudioManager = null
+
 var last_played_sfx: String = ""
 var played_sfx_history: Array[String] = []
 var is_music_playing: bool = false
@@ -36,9 +38,21 @@ var _sfx_streams: Dictionary = {}
 var _music_player: AudioStreamPlayer = null
 var _sfx_players: Array[AudioStreamPlayer] = []
 var _sfx_cursor: int = 0
+var _footstep_timer: float = 0.0
+var _tracked_player: WeakRef = null
+
+
+func _enter_tree() -> void:
+	if instance == null or not is_instance_valid(instance):
+		instance = self
 
 
 func _exit_tree() -> void:
+	if is_inside_tree() and get_tree() != null:
+		if get_tree().node_added.is_connected(_bind_recursive):
+			get_tree().node_added.disconnect(_bind_recursive)
+	if instance == self:
+		instance = null
 	if _music_player != null:
 		_music_player.stop()
 		_music_player.stream = null
@@ -49,6 +63,7 @@ func _exit_tree() -> void:
 	_sfx_players.clear()
 	_sfx_streams.clear()
 	_music_player = null
+	_tracked_player = null
 
 
 func _ready() -> void:
@@ -57,9 +72,47 @@ func _ready() -> void:
 	_ensure_buses()
 	_load_streams()
 	_build_players()
+	if instance == null or not is_instance_valid(instance):
+		instance = self
 	bind_singletons()
-	if auto_start_music:
-		start_ambient_drone()
+	if instance == self:
+		if is_inside_tree() and get_tree() != null:
+			if not get_tree().node_added.is_connected(_bind_recursive):
+				get_tree().node_added.connect(_bind_recursive)
+		call_deferred("_deferred_bind_tree")
+		if auto_start_music:
+			start_ambient_drone()
+
+
+func _deferred_bind_tree() -> void:
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
+		bind_to_world(get_tree().root)
+
+
+func _process(delta: float) -> void:
+	if instance != self:
+		return
+	if is_inside_tree() and get_tree() != null and get_tree().paused:
+		return
+	var pc: PlayerController = null
+	if _tracked_player != null:
+		pc = _tracked_player.get_ref() as PlayerController
+	if pc == null or not is_instance_valid(pc):
+		if is_inside_tree() and get_tree() != null:
+			pc = get_tree().get_first_node_in_group("player") as PlayerController
+			if pc != null:
+				_tracked_player = weakref(pc)
+	if pc == null or not is_instance_valid(pc) or not pc.is_inside_tree():
+		_footstep_timer = 0.0
+		return
+	var horiz_speed: float = Vector2(pc.velocity.x, pc.velocity.z).length()
+	if pc.is_on_floor() and pc.current_state == PlayerController.State.LOCOMOTION and horiz_speed > 2.2:
+		_footstep_timer += delta
+		if _footstep_timer >= 0.36:
+			_footstep_timer = 0.0
+			play_sfx("footstep")
+	else:
+		_footstep_timer = 0.24
 
 
 func bind_singletons() -> void:
@@ -104,6 +157,8 @@ func play_sfx(sfx_key: String) -> bool:
 
 
 func start_ambient_drone() -> void:
+	if instance != null and instance != self and is_instance_valid(instance) and instance.is_music_playing:
+		return
 	if _music_player == null or _music_player.stream == null:
 		return
 	if DisplayServer.get_name() != "headless" and not _music_player.playing:
@@ -122,10 +177,21 @@ func stop_ambient_drone() -> void:
 func _bind_recursive(node: Node) -> void:
 	if node is PlayerController:
 		var pc: PlayerController = node as PlayerController
+		_tracked_player = weakref(pc)
 		if not pc.attack_executed.is_connected(_on_player_attack_executed):
 			pc.attack_executed.connect(_on_player_attack_executed)
 		if not pc.landing_slam_triggered.is_connected(_on_player_landing_slam):
 			pc.landing_slam_triggered.connect(_on_player_landing_slam)
+		if pc.has_signal("jumped") and not pc.is_connected("jumped", _on_player_jumped):
+			pc.connect("jumped", _on_player_jumped)
+		if pc.has_signal("dodge_started") and not pc.is_connected("dodge_started", _on_player_dodge_started):
+			pc.connect("dodge_started", _on_player_dodge_started)
+		if pc.has_signal("player_damaged") and not pc.is_connected("player_damaged", _on_player_damaged):
+			pc.connect("player_damaged", _on_player_damaged)
+	elif node is BaseButton:
+		var btn: BaseButton = node as BaseButton
+		if not btn.pressed.is_connected(_on_ui_button_pressed):
+			btn.pressed.connect(_on_ui_button_pressed)
 	elif node is EnemyBase:
 		var eb: EnemyBase = node as EnemyBase
 		if not eb.damaged.is_connected(_on_enemy_damaged):
@@ -179,6 +245,22 @@ func _on_player_landing_slam(_pos: Vector3, _radius: float, _dmg: int) -> void:
 	play_sfx("landing_slam")
 
 
+func _on_player_jumped() -> void:
+	play_sfx("jump")
+
+
+func _on_player_dodge_started(_dir: Vector3, _dur: float = 0.0) -> void:
+	play_sfx("dodge")
+
+
+func _on_player_damaged(_amount: int) -> void:
+	play_sfx("player_hurt")
+
+
+func _on_ui_button_pressed() -> void:
+	play_sfx("ui_click")
+
+
 func _on_enemy_damaged(_amount: int, _is_heavy: bool, _source_type: String) -> void:
 	play_sfx("enemy_hit")
 
@@ -221,6 +303,39 @@ func _load_streams() -> void:
 		var path: String = String(SFX_PATHS[k])
 		if ResourceLoader.exists(path):
 			_sfx_streams[k] = load(path)
+	if not _sfx_streams.has("jump"):
+		_sfx_streams["jump"] = _make_synth_wav(0.14, 190.0, 420.0, 0.34, 0.15, 1.5)
+	if not _sfx_streams.has("dodge"):
+		_sfx_streams["dodge"] = _make_synth_wav(0.16, 480.0, 130.0, 0.32, 0.55, 1.8)
+	if not _sfx_streams.has("player_hurt"):
+		_sfx_streams["player_hurt"] = _make_synth_wav(0.18, 175.0, 72.0, 0.44, 0.30, 1.6)
+	if not _sfx_streams.has("ui_click"):
+		_sfx_streams["ui_click"] = _make_synth_wav(0.055, 760.0, 520.0, 0.25, 0.05, 2.4)
+	if not _sfx_streams.has("footstep"):
+		_sfx_streams["footstep"] = _make_synth_wav(0.065, 128.0, 58.0, 0.22, 0.60, 2.8)
+
+
+func _make_synth_wav(duration_sec: float, freq_start: float, freq_end: float, amplitude: float = 0.35, noise_mix: float = 0.0, decay_pow: float = 1.8) -> AudioStreamWAV:
+	var sample_rate: int = 22050
+	var count: int = maxi(64, int(round(duration_sec * float(sample_rate))))
+	var bytes := PackedByteArray()
+	bytes.resize(count * 2)
+	var phase: float = 0.0
+	for i in range(count):
+		var t: float = float(i) / float(count)
+		var freq: float = lerpf(freq_start, freq_end, t)
+		phase += TAU * freq / float(sample_rate)
+		var tone: float = sin(phase)
+		var noise: float = sin(float(i) * 12.9898 + float((i % 97) * 78.233))
+		var env: float = pow(1.0 - t, decay_pow) * minf(1.0, float(i) / 48.0)
+		var sample: float = clampf(lerpf(tone, noise, noise_mix) * amplitude * env, -0.95, 0.95)
+		bytes.encode_s16(i * 2, int(round(sample * 32767.0)))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = sample_rate
+	wav.stereo = false
+	wav.data = bytes
+	return wav
 
 
 func _build_players() -> void:

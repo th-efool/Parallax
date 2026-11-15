@@ -8,6 +8,7 @@ signal death_fade_started()
 signal death_fade_completed()
 
 @export var fade_duration: float = 0.65
+@export var build_default_ui_if_empty: bool = true
 @export var fade_rect_path: NodePath
 
 var is_fading: bool = false
@@ -16,12 +17,40 @@ var _fade_timer: float = 0.0
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("death_overlay")
+	MenuStyle.enforce_full_rect(self)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
+	if build_default_ui_if_empty and get_child_count() == 0:
+		_build_default_ui()
 	if EncounterDirector.instance != null:
 		if not EncounterDirector.instance.player_respawned.is_connected(_on_player_respawned):
 			EncounterDirector.instance.player_respawned.connect(_on_player_respawned)
+
+
+func _build_default_ui() -> void:
+	var rect := ColorRect.new()
+	rect.name = "FadeRect"
+	rect.color = Color(0.11, 0.015, 0.02, 0.88)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MenuStyle.enforce_full_rect(rect)
+	add_child(rect)
+	fade_rect_path = get_path_to(rect)
+
+	var center := CenterContainer.new()
+	center.name = "DeathCenter"
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MenuStyle.enforce_full_rect(center)
+	add_child(center)
+
+	var lbl := Label.new()
+	lbl.name = "DeathBannerLabel"
+	lbl.text = "SHATTERED — RETURNING TO CHECKPOINT"
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MenuStyle.style_title(lbl, 30, Color(0.95, 0.36, 0.30, 1.0))
+	center.add_child(lbl)
 
 
 func bind_player(player: Node) -> void:

@@ -7,6 +7,7 @@ signal leaderboard_refreshed(rows: Array[String])
 signal back_requested()
 
 @export_group("Optional Scene Node Bindings")
+@export var build_default_ui_if_empty: bool = true
 @export var rows_container_path: NodePath
 @export var empty_state_label_path: NodePath
 @export var back_button_path: NodePath
@@ -16,7 +17,11 @@ var rows_text: Array[String] = []
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("leaderboard_screen")
+	MenuStyle.enforce_full_rect(self)
+	if build_default_ui_if_empty and get_child_count() == 0:
+		_build_default_ui()
 	var store: Node = _get_leaderboard_store()
 	if store != null and store.has_signal("leaderboard_updated"):
 		if not store.is_connected("leaderboard_updated", _on_leaderboard_updated):
@@ -54,6 +59,78 @@ func refresh_entries() -> void:
 
 func press_back() -> void:
 	back_requested.emit()
+	if back_requested.get_connections().is_empty():
+		visible = false
+		if is_inside_tree() and get_tree() != null:
+			var title: Node = get_tree().get_first_node_in_group("title_screen")
+			if title is CanvasItem:
+				(title as CanvasItem).visible = true
+
+
+func _build_default_ui() -> void:
+	var modal := MenuStyle.build_centered_modal(self, "LeaderboardDimmer", "LeaderboardPanel", Vector2(640, 480), 0.88, 32, 26)
+	var panel: PanelContainer = modal["panel"] as PanelContainer
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "LeaderboardVBox"
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title_lbl := Label.new()
+	title_lbl.name = "LeaderboardTitle"
+	title_lbl.text = "HALL OF CHAMPIONS — TOP 5"
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_title(title_lbl, 28)
+	vbox.add_child(title_lbl)
+
+	MenuStyle.style_divider(vbox)
+
+	var cols_lbl := Label.new()
+	cols_lbl.name = "ColumnsHeaderLabel"
+	cols_lbl.text = "RANK   TAG   SCORE    TIME    GRADE"
+	cols_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_label(cols_lbl, 15, MenuStyle.BORDER_GOLD)
+	vbox.add_child(cols_lbl)
+
+	var empty_lbl := Label.new()
+	empty_lbl.name = "EmptyStateLabel"
+	empty_lbl.text = "No recorded runs yet — claim victory to enter the Top 5."
+	empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	MenuStyle.style_label(empty_lbl, 16, MenuStyle.MUTED_TEXT)
+	vbox.add_child(empty_lbl)
+	empty_state_label_path = get_path_to(empty_lbl)
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "RowsScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
+
+	var rows_vbox := VBoxContainer.new()
+	rows_vbox.name = "RowsContainer"
+	rows_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows_vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(rows_vbox)
+	rows_container_path = get_path_to(rows_vbox)
+
+	for i in range(5):
+		var row_lbl := Label.new()
+		row_lbl.name = "Row_%d" % (i + 1)
+		row_lbl.text = "#%d  ---  ------  --:--  -" % (i + 1)
+		row_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		MenuStyle.style_label(row_lbl, 20, MenuStyle.GOLD_TEXT if i == 0 else MenuStyle.MUTED_TEXT)
+		rows_vbox.add_child(row_lbl)
+
+	var back_btn := Button.new()
+	back_btn.name = "BackButton"
+	back_btn.text = "Back"
+	MenuStyle.style_button(back_btn, 18, 42.0)
+	vbox.add_child(back_btn)
+	back_button_path = get_path_to(back_btn)
 
 
 func _on_leaderboard_updated(_updated_entries: Array) -> void:

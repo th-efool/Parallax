@@ -14,6 +14,8 @@ enum State {
 }
 
 signal health_changed(current_hp: int, max_hp: int)
+signal player_damaged(amount: int)
+signal jumped()
 signal player_died()
 signal state_changed(new_state: int)
 signal attack_executed(attack_name: String, combo_step: int, damage: int, is_heavy: bool)
@@ -25,28 +27,30 @@ signal interact_requested()
 @export var max_health: int = 100
 
 @export_group("Locomotion")
-@export var run_speed: float = 4.5
-@export var acceleration: float = 28.0
-@export var friction: float = 24.0
-@export var jump_velocity: float = 7.2
+@export var run_speed: float = 5.5
+@export var acceleration: float = 32.0
+@export var friction: float = 28.0
+@export var jump_velocity: float = 7.8
 @export var gravity_scale: float = 1.6
 
 @export_group("Dodge")
-@export var dodge_duration: float = 0.55
-@export var dodge_speed: float = 8.2
-@export var dodge_iframe_start: float = 0.10
-@export var dodge_iframe_duration: float = 0.18
-@export var dodge_cooldown: float = 0.20
+@export var dodge_duration: float = 0.48
+@export var dodge_speed: float = 9.5
+@export var dodge_iframe_start: float = 0.04
+@export var dodge_iframe_duration: float = 0.24
+@export var dodge_cooldown: float = 0.16
 
 @export_group("Combat Tuning")
 @export var light_combo_damages: PackedInt32Array = PackedInt32Array([25, 25, 35])
-@export var light_attack_durations: PackedFloat32Array = PackedFloat32Array([0.32, 0.34, 0.44])
-@export var light_combo_reset_window: float = 0.85
+@export var light_attack_durations: PackedFloat32Array = PackedFloat32Array([0.42, 0.44, 0.54])
+@export var light_combo_reset_window: float = 0.90
 @export var heavy_attack_damage: int = 60
-@export var heavy_attack_duration: float = 0.68
+@export var heavy_attack_duration: float = 0.72
 @export var landing_attack_damage: int = 60
-@export var landing_attack_radius: float = 2.2
-@export var landing_plunge_speed: float = 18.0
+@export var landing_attack_radius: float = 2.6
+@export var landing_plunge_speed: float = 20.0
+@export var landing_leap_velocity: float = 8.5
+@export var landing_recovery_duration: float = 0.28
 
 @export_group("Node References")
 @export var camera_pivot_path: NodePath = NodePath("CameraPivot")
@@ -79,19 +83,32 @@ var _simulated_airborne: bool = false
 var _force_jump_context: bool = false
 var _jump_zone_overlaps: int = 0
 var _nearby_interactables: Array[Node] = []
+var _coyote_timer: float = 0.0
+var _pending_ground_slam: bool = false
+var _pending_ground_slam_timer: float = 0.0
+var _landing_recover_timer: float = 0.0
+var _last_move_input_dir: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
 	add_to_group("player")
 	health = max_health
+	camera_yaw = global_rotation.y
 	var fwd: Vector3 = -global_transform.basis.z
 	fwd.y = 0.0
 	if fwd.length_squared() > 0.001:
-		facing_direction = fwd.normalized()
+		set_facing_direction(fwd.normalized())
+	_update_camera_pivot()
 	if RealmManager.instance != null:
 		RealmManager.instance.register_player(self)
 	_load_mouse_settings_from_store()
+	_update_mouse_capture_state()
 	health_changed.emit(health, max_health)
+
+
+func _exit_tree() -> void:
+	if DisplayServer.get_name() != "headless":
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _load_mouse_settings_from_store() -> void:
@@ -104,12 +121,21 @@ func _load_mouse_settings_from_store() -> void:
 		hit_stop_enabled = bool(s.get("hit_stop_enabled", true))
 
 
+func _process(_delta: float) -> void:
+	_update_mouse_capture_state()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if current_state == State.DEAD:
 		return
+	if event is InputEventMouseButton and event.is_pressed():
+		if DisplayServer.get_name() != "headless" and not _should_release_mouse():
+			if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if event is InputEventMouseMotion:
 		var mm: InputEventMouseMotion = event as InputEventMouseMotion
-		apply_look_delta(mm.relative)
+		if DisplayServer.get_name() == "headless" or Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			apply_look_delta(mm.relative)
 
 
 func apply_look_delta(relative_motion: Vector2) -> void:
@@ -124,9 +150,36 @@ func apply_look_delta(relative_motion: Vector2) -> void:
 		deg_to_rad(pitch_min_degrees),
 		deg_to_rad(pitch_max_degrees)
 	)
+	_update_camera_pivot()
+
+
+func _update_camera_pivot() -> void:
 	var cam_pivot: Node3D = get_node_or_null(camera_pivot_path) as Node3D
 	if cam_pivot != null:
-		cam_pivot.rotation = Vector3(camera_pitch, camera_yaw, 0.0)
+		if cam_pivot.is_inside_tree():
+			cam_pivot.global_rotation = Vector3(camera_pitch, camera_yaw, 0.0)
+		else:
+			cam_pivot.rotation = Vector3(camera_pitch, wrapf(camera_yaw - global_rotation.y, -PI, PI), 0.0)
+
+
+func _should_release_mouse() -> bool:
+	if not is_inside_tree() or get_tree() == null:
+		return false
+	if get_tree().paused:
+		return true
+	for grp in ["title_screen", "pause_menu", "options_screen", "leaderboard_screen", "results_screen"]:
+		for n in get_tree().get_nodes_in_group(grp):
+			if n is CanvasItem and (n as CanvasItem).visible:
+				return true
+	return false
+
+
+func _update_mouse_capture_state() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if _should_release_mouse() or current_state == State.DEAD:
+		if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func get_facing_direction() -> Vector3:
@@ -137,18 +190,24 @@ func get_facing_direction() -> Vector3:
 	return fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
 
 
-func set_facing_direction(dir: Vector3) -> void:
+func set_facing_direction(dir: Vector3, delta: float = -1.0) -> void:
 	var flat: Vector3 = Vector3(dir.x, 0.0, dir.z)
 	if flat.length_squared() <= 0.0001:
 		return
 	facing_direction = flat.normalized()
-	var target_yaw: float = atan2(-facing_direction.x, -facing_direction.z)
+	var target_world_yaw: float = atan2(-facing_direction.x, -facing_direction.z)
+	var parent_yaw: float = global_rotation.y if is_inside_tree() else rotation.y
+	var target_local_yaw: float = wrapf(target_world_yaw - parent_yaw, -PI, PI)
+
 	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
 	if vis != null:
-		vis.rotation.y = target_yaw
+		if delta > 0.0:
+			vis.rotation.y = lerp_angle(vis.rotation.y, target_local_yaw, clampf(character_turn_speed * delta, 0.0, 1.0))
+		else:
+			vis.rotation.y = target_local_yaw
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null and hb.get_parent() == self:
-		hb.rotation.y = target_yaw
+		hb.rotation.y = target_local_yaw
 
 
 func set_jump_context(enabled: bool) -> void:
@@ -190,9 +249,11 @@ func is_in_jump_context(move_dir: Vector3 = Vector3.ZERO) -> bool:
 
 
 func start_jump() -> bool:
-	if current_state != State.LOCOMOTION or is_currently_airborne():
+	if current_state != State.LOCOMOTION or (is_currently_airborne() and _coyote_timer <= 0.0):
 		return false
+	_coyote_timer = 0.0
 	velocity.y = jump_velocity
+	jumped.emit()
 	return true
 
 
@@ -200,8 +261,13 @@ func _physics_process(delta: float) -> void:
 	if current_state == State.DEAD:
 		return
 
+	_update_camera_pivot()
+
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
+
+	if _landing_recover_timer > 0.0:
+		_landing_recover_timer = maxf(0.0, _landing_recover_timer - delta)
 
 	if _combo_window_timer > 0.0 and current_state == State.LOCOMOTION:
 		_combo_window_timer = maxf(0.0, _combo_window_timer - delta)
@@ -251,6 +317,9 @@ func start_light_attack() -> bool:
 	if current_state != State.LOCOMOTION or is_currently_airborne():
 		return false
 
+	if _last_move_input_dir.length_squared() > 0.001:
+		set_facing_direction(_last_move_input_dir)
+
 	var step_idx: int = clampi(combo_step, 0, light_combo_damages.size() - 1)
 	var dmg: int = int(light_combo_damages[step_idx])
 	var dur: float = float(light_attack_durations[step_idx])
@@ -259,10 +328,16 @@ func start_light_attack() -> bool:
 	_combo_window_timer = light_combo_reset_window
 	_set_state(State.LIGHT_ATTACK, dur)
 
+	var lunge_spd: float = 3.8 if step_idx < 2 else 5.2
+	var fwd: Vector3 = get_facing_direction()
+	velocity.x = fwd.x * lunge_spd
+	velocity.z = fwd.z * lunge_spd
+
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		hb.begin_swing(dmg, false, "player_light")
 
+	_spawn_slash_arc_vfx(false, step_idx + 1)
 	attack_executed.emit("light_" + str(step_idx + 1), step_idx + 1, dmg, false)
 	return true
 
@@ -271,19 +346,27 @@ func start_heavy_attack() -> bool:
 	if current_state != State.LOCOMOTION or is_currently_airborne():
 		return false
 
+	if _last_move_input_dir.length_squared() > 0.001:
+		set_facing_direction(_last_move_input_dir)
+
 	combo_step = 0
 	_set_state(State.HEAVY_ATTACK, heavy_attack_duration)
+
+	var fwd: Vector3 = get_facing_direction()
+	velocity.x = fwd.x * 6.0
+	velocity.z = fwd.z * 6.0
 
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		hb.begin_swing(heavy_attack_damage, true, "player_heavy")
 
+	_spawn_slash_arc_vfx(true, 0)
 	attack_executed.emit("heavy", 0, heavy_attack_damage, true)
 	return true
 
 
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
-	if current_state != State.LOCOMOTION or is_currently_airborne() or _dodge_cooldown_timer > 0.0:
+	if current_state != State.LOCOMOTION or (is_currently_airborne() and _coyote_timer <= 0.0) or _dodge_cooldown_timer > 0.0:
 		return false
 
 	if input_dir.length_squared() > 0.001:
@@ -305,6 +388,7 @@ func start_landing_attack() -> bool:
 	if current_state != State.LOCOMOTION:
 		return false
 
+	_pending_ground_slam = false
 	_set_state(State.LANDING_PLUNGE, 2.0)
 	velocity.x = 0.0
 	velocity.z = 0.0
@@ -318,6 +402,8 @@ func complete_landing_slam(candidates: Array[Node] = []) -> int:
 		return 0
 
 	_simulated_airborne = false
+	_pending_ground_slam = false
+	_landing_recover_timer = landing_recovery_duration
 	_set_state(State.LOCOMOTION, 0.0)
 	var hits: int = 0
 	var hb: Hitbox3D = get_sword_hitbox()
@@ -334,6 +420,7 @@ func complete_landing_slam(candidates: Array[Node] = []) -> int:
 				tree_targets.append(n)
 			hits = hb.pulse_radial_targets(global_position, landing_attack_radius, tree_targets, landing_attack_damage, true, "player_landing")
 
+	_spawn_landing_shockwave_vfx(global_position, landing_attack_radius)
 	landing_slam_triggered.emit(global_position, landing_attack_radius, landing_attack_damage)
 	return hits
 
@@ -369,6 +456,7 @@ func apply_damage(amount: int, _source: Node = null) -> bool:
 		return false
 
 	health = maxi(0, health - amount)
+	player_damaged.emit(amount)
 	health_changed.emit(health, max_health)
 
 	var run_state: Node = _get_run_state()
@@ -387,7 +475,16 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	combo_step = 0
 	_combo_window_timer = 0.0
 	_dodge_elapsed = 0.0
+	_coyote_timer = 0.0
+	_pending_ground_slam = false
+	_landing_recover_timer = 0.0
 	_simulated_airborne = false
+	camera_yaw = global_rotation.y
+	var fwd: Vector3 = -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.001:
+		set_facing_direction(fwd.normalized())
+	_update_camera_pivot()
 	_update_hurtbox_invulnerability(false)
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
@@ -406,8 +503,19 @@ func get_hurtbox() -> Hurtbox3D:
 
 func _process_locomotion_state(delta: float) -> void:
 	var grav: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
-	if not is_on_floor():
+	if is_on_floor():
+		_coyote_timer = 0.12
+	else:
+		_coyote_timer = maxf(0.0, _coyote_timer - delta)
 		velocity.y -= grav * delta
+
+	if _pending_ground_slam:
+		_pending_ground_slam_timer = maxf(0.0, _pending_ground_slam_timer - delta)
+		if _pending_ground_slam_timer <= 0.0 and is_currently_airborne():
+			start_landing_attack()
+			return
+		elif _pending_ground_slam_timer <= 0.0:
+			_pending_ground_slam = false
 
 	var input_vec: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var basis_ref: Basis = global_transform.basis
@@ -423,38 +531,42 @@ func _process_locomotion_state(delta: float) -> void:
 	right = right.normalized()
 
 	var move_dir: Vector3 = (right * input_vec.x + forward * (-input_vec.y)).normalized()
-	if move_dir.length_squared() > 0.001:
-		set_facing_direction(move_dir)
-		velocity.x = move_toward(velocity.x, move_dir.x * run_speed, acceleration * delta)
-		velocity.z = move_toward(velocity.z, move_dir.z * run_speed, acceleration * delta)
+	_last_move_input_dir = move_dir
+	var move_accel: float = acceleration if is_on_floor() else (acceleration * 0.55)
+	var move_fric: float = friction if is_on_floor() else (friction * 0.20)
+
+	if move_dir.length_squared() > 0.001 and _landing_recover_timer <= 0.0:
+		set_facing_direction(move_dir, delta)
+		velocity.x = move_toward(velocity.x, move_dir.x * run_speed, move_accel * delta)
+		velocity.z = move_toward(velocity.z, move_dir.z * run_speed, move_accel * delta)
 	else:
-		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
-		velocity.z = move_toward(velocity.z, 0.0, friction * delta)
+		velocity.x = move_toward(velocity.x, 0.0, move_fric * delta)
+		velocity.z = move_toward(velocity.z, 0.0, move_fric * delta)
 
-	if Input.is_action_just_pressed("landing_attack") and is_currently_airborne():
-		start_landing_attack()
-		return
-	if Input.is_action_just_pressed("light_attack"):
-		start_light_attack()
-		return
-	if Input.is_action_just_pressed("heavy_attack"):
-		start_heavy_attack()
-		return
+	if Input.is_action_just_pressed("landing_attack"):
+		if is_currently_airborne():
+			start_landing_attack()
+			return
+		elif is_on_floor():
+			velocity.y = landing_leap_velocity
+			_pending_ground_slam = true
+			_pending_ground_slam_timer = 0.14
+			jumped.emit()
+	if Input.is_action_just_pressed("light_attack") and _landing_recover_timer <= 0.0:
+		if start_light_attack():
+			return
+	if Input.is_action_just_pressed("heavy_attack") and _landing_recover_timer <= 0.0:
+		if start_heavy_attack():
+			return
 
-	var jump_pressed: bool = Input.is_action_just_pressed("jump")
 	var dodge_pressed: bool = Input.is_action_just_pressed("dodge")
-	if is_on_floor() and (jump_pressed or dodge_pressed):
-		if jump_pressed and dodge_pressed:
-			if is_in_jump_context(move_dir):
-				start_jump()
-			else:
-				start_dodge(move_dir)
-				return
-		elif dodge_pressed:
-			if start_dodge(move_dir):
-				return
-		elif jump_pressed:
-			start_jump()
+	var jump_pressed: bool = Input.is_action_just_pressed("jump")
+	if dodge_pressed and (is_on_floor() or _coyote_timer > 0.0):
+		var d_dir: Vector3 = move_dir if move_dir.length_squared() > 0.001 else get_facing_direction()
+		if start_dodge(d_dir):
+			return
+	if jump_pressed and (is_on_floor() or _coyote_timer > 0.0):
+		start_jump()
 
 	if Input.is_action_just_pressed("interact"):
 		try_interact()
@@ -469,8 +581,19 @@ func _process_dodge_state(delta: float) -> void:
 	var in_iframes: bool = _dodge_elapsed >= dodge_iframe_start and _dodge_elapsed <= (dodge_iframe_start + dodge_iframe_duration)
 	_update_hurtbox_invulnerability(in_iframes)
 
-	velocity.x = _dodge_direction.x * dodge_speed
-	velocity.z = _dodge_direction.z * dodge_speed
+	if not is_on_floor():
+		var grav: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
+		velocity.y -= grav * 0.65 * delta
+
+	var dur: float = maxf(0.01, dodge_duration)
+	var t_norm: float = clampf(_dodge_elapsed / dur, 0.0, 1.0)
+	var cur_speed: float = dodge_speed * 1.22
+	if t_norm > 0.55:
+		var ease_out: float = (t_norm - 0.55) / 0.45
+		cur_speed = lerpf(dodge_speed * 1.22, run_speed * 0.85, ease_out)
+
+	velocity.x = _dodge_direction.x * cur_speed
+	velocity.z = _dodge_direction.z * cur_speed
 	if is_inside_tree():
 		move_and_slide()
 
@@ -482,8 +605,11 @@ func _process_dodge_state(delta: float) -> void:
 
 func _process_attack_state(delta: float) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
-	velocity.x = move_toward(velocity.x, 0.0, friction * delta)
-	velocity.z = move_toward(velocity.z, 0.0, friction * delta)
+	if not is_on_floor():
+		var grav: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
+		velocity.y -= grav * delta
+	velocity.x = move_toward(velocity.x, 0.0, friction * 0.55 * delta)
+	velocity.z = move_toward(velocity.z, 0.0, friction * 0.55 * delta)
 	if is_inside_tree():
 		move_and_slide()
 
@@ -540,3 +666,89 @@ func _get_leaderboard_store() -> Node:
 	if is_inside_tree() and get_tree() != null and get_tree().root != null:
 		return get_tree().root.get_node_or_null("LeaderboardStore")
 	return null
+
+
+func _spawn_slash_arc_vfx(is_heavy: bool, step_num: int) -> void:
+	if not is_inside_tree() or get_tree() == null:
+		return
+	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
+	if vis == null:
+		return
+
+	var arc := MeshInstance3D.new()
+	arc.name = "SlashArcVFX"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.85 if not is_heavy else 1.05
+	torus.outer_radius = 1.38 if not is_heavy else 1.85
+	torus.rings = 24
+	torus.ring_segments = 8
+	arc.mesh = torus
+
+	var in_mirror: bool = (RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR)
+	var slash_col: Color = Color(0.28, 0.82, 1.0, 0.85) if in_mirror else Color(1.0, 0.72, 0.24, 0.85)
+	if is_heavy:
+		slash_col = Color(0.38, 0.92, 1.0, 0.95) if in_mirror else Color(1.0, 0.42, 0.16, 0.95)
+
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = slash_col
+	mat.emission_enabled = true
+	mat.emission = slash_col
+	mat.emission_energy_multiplier = 2.4 if is_heavy else 1.8
+	arc.material_override = mat
+
+	arc.position = Vector3(0.0, 1.05, -0.55)
+	arc.scale = Vector3(1.0, 0.12, 1.0)
+	match step_num:
+		1:
+			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(-10.0))
+		2:
+			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(32.0))
+		_:
+			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(80.0))
+	vis.add_child(arc)
+
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(arc, "scale", Vector3(1.35 if is_heavy else 1.18, 0.04, 1.35 if is_heavy else 1.18), 0.22)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.22)
+	tw.chain().tween_callback(arc.queue_free)
+
+
+func _spawn_landing_shockwave_vfx(impact_pos: Vector3, radius: float) -> void:
+	if not is_inside_tree() or get_tree() == null:
+		return
+	var host: Node = get_parent() if get_parent() != null else get_tree().current_scene
+	if host == null:
+		return
+
+	var ring := MeshInstance3D.new()
+	ring.name = "LandingShockwaveVFX"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.65
+	torus.outer_radius = 0.95
+	torus.rings = 32
+	torus.ring_segments = 10
+	ring.mesh = torus
+
+	var in_mirror: bool = (RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR)
+	var col: Color = Color(0.28, 0.85, 1.0, 0.92) if in_mirror else Color(1.0, 0.68, 0.22, 0.92)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 2.8
+	ring.material_override = mat
+	ring.scale = Vector3(0.4, 0.16, 0.4)
+	host.add_child(ring)
+	ring.global_position = Vector3(impact_pos.x, impact_pos.y + 0.10, impact_pos.z)
+
+	var target_scale: float = maxf(1.5, radius)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(ring, "scale", Vector3(target_scale, 0.05, target_scale), 0.36).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.36)
+	tw.chain().tween_callback(ring.queue_free)

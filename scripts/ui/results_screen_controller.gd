@@ -11,6 +11,7 @@ signal replay_requested()
 signal main_menu_requested()
 
 @export_group("Optional Scene Node Bindings")
+@export var build_default_ui_if_empty: bool = true
 @export var score_label_path: NodePath
 @export var time_label_path: NodePath
 @export var time_bonus_label_path: NodePath
@@ -39,8 +40,12 @@ var current_initials: String = "WAR"
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("results_screen")
+	MenuStyle.enforce_full_rect(self)
 	visible = false
+	if build_default_ui_if_empty and get_child_count() == 0:
+		_build_default_ui()
 	var run_state: Node = _get_run_state()
 	if run_state != null and run_state.has_signal("run_finalized"):
 		if not run_state.is_connected("run_finalized", _on_run_finalized):
@@ -109,6 +114,13 @@ func submit_score(raw_initials: String = "") -> int:
 
 func press_leaderboard() -> void:
 	leaderboard_requested.emit()
+	if leaderboard_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var lb: Node = get_tree().get_first_node_in_group("leaderboard_screen")
+		if lb is CanvasItem:
+			visible = false
+			if lb.has_method("refresh_entries"):
+				lb.call("refresh_entries")
+			(lb as CanvasItem).visible = true
 
 
 func press_replay() -> void:
@@ -121,6 +133,120 @@ func press_replay() -> void:
 func press_main_menu() -> void:
 	visible = false
 	main_menu_requested.emit()
+	if main_menu_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
+		var title: Node = get_tree().get_first_node_in_group("title_screen")
+		if title is CanvasItem:
+			(title as CanvasItem).visible = true
+
+
+func _build_default_ui() -> void:
+	var modal := MenuStyle.build_centered_modal(self, "ResultsDimmer", "ResultsPanel", Vector2(560, 520), 0.88, 32, 26)
+	var panel: PanelContainer = modal["panel"] as PanelContainer
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "ResultsScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "ResultsVBox"
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 12)
+	scroll.add_child(vbox)
+
+	var title_lbl := Label.new()
+	title_lbl.name = "ResultsTitleLabel"
+	title_lbl.text = "RUN COMPLETE"
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_title(title_lbl, 32)
+	vbox.add_child(title_lbl)
+
+	MenuStyle.style_divider(vbox)
+
+	var grid := GridContainer.new()
+	grid.name = "StatsGrid"
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 10)
+	vbox.add_child(grid)
+
+	score_label_path = _add_stat_row(grid, "FINAL SCORE", "000000", "ScoreValueLabel")
+	time_label_path = _add_stat_row(grid, "CLEAR TIME", "00:00", "TimeValueLabel")
+	time_bonus_label_path = _add_stat_row(grid, "TIME BONUS", "+0", "TimeBonusValueLabel")
+	rank_label_path = _add_stat_row(grid, "TRIAL RANK", "C", "RankValueLabel", true)
+
+	MenuStyle.style_divider(vbox)
+
+	var init_row := HBoxContainer.new()
+	init_row.name = "InitialsRow"
+	init_row.add_theme_constant_override("separation", 10)
+	vbox.add_child(init_row)
+
+	var init_lbl := Label.new()
+	init_lbl.text = "INITIALS"
+	init_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(init_lbl, 18)
+	init_row.add_child(init_lbl)
+
+	var init_input := LineEdit.new()
+	init_input.name = "InitialsLineEdit"
+	init_input.text = current_initials
+	init_input.max_length = 3
+	init_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	init_input.custom_minimum_size = Vector2(96, 40)
+	init_input.add_theme_font_size_override("font_size", 20)
+	init_input.add_theme_color_override("font_color", MenuStyle.GOLD_TEXT)
+	init_input.add_theme_stylebox_override("normal", MenuStyle.make_flat_box(MenuStyle.BTN_BG_NORMAL, MenuStyle.BORDER_GOLD, 1, 6))
+	init_row.add_child(init_input)
+	initials_input_path = get_path_to(init_input)
+
+	var submit_btn := Button.new()
+	submit_btn.name = "SubmitScoreButton"
+	submit_btn.text = "Submit Score"
+	submit_btn.custom_minimum_size = Vector2(160, 40)
+	MenuStyle.style_button(submit_btn, 17, 40.0)
+	init_row.add_child(submit_btn)
+	submit_button_path = get_path_to(submit_btn)
+
+	var lb_btn := Button.new()
+	lb_btn.name = "LeaderboardButton"
+	lb_btn.text = "View Leaderboard"
+	MenuStyle.style_button(lb_btn, 18, 42.0)
+	vbox.add_child(lb_btn)
+	leaderboard_button_path = get_path_to(lb_btn)
+
+	var replay_btn := Button.new()
+	replay_btn.name = "ReplayButton"
+	replay_btn.text = "Play Again"
+	MenuStyle.style_button(replay_btn, 18, 42.0)
+	vbox.add_child(replay_btn)
+	replay_button_path = get_path_to(replay_btn)
+
+	var menu_btn := Button.new()
+	menu_btn.name = "MainMenuButton"
+	menu_btn.text = "Main Menu"
+	MenuStyle.style_button(menu_btn, 18, 42.0)
+	vbox.add_child(menu_btn)
+	main_menu_button_path = get_path_to(menu_btn)
+
+
+func _add_stat_row(grid: GridContainer, label_text: String, initial_val: String, node_name: String, highlight: bool = false) -> NodePath:
+	var k := Label.new()
+	k.text = label_text
+	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(k, 18, MenuStyle.MUTED_TEXT)
+	grid.add_child(k)
+
+	var v := Label.new()
+	v.name = node_name
+	v.text = initial_val
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	MenuStyle.style_title(v, 24 if highlight else 20, MenuStyle.GOLD_TEXT)
+	grid.add_child(v)
+	return get_path_to(v)
 
 
 func _on_run_finalized(summary: Dictionary) -> void:

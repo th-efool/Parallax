@@ -47,10 +47,8 @@ const ACTION_DISPLAY_NAMES: Dictionary = {
 	"interact": "Interact",
 }
 
-## Contextual actions allowed to share the same key (Space = Jump near gap / Dodge on flat ground).
-const ALLOWED_SHARED_ACTION_PAIRS: Array[Array] = [
-	["jump", "dodge"],
-]
+## Contextual shared action pairs (empty now that Jump [SPACE] and Dodge [SHIFT] are separate).
+const ALLOWED_SHARED_ACTION_PAIRS: Array[Array] = []
 
 ## System keys that cannot be bound to gameplay actions.
 const RESERVED_KEYCODES: Array[int] = [
@@ -178,7 +176,7 @@ func get_default_keybindings() -> Dictionary:
 		"move_left": "KEY:%d" % KEY_A,
 		"move_right": "KEY:%d" % KEY_D,
 		"jump": "KEY:%d" % KEY_SPACE,
-		"dodge": "KEY:%d" % KEY_SPACE,
+		"dodge": "KEY:%d" % KEY_SHIFT,
 		"light_attack": "MOUSE:%d" % MOUSE_BUTTON_LEFT,
 		"heavy_attack": "MOUSE:%d" % MOUSE_BUTTON_RIGHT,
 		"dimension_shift": "KEY:%d" % KEY_Q,
@@ -197,7 +195,7 @@ func get_default_settings() -> Dictionary:
 		# Display / Screen Type
 		"screen_mode": "windowed", # "windowed", "borderless", "fullscreen"
 		"fullscreen": false,
-		"resolution": Vector2i(1920, 1080),
+		"resolution": Vector2i(1280, 720),
 		"vsync_mode": DisplayServer.VSYNC_ENABLED,
 		"max_fps": 0, # 0 = unlimited
 		# Graphics Quality
@@ -331,9 +329,13 @@ func apply_settings() -> void:
 			if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			var res_val: Variant = _settings.get("resolution", Vector2i(1920, 1080))
+			var res_val: Variant = _settings.get("resolution", Vector2i(1280, 720))
 			if res_val is Vector2i:
 				var res: Vector2i = res_val as Vector2i
+				var usable: Vector2i = DisplayServer.screen_get_usable_rect().size
+				if usable.x >= 640 and usable.y >= 360:
+					res.x = mini(res.x, usable.x - 16)
+					res.y = mini(res.y, usable.y - 40)
 				if res.x >= 640 and res.y >= 360:
 					DisplayServer.window_set_size(res)
 
@@ -611,12 +613,6 @@ func _apply_keybindings_to_input_map() -> void:
 		var ev: InputEvent = binding_code_to_event(code)
 		if ev != null:
 			InputMap.action_add_event(act, ev)
-		# Preserve secondary Shift dodge key when dodge is bound to Space
-		if act == "dodge" and code == ("KEY:%d" % KEY_SPACE):
-			var shift_ev := InputEventKey.new()
-			shift_ev.physical_keycode = KEY_SHIFT
-			shift_ev.keycode = KEY_SHIFT
-			InputMap.action_add_event("dodge", shift_ev)
 
 
 # ============================================================================
@@ -1015,6 +1011,8 @@ func _load_settings_from_disk() -> void:
 					for act in REBINDABLE_ACTIONS:
 						if (raw_b as Dictionary).has(act):
 							binds[act] = String((raw_b as Dictionary)[act])
+			if String(binds.get("dodge", "")) == ("KEY:%d" % KEY_SPACE) and String(binds.get("jump", "")) == ("KEY:%d" % KEY_SPACE):
+				binds["dodge"] = "KEY:%d" % KEY_SHIFT
 			_settings["keybindings"] = binds
 		elif cfg.has_section_key("settings", k):
 			_settings[k] = cfg.get_value("settings", k, _settings[k])
