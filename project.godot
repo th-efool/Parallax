@@ -17,6 +17,8 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
+RunState="*res://scripts/core/score_manager.gd"
+LeaderboardStore="*res://scripts/core/leaderboard_store.gd"
 
 [display]
 

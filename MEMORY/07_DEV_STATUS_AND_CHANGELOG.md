@@ -6,7 +6,7 @@
 
 ## 1. Current Project Status
 
-- **Current Phase**: **Stage 0 — Project Initialized (Pre-Production / Ready for Day 1 Vertical Slice)**
+- **Current Phase**: **Antigravity Pass 1 Complete (Core Singletons, Realm Mechanics & Persistence — Ready for Pass 2)**
 - **Engine Version**: Godot `4.7.2.stable` (Forward+ renderer, Windows 64-bit)
 - **Project Root**: `D:\Desktop\Godot\parallax`
 - **Active Addons**: `res://addons/godot_ai` (v4.4.1)
@@ -27,3 +27,4 @@
 ## 2. Chronological Changelog
 
 - **2026-11-16 (Stage 0 Init)**: Created `D:\Desktop\Godot\parallax` folder structure, configured `project.godot` (1920x1080, Forward+, 3D physics layers 1–7, complete GDD input bindings), installed `godot_ai` MCP addon, saved 4 concept/reference JPGs with `.gdignore` under `MEMORY/reference_images/`, authored clubbed `MEMORY/00`–`07` knowledge base (incorporating full GDD v1.1 + CC0 asset & shader research), created `CLAUDE.md`, `AGENTS.md`, and `workflows/parallax-build.yaml`, and initialized Git.
+- **2026-11-16 (Antigravity Pass 1 — Core Systems & Persistence)**: Implemented `scripts/core/realm_reactive.gd`, `scripts/core/realm_manager.gd`, `scripts/core/encounter_director.gd`, `scripts/core/score_manager.gd`, and `scripts/core/leaderboard_store.gd`; registered `RunState` and `LeaderboardStore` autoloads in `project.godot`; verified headless import + automated logic/physics/persistence checks (`PASS 1 VERIFICATION SUCCEEDED`).
