@@ -62,14 +62,14 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
 | **Bottom-Right** | Action diamonds: `LMB ATTACK`, `RMB HEAVY`, `SPACE DODGE`, `F LAND`, *(contextual `E INTERACT`)* | Always / `E` contextual | Dim `F` while grounded or `E` when out of range; never jump/relocate anchors. |
 | **Bottom-Center** | `THE WARDEN` label + wide red Boss HP bar (`%` / fill) | Boss Only | Hidden outside Execution Arena; must not push/resize any other HUD widget. |
 
-### 2.2 Required Screens
-1. **Title Screen**: `PARALLAX` logo, tagline *"Same arena. Different rules."*, colosseum backdrop, buttons: `Start`, `Leaderboard`, `Options`, `Quit`.
-2. **Pause Menu (`Esc`)**: `Resume`, `Restart Section`, `Restart Run` *(confirm)*, `Options`, `Main Menu` *(confirm)*.
-3. **Tutorial Prompts**: Compact inline prompt near action (`WASD / Mouse`, `Q: Shift`, `E: Interact`, `F in Air: Landing Attack`) -> auto-dismisses on first successful execution.
-4. **Death Overlay**: Brief fade + automatic respawn at current section checkpoint (no extra confirmation clicks).
-5. **Results Screen**: Breakdown of Score, Time, Time Bonus, Rank (`S/A/B/C`), 3-letter Initials entry if Top 5 qualified -> `Submit`, `Leaderboard`, `Replay`, `Main Menu`.
-6. **Leaderboard Screen**: Top 5 table (`#`, Initials, Score, Time, Rank, Date) + `Back`.
-7. **Options Screen**: Master / Music / SFX volume sliders, Mouse Sensitivity, Invert Y toggle, Display Mode (Fullscreen / Windowed) & Resolution, `Restore Defaults`, `Reset Local Leaderboard` *(confirm)*, `Apply`, `Back`.
+### 2.2 Required Screens (Implemented in `scripts/ui/`)
+1. **Title Screen** (`scripts/ui/title_screen_controller.gd` — `TitleScreenController`): `PARALLAX` logo, tagline *"Same arena. Different rules."*, dismissible `<= 5.0s` opening quote card (*"They built a mirror to preserve champions. It learned to preserve their deaths."*), buttons: `Start`, `Leaderboard`, `Options`, `Quit`.
+2. **Pause Menu (`Esc`)** (`scripts/ui/pause_menu_controller.gd` — `PauseMenuController`): `PROCESS_MODE_ALWAYS`, freezes `SceneTree.paused` and `RunState` timer; actions: `Resume`, `Restart Section`, `Restart Run` *(confirm)*, `Options`, `Main Menu` *(confirm)*.
+3. **Tutorial Prompts** (`scripts/ui/hud_controller.gd` — `HUDController`): Compact inline prompt near action (`WASD / Mouse`, `Q: Shift`, `E: Interact`, `F in Air: Landing Attack`) -> auto-dismisses on first successful execution (`mark_tutorial_completed()`).
+4. **Death Overlay** (`scripts/ui/death_overlay_controller.gd` — `DeathOverlayController`): Brief `0.65s` non-blocking fade + automatic respawn at current section checkpoint (no extra confirmation clicks).
+5. **Results Screen** (`scripts/ui/results_screen_controller.gd` — `ResultsScreenController`): Breakdown of Score, Time, Time Bonus, Rank (`S/A/B/C`), 3-letter Initials entry if Top 5 qualified -> `Submit`, `Leaderboard`, `Replay`, `Main Menu`.
+6. **Leaderboard Screen** (`scripts/ui/leaderboard_screen_controller.gd` — `LeaderboardScreenController`): Top 5 table (`#`, Initials, Score, Time, Rank) + `Back`.
+7. **Options Screen** (`scripts/ui/options_screen_controller.gd` — `OptionsScreenController`): Master / Music / SFX volume sliders, Mouse Sensitivity, Invert Y toggle, Display Mode (Fullscreen / Windowed) & Resolution, `Restore Defaults`, `Reset Local Leaderboard` *(confirm)*, `Apply`, `Back`.
 
 ### 2.3 Required Player Feedback Cues
 - **Shift Success**: `0.15–0.25 s` subtle screen-edge ripple + lighting color lerp + crisp glass-harmonic SFX.
