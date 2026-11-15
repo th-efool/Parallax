@@ -134,5 +134,8 @@ void fragment() {
 
 | Asset Name | Local Path (`res://...`) | Source | License | Attribution Required? |
 | :--- | :--- | :--- | :--- | :--- |
-| *(Example)* `Modular Ruins` | `assets/models/ruins/` | `Quaternius` | `CC0` | `No` |
-| *(Add downloaded assets here before shipping Windows build)* | | | | |
+| `KayKit Adventurers (Knight, Barbarian + textures)` | `assets/models/characters/Knight.glb`, `Barbarian.glb`, `knight_texture.png`, `barbarian_texture.png`, `assets/textures/` | `KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0` | `CC0 1.0` | `No` |
+| `KayKit Skeletons (Skeleton_Warrior, Skeleton_Rogue + texture)` | `assets/models/characters/Skeleton_Warrior.glb`, `Skeleton_Rogue.glb`, `skeleton_texture.png`, `assets/textures/` | `KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0` | `CC0 1.0` | `No` |
+| `KayKit Dungeon Remastered (20 .glb architecture/prop pieces + texture)` | `assets/models/dungeon/{floor_tile_*,wall*,pillar*,column,rubble_large,stairs_wide,torch_lit,banner_red,banner_blue,box_large,barrel_large}*.glb`, `dungeon_texture.png`, `assets/textures/dungeon_texture.png` | `KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0` | `CC0 1.0` | `No` |
+| `Production Shaders (Spectral, Slash Trail, Shift Pulse)` | `assets/shaders/mirror_spectral.gdshader`, `sword_slash_trail.gdshader`, `realm_shift_pulse.gdshader` | Authored for PARALLAX | `Project-Owned` | `No` |
+| `12 Procedural Combat/Realm SFX + Dark Colosseum Drone Loop` | `assets/audio/sfx/{shift_to_mirror,shift_to_reality,shift_rejected,sword_light,sword_heavy,landing_slam,enemy_hit,shield_deflect,pillar_crack,pillar_collapse,mirror_shatter,gate_open}.wav`, `assets/audio/music/colosseum_drone_loop.wav` | Generated 16-bit PCM `44.1 kHz` WAVs | `Project-Owned` | `No` |

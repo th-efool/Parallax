@@ -7,16 +7,19 @@ signal platform_repaired()
 
 @export var reality_node_path: NodePath = NodePath("RealityGeometry")
 @export var mirror_node_path: NodePath = NodePath("MirrorGeometry")
+@export var repaired_node_path: NodePath = NodePath("RepairedGeometry")
 @export var is_permanently_repaired: bool = false
 
 var reality_node: Node = null
 var mirror_node: Node = null
+var repaired_node: Node = null
 
 
 func _ready() -> void:
 	add_to_group("realm_reactive")
 	reality_node = get_node_or_null(reality_node_path)
 	mirror_node = get_node_or_null(mirror_node_path)
+	repaired_node = get_node_or_null(repaired_node_path)
 
 	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:
@@ -32,6 +35,7 @@ func _ready() -> void:
 func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 	reality_node = get_node_or_null(reality_node_path) if reality_node == null else reality_node
 	mirror_node = get_node_or_null(mirror_node_path) if mirror_node == null else mirror_node
+	repaired_node = get_node_or_null(repaired_node_path) if repaired_node == null else repaired_node
 
 	var reality_active: bool = is_permanently_repaired or realms_merged or (active_realm == 0)
 	var mirror_active: bool = is_permanently_repaired or realms_merged or (active_realm == 1)
@@ -40,6 +44,8 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 		_set_subtree_active(reality_node, reality_active)
 	if mirror_node != null:
 		_set_subtree_active(mirror_node, mirror_active)
+	if repaired_node != null:
+		_set_subtree_active(repaired_node, is_permanently_repaired)
 
 
 func on_realm_changed(active_realm: int) -> void:

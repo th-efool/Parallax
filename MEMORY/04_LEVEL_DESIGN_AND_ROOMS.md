@@ -27,6 +27,8 @@
 
 *Target total first-clear time across all 5 stages: **~10–15 minutes**.*
 
+> **Collision Greybox Scene (`scenes/environment/colosseum_greybox.tscn` + `scripts/environment/colosseum_greybox_builder.gd`)**: Instantiates the full walkable `Y = 0.0` collision layout across `Z = -5..105` (`ColosseumGreyboxBuilder.build_greybox()`, `get_key_anchors()`), including `EntrySteppingStones`, `EntryMirrorSwitch`, `Gate01_EntryToHall`, `CrackedCentralPillar`, `Gate02_HallToGallery`, `GallerySpectralBridge` (`MirrorGeometry` + `RepairedGeometry`), `WeakStoneSupport`, `BridgeAnchorSwitch`, `Gate03_GalleryToMechanism`, `RaisedImpactDais`, `ChamberMechanismPuzzle`, `Gate04_MechanismToArena`, `CentralMirrorPlane`, and `Gate05_ArenaExit`.
+
 ---
 
 ## 3. Detailed Room-by-Room Design & Puzzle Contracts
