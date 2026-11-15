@@ -1,0 +1,196 @@
+workflow:
+  name: parallax-vertical-slice-and-full-build
+  description: Staged multi-agent Godot 4.7 development pipeline for PARALLAX (GDD v1.1 Days 1-7) enforcing strict MEMORY/ synchronization and QA validation.
+  version: "1.0.0"
+  timeout: "4h"
+
+  inputs:
+    - name: project_path
+      type: file_path
+      required: true
+      default: "D:/Desktop/Godot/parallax"
+      description: Root directory of the PARALLAX Godot 4.7 project.
+    - name: target_milestone
+      type: string
+      required: false
+      default: "all"
+      description: Optional filter (day1, day2, day3, day4, day5, day6, day7, or all).
+
+  agents:
+    core_architect:
+      name: Core Systems Architect
+      role: Builds RealmManager, RealmReactive contract, EncounterDirector FSM, RunState score autoload, and Main scene wiring.
+      prompt: |
+        Operate in {{inputs.project_path}}.
+        Read MEMORY/00_MEMORY_INDEX_AND_RULES.md and MEMORY/02_CORE_SYSTEMS_AND_ARCHITECTURE.md first.
+        Implement or update the core systems requested in: {{step_input}}.
+        Strictly enforce physics layers 1-7, safe floor/overlap validation on Q shift, and Godot --check-only static typing.
+        Update MEMORY/02_CORE_SYSTEMS_AND_ARCHITECTURE.md and MEMORY/07_DEV_STATUS_AND_CHANGELOG.md in-place with exact script paths and signals.
+      tools: [Read, Write, Edit, Bash]
+      timeout: "30m"
+      retry:
+        max_attempts: 2
+        backoff: linear
+        on_failure: abort
+      validation:
+        rules:
+          - "All modified scripts pass godot --headless --check-only"
+          - "MEMORY/07_DEV_STATUS_AND_CHANGELOG.md updated"
+
+    combat_engineer:
+      name: Player & Enemy Combat Engineer
+      role: Builds PlayerController (move, over-shoulder camera, light/heavy, dodge, F landing attack), EnemyBase, SkeletonGuard, PhantomTwin, ShieldedGuard, BreakableProp, and The Warden.
+      prompt: |
+        Operate in {{inputs.project_path}}.
+        Read MEMORY/02_CORE_SYSTEMS_AND_ARCHITECTURE.md and MEMORY/03_COMBAT_PLAYER_AND_ENEMIES.md first.
+        Implement the combat, breakable, or enemy module requested in: {{step_input}}.
+        Check GLTF forward axis orientation (+Z vs -Z) on ModelRoot, enforce one-hit-per-swing tracking, and match Appendix A tuning numbers.
+        Update MEMORY/03_COMBAT_PLAYER_AND_ENEMIES.md and MEMORY/07_DEV_STATUS_AND_CHANGELOG.md if interfaces or tuning values change.
+      tools: [Read, Write, Edit, Bash]
+      timeout: "35m"
+      retry:
+        max_attempts: 2
+        backoff: linear
+        on_failure: abort
+      validation:
+        rules:
+          - "All player/enemy/prop scripts pass godot --headless --check-only"
+          - "Enemy health, damage, and realm affinity match GDD Appendix A"
+
+    level_builder:
+      name: Level & Environment Builder
+      role: Constructs registered greybox/art blockouts and realm-reactive gates, bridges, pillars, switches, and lighting for Stages 01-05.
+      prompt: |
+        Operate in {{inputs.project_path}}.
+        Read MEMORY/04_LEVEL_DESIGN_AND_ROOMS.md and inspect MEMORY/reference_images/ alongside MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md.
+        Build or refine the requested room stage: {{step_input}}.
+        Maintain exact master blockout coordinates (1 unit = 1m, Y-up, +Z North) and ensure Reality/Mirror alignment with zero soft-locks.
+        Update MEMORY/04_LEVEL_DESIGN_AND_ROOMS.md and MEMORY/07_DEV_STATUS_AND_CHANGELOG.md when scenes or paths are added.
+      tools: [Read, Write, Edit, Bash]
+      timeout: "35m"
+      retry:
+        max_attempts: 2
+        backoff: linear
+        on_failure: abort
+      validation:
+        rules:
+          - "Scene instantiates cleanly in headless Godot"
+          - "Third-person camera and no-soft-lock rules respected"
+
+    ui_vfx_audio_engineer:
+      name: UI, Shaders & Audio Engineer
+      role: Builds single persistent HUD.tscn, menus, LeaderboardStore (user://leaderboard.cfg), Reality/Mirror WorldEnvironment lighting, shaders, and audio hooks.
+      prompt: |
+        Operate in {{inputs.project_path}}.
+        Read MEMORY/05_UI_SCORING_AND_AUDIO.md, MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md, and inspect MEMORY/reference_images/.
+        Implement UI, persistence, shaders, or audio tasks: {{step_input}}.
+        Use ONE shared HUD.tscn matching the fixed anchor rules and amber/cobalt visual language without altering layout across realms.
+        Update MEMORY/05_UI_SCORING_AND_AUDIO.md and MEMORY/07_DEV_STATUS_AND_CHANGELOG.md.
+      tools: [Read, Write, Edit, Bash]
+      timeout: "30m"
+      retry:
+        max_attempts: 2
+        backoff: linear
+        on_failure: abort
+      validation:
+        rules:
+          - "HUD scripts pass --check-only and leaderboard persists via ConfigFile"
+
+    qa_validator:
+      name: QA & Regression Validator
+      role: Executes automated Godot headless simulations and functional checks against MEMORY/01_GDD_OVERVIEW_AND_SCOPE.md Section 5 (Test Matrix).
+      prompt: |
+        Operate in {{inputs.project_path}}.
+        Read MEMORY/01_GDD_OVERVIEW_AND_SCOPE.md Section 5 (Functional Test Matrix) and inspect what changed in: {{step_input}}.
+        Run targeted headless Godot simulation tests verifying physics layers, Q safety checks, combat single-hit integrity, gate progression, and score calculations.
+        Return PASS or FAIL with exact script errors or failed assertions. Clean up any temporary test scripts after running.
+      tools: [Read, Bash]
+      timeout: "20m"
+      retry:
+        max_attempts: 1
+        backoff: none
+        on_failure: abort
+      validation:
+        rules:
+          - "Explicit PASS/FAIL verdict backed by observed Godot exit codes and stdout"
+
+  steps:
+    - id: day1_foundation
+      agent: core_architect
+      type: sequential
+      input: "Day 1 Foundation: Implement RealmManager (Q toggle, 0.60s cooldown, floor+overlap physics safety check), RealmReactive base contract, RunState autoload skeleton, and Main scene with 1 Reality/Mirror test floor pair."
+      output:
+        store_as: day1_core_out
+        format: text
+
+    - id: day1_player_and_camera
+      agent: combat_engineer
+      type: sequential
+      input: "Day 1 Player: Implement third-person PlayerController (WASD camera-relative, 4.5 m/s, over-right-shoulder SpringArm3D 60-70 FOV 3.5-4.5m, Jump/Dodge, Sword placeholder) wired to RealmManager: {{steps.day1_core_out.output}}"
+      output:
+        store_as: day1_player_out
+        format: text
+
+    - id: day2_combat_and_skeleton
+      agent: parallel
+      parallel:
+        - agent: combat_engineer
+          input: "Day 2 Combat & Skeleton: Implement Light 3-hit combo (25/25/35), Heavy (60), Dodge i-frames (0.55s / 0.18s), Airborne F Landing Attack (60 / 2.2m), EnemyBase, and SkeletonGuard AI (100 HP, 15 dmg, RealityOnly)."
+        - agent: ui_vfx_audio_engineer
+          input: "Day 2 Base HUD: Create single shared HUD.tscn (Top-left HP 100/100, Top-center Reality/Mirror chips + Q rejection pulse, Top-right Score/Combo/Timer, Bottom-left Sword, Bottom-right action prompts)."
+      wait: all
+      output:
+        store_as: day2_out
+        format: text
+
+    - id: day3_hall_of_echoes
+      agent: parallel
+      parallel:
+        - agent: level_builder
+          input: "Day 3 Level: Blockout Stage 02 Hall of Echoes (20x20m, Z=10..30) with entry/exit combat gates, EncounterDirector section hook, and checkpoint at Hall exit."
+        - agent: combat_engineer
+          input: "Day 3 Entities: Implement CrackedPillar BreakableProp at (0,0,20) (Heavy trigger, 0.6s warn, 2.5m fall zone, 150 enemy / 40 player dmg) and PhantomTwin AI (80 HP, 20 dmg lunge, MirrorOnly)."
+      wait: all
+      output:
+        store_as: day3_out
+        format: text
+
+    - id: day4_gallery_and_mechanism
+      agent: parallel
+      parallel:
+        - agent: level_builder
+          input: "Day 4 Rooms: Build Stage 03 Collapsed Gallery (24x8m, Z=34..58, 4m spectral bridge, weak stone support, permanent anchor repair) and Stage 04 Mechanism Chamber (12x12m, Z=62..74, raised dais, suspended Mirror weight + pressure plate)."
+        - agent: combat_engineer
+          input: "Day 4 Enemies: Implement ShieldedGuard (250 HP, 20 dmg bash; frontal shield block in Reality, shieldless staggerable echo in Mirror) placed at (0,0,56)."
+      wait: all
+      output:
+        store_as: day4_out
+        format: text
+
+    - id: day5_entry_and_warden
+      agent: parallel
+      parallel:
+        - agent: level_builder
+          input: "Day 5 Rooms: Build Stage 01 Entry Vestibule (12x10m, 3m gap, 3 Mirror stepping stones, Mirror switch, third-person prompts) and Stage 05 Execution Arena (26m circle, central Mirror Plane X=0, exit daylight gate)."
+        - agent: combat_engineer
+          input: "Day 5 Boss: Implement The Warden (1000 shared HP, Phase 1 armored Reality / Cleave 20 / Lunge 25 / 1.4s Mirror echo chest rune window -> 500 HP <=2s Plane Shatter -> Phase 2 REALMS MERGED faster combos) + Boss HUD wiring."
+      wait: all
+      output:
+        store_as: day5_out
+        format: text
+
+    - id: day6_polish_and_leaderboard
+      agent: ui_vfx_audio_engineer
+      type: sequential
+      input: "Day 6 Polish: Complete LeaderboardStore (user://leaderboard.cfg Top-5, Ranks S/A/B/C, TimeBonus max(0, 1000 - elapsed)), Title/Pause/Results/Leaderboard/Options menus, shaders (mirror_spectral, sword_slash_trail, realm_shift_pulse), WorldEnvironment Reality/Mirror tweens, and SFX/music."
+      output:
+        store_as: day6_out
+        format: text
+
+    - id: day7_qa_verification
+      agent: qa_validator
+      type: sequential
+      input: "Day 7 QA: Execute full Test Matrix verification across Stages 01-05, Q safety check, pillar/mechanism idempotency, Warden Phase 1->2 merge, and leaderboard persistence: {{steps.day6_out.output}}"
+      output:
+        store_as: qa_report
+        format: text
