@@ -77,6 +77,7 @@ func _ready() -> void:
 	process_priority = 100 # after RealmEnvironmentController
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_rng.randomize()
+	add_to_group("weather_director")
 	_cur = (PROFILES["golden"] as Dictionary).duplicate()
 	_build_rain()
 	_build_audio()
@@ -97,6 +98,11 @@ func _bind_warden() -> void:
 			if hp >= max_hp:
 				warden_phase2 = false
 				warden_dead = false)
+
+
+## 0..1 surface wetness (same value pushed to the realm_wetness shader global). Used for wet footsteps.
+func get_wetness() -> float:
+	return clampf(float(_cur.get("rain", 0.0)) * 1.2, 0.0, 1.0)
 
 
 func get_profile_for(z: float) -> String:
@@ -272,8 +278,13 @@ func _loop_player(stream: AudioStream, node_name: String) -> AudioStreamPlayer:
 	p.autoplay = DisplayServer.get_name() != "headless"
 	if stream is AudioStreamOggVorbis:
 		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
 	elif stream is AudioStreamWAV:
-		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+		var w: AudioStreamWAV = stream as AudioStreamWAV
+		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		w.loop_begin = 0
+		w.loop_end = int(w.get_length() * float(w.mix_rate))
 	add_child(p)
 	return p
 
