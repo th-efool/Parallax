@@ -13,6 +13,19 @@
 [ext_resource type="PackedScene" path="res://scenes/ambient/habitats/spore_cluster.tscn" id="11_spore"]
 [ext_resource type="PackedScene" path="res://scenes/ambient/creatures/spirit_wisp.tscn" id="12_lonewisp"]
 
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/deer_herd.tscn" id="20_deer"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/fox_den.tscn" id="21_fox"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/spectral_stags.tscn" id="22_spstag"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/spirit_fox.tscn" id="23_spfox"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/pigeon_flock.tscn" id="24_dove"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/alpaca_herd.tscn" id="25_alpaca"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/vegetation/olive_grove.tscn" id="26_olive"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/vegetation/cypress_stand.tscn" id="27_cyp"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/vegetation/wildflower_meadow.tscn" id="28_meadow"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/vegetation/spirit_grove.tscn" id="29_spgrove"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/vegetation/shrubland.tscn" id="30_shrub"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/raccoon_family.tscn" id="31_racc"]
+
 [sub_resource type="Environment" id="Env"]
 background_mode = 1
 background_color = Color(0.16, 0.13, 0.11, 1)
@@ -196,3 +209,39 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0)
 
 [node name="SporeCluster" parent="." instance=ExtResource("11_spore")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0, 3)
+
+[node name="DeerHerd" parent="." instance=ExtResource("20_deer")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, -10)
+
+[node name="FoxDen" parent="." instance=ExtResource("21_fox")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 8)
+
+[node name="SpectralStags" parent="." instance=ExtResource("22_spstag")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, -10)
+
+[node name="SpiritFox" parent="." instance=ExtResource("23_spfox")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 10)
+
+[node name="DoveFlock" parent="." instance=ExtResource("24_dove")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, -12)
+
+[node name="AlpacaHerd" parent="." instance=ExtResource("25_alpaca")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 0, 10)
+
+[node name="OliveGrove" parent="." instance=ExtResource("26_olive")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0, 12)
+
+[node name="CypressStand" parent="." instance=ExtResource("27_cyp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, -15)
+
+[node name="WildflowerMeadow" parent="." instance=ExtResource("28_meadow")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, -3)
+
+[node name="SpiritGrove" parent="." instance=ExtResource("29_spgrove")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 0)
+
+[node name="Shrubland" parent="." instance=ExtResource("30_shrub")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 0, 3)
+
+[node name="RaccoonFamily" parent="." instance=ExtResource("31_racc")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 9)

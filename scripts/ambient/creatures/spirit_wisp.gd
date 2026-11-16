@@ -241,3 +241,6 @@ func _animate(delta: float) -> void:
 		_light.light_energy = clampf(0.7 * _glow * pulse, 0.0, 2.5)
 	if _trail != null:
 		_trail.speed_scale = 0.6 + velocity.length() * 0.25
+
+func _realm_look_profile() -> String:
+	return ""  # wisps recolour themselves per realm

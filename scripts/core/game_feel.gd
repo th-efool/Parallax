@@ -190,6 +190,8 @@ func get_stream(key: String) -> AudioStream:
 		# --- ambient life ---
 		"caw":
 			s = _synth_caw()
+		"coo":
+			s = _synth_coo()
 		"squeak":
 			s = _synth_chirp(0.09, 2600.0, 3600.0, 0.28, 2)
 		"chirp":
@@ -326,6 +328,21 @@ func _synth_caw() -> AudioStreamWAV:
 		var pulse: float = 1.0 if fmod(phase, 1.0) < 0.3 else -0.4
 		var env: float = sin(clampf(t * 1.15, 0.0, 1.0) * PI) * minf(1.0, float(i) / 200.0)
 		b[i] = (saw * 0.45 + pulse * 0.35 + _rng.randf_range(-0.25, 0.25)) * env * 0.42
+	return _to_wav(b)
+
+
+func _synth_coo() -> AudioStreamWAV:
+	# Soft dove "coo-OO-oo": low breathy warble in three swells.
+	var b: PackedFloat32Array = _buffer(0.75)
+	var phase: float = 0.0
+	var lp: float = 0.0
+	for i in range(b.size()):
+		var t: float = float(i) / float(b.size())
+		var swell: float = maxf(0.0, sin(t * PI * 3.0))
+		var f: float = 330.0 + 70.0 * sin(t * PI * 3.0) - 40.0 * t
+		phase += TAU * f / SAMPLE_RATE
+		lp += (_rng.randf_range(-1.0, 1.0) - lp) * 0.05
+		b[i] = (sin(phase) * 0.8 + sin(phase * 2.0) * 0.15 + lp * 0.5) * swell * pow(1.0 - t, 0.6) * 0.35
 	return _to_wav(b)
 
 

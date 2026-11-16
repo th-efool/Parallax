@@ -55,13 +55,13 @@ func begin_swing(custom_damage: int = -1, heavy: bool = false, custom_source_typ
 	if not custom_source_type.is_empty():
 		source_type = custom_source_type
 	is_swing_active = true
-	monitoring = true
+	set_deferred("monitoring", true)  # may be called from inside a physics signal
 	set_swing_shapes_enabled(true)
 
 
 func end_swing() -> void:
 	is_swing_active = false
-	monitoring = false
+	set_deferred("monitoring", false)
 	set_swing_shapes_enabled(false)
 	hit_targets_this_swing.clear()
 
@@ -147,7 +147,6 @@ func set_swing_shapes_enabled(enabled: bool) -> void:
 	for child in get_children():
 		if child is CollisionShape3D:
 			var cs: CollisionShape3D = child as CollisionShape3D
-			cs.disabled = not enabled
 			cs.set_deferred("disabled", not enabled)
 
 

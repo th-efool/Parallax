@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/vegetation_patch.gd" id="1"]
+
+[node name="Shrubland" type="Node3D"]
+script = ExtResource("1")
+kind = 2
+mix = Array[int]([3, 4, 6])
+count = 10
+radius = 4.0
+min_spacing = 0.9

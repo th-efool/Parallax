@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/ambient_habitat.gd" id="1"]
+
+[node name="DeerHerd" type="Node3D"]
+script = ExtResource("1")
+species = 5
+count = 5
+radius = 6.0
+group_mode = 0

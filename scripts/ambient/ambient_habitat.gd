@@ -7,15 +7,27 @@ extends Node3D
 ## Child `Marker3D`s whose name starts with "Perch" become crow perches (`fauna_perch`), and
 ## "Cover" markers become rodent hiding spots (`fauna_cover`). Nothing here has collision.
 
-enum Species { SPIRIT_WISP, BUTTERFLY, MIRROR_MOTH, RUIN_CROW, SCURRIER }
+## Append-only: saved scenes store these as ints.
+enum Species {
+	SPIRIT_WISP, BUTTERFLY, MIRROR_MOTH, RUIN_CROW, SCURRIER,
+	DEER, STAG, ALPACA, FOX, RACCOON, RAT, PIGEON, SPECTRAL_STAG, SPIRIT_FOX,
+}
 enum GroupMode { ONE_GROUP, SMALL_GROUPS, ALL_LONERS, MIXED }
 
+const MODEL_SCRIPT: String = "res://scripts/ambient/creatures/model_creature.gd"
 const SCRIPTS: Dictionary = {
 	Species.SPIRIT_WISP: "res://scripts/ambient/creatures/spirit_wisp.gd",
 	Species.BUTTERFLY: "res://scripts/ambient/creatures/butterfly.gd",
 	Species.MIRROR_MOTH: "res://scripts/ambient/creatures/butterfly.gd",
 	Species.RUIN_CROW: "res://scripts/ambient/creatures/ruin_crow.gd",
 	Species.SCURRIER: "res://scripts/ambient/creatures/scurrier.gd",
+	Species.PIGEON: "res://scripts/ambient/creatures/ruin_crow.gd",  # dove plumage
+}
+## Animated-model species -> ModelCreature.species_key
+const MODEL_KEYS: Dictionary = {
+	Species.DEER: "deer", Species.STAG: "stag", Species.ALPACA: "alpaca", Species.FOX: "fox",
+	Species.RACCOON: "raccoon", Species.RAT: "rat",
+	Species.SPECTRAL_STAG: "spectral_stag", Species.SPIRIT_FOX: "spirit_fox",
 }
 const WORLD_MASK: int = 4 | 8 | 16
 
@@ -75,7 +87,8 @@ func spawn() -> void:
 		rng.seed = random_seed
 	else:
 		rng.randomize()
-	var script: GDScript = load(String(SCRIPTS[species])) as GDScript
+	var is_model: bool = MODEL_KEYS.has(species)
+	var script: GDScript = load(MODEL_SCRIPT if is_model else String(SCRIPTS[species])) as GDScript
 	if script == null:
 		return
 	var group_ids: Array[int] = _assign_groups(rng)
@@ -89,7 +102,15 @@ func spawn() -> void:
 		var presence: int = realm_presence
 		if species == Species.MIRROR_MOTH:
 			presence = AmbientCreature.RealmPresence.MIRROR_ONLY
-		c.set("realm_presence", presence)
+		if is_model:
+			c.set("species_key", MODEL_KEYS[species])
+			# Model species carry their own realm rule; only an explicit habitat setting overrides it.
+			if realm_presence != AmbientCreature.RealmPresence.BOTH:
+				c.set("presence_override", int(realm_presence))
+		else:
+			c.set("realm_presence", presence)
+			if species == Species.PIGEON:
+				c.set("plumage", "dove")
 		var pos: Vector3 = _random_floor_point(rng)
 		add_child(c)
 		c.global_position = pos

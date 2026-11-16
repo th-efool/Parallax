@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/vegetation_patch.gd" id="1"]
+
+[node name="CypressStand" type="Node3D"]
+script = ExtResource("1")
+kind = 1
+count = 5
+radius = 6.0
+min_spacing = 2.5

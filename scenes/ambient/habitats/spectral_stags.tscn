@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/ambient_habitat.gd" id="1"]
+
+[node name="SpectralStags" type="Node3D"]
+script = ExtResource("1")
+species = 12
+count = 2
+radius = 7.0
+group_mode = 0

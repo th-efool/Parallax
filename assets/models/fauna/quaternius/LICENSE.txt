@@ -1,0 +1,2 @@
+﻿All models in this folder: Quaternius (quaternius.com), CC0 1.0 Universal (public domain).
+Downloaded 2026-11-17 via poly.pizza (static.poly.pizza/<uuid>.glb), which lists each as CC0 by Quaternius.

@@ -251,3 +251,6 @@ func _animate(delta: float) -> void:
 	if _body != null:
 		_body.rotation.x = 0.0 if resting else clampf(-velocity.y * 0.25, -0.5, 0.5)
 		_body.position.y = 0.0 if resting else sin(_flap * TAU * 0.16) * 0.012
+
+func _realm_look_profile() -> String:
+	return "flower"  # wings turn to light in Mirror

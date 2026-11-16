@@ -294,7 +294,7 @@ func _sync_visuals_and_colliders() -> void:
 					scs.set_deferred("disabled", not is_intact)
 		elif child is Hurtbox3D:
 			var hb: Hurtbox3D = child as Hurtbox3D
-			hb.monitorable = is_intact
+			hb.set_deferred("monitorable", is_intact)  # may run inside a physics signal flush
 			hb.set_deferred("monitorable", is_intact)
 
 	# Debris colliders living under the broken visual are solid only once the prop is broken.

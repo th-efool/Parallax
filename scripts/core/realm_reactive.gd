@@ -113,8 +113,8 @@ func _apply_collision_state_recursive(node: Node, active: bool) -> void:
 			csg.use_collision = active
 	elif node is Area3D:
 		var area: Area3D = node as Area3D
-		area.monitoring = active
-		area.monitorable = active
+		area.set_deferred("monitoring", active)  # realm shifts can land inside physics callbacks
+		area.set_deferred("monitorable", active)
 		area.set_deferred("monitoring", active)
 		area.set_deferred("monitorable", active)
 

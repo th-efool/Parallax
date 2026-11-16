@@ -41,6 +41,8 @@ var focus_pos: Vector3 = Vector3.ZERO
 var fear: float = 0.0
 var fear_source: Vector3 = Vector3.ZERO
 var is_present: bool = true
+## Species this creature hunts (prey within range feel threatened). Set by predator species.
+var hunts: Array = []
 
 # Kinematics (species set these in _configure)
 var max_speed: float = 2.0
@@ -87,6 +89,9 @@ func _ready() -> void:
 	_body.name = "Body"
 	add_child(_body)
 	_build_body(_body)
+	var look: String = _realm_look_profile()
+	if not look.is_empty():
+		RealmLook.apply(_body, look)  # moonlit / luminous variant in Mirror
 	_director = FaunaDirector.get_for(self)
 	if _director != null:
 		_director.register_creature(self)
@@ -121,6 +126,11 @@ func _species_traits() -> Dictionary:
 
 func _build_body(_root: Node3D) -> void:
 	pass
+
+
+## RealmLook profile applied to the procedural body ("" = species handles its own realm look).
+func _realm_look_profile() -> String:
+	return "fur"
 
 
 ## Return {behaviour_name: score}. Base scores are filled first; species add or override.
@@ -325,6 +335,22 @@ func _perceive() -> void:
 		if ds > threat:
 			threat = ds
 			src = dist["pos"] as Vector3
+	# Prey sense predators that hunt their species (e.g. foxes stalking rats / pigeons / scurriers).
+	if _director != null:
+		for c in _director.creatures:
+			if not is_instance_valid(c) or c == self:
+				continue
+			var h: Variant = c.get("hunts")
+			if not (h is Array) or not (h as Array).has(species):
+				continue
+			var dp: float = (c as Node3D).global_position.distance_to(global_position)
+			var hunting: bool = String(c.get("behaviour")) == "hunt"
+			var rp: float = 6.0 if hunting else 3.0
+			if dp < rp:
+				var tp: float = (1.0 - dp / rp) * (1.1 if hunting else 0.6) * (1.2 - bold)
+				if tp > threat:
+					threat = tp
+					src = (c as Node3D).global_position
 	threat = clampf(threat, 0.0, 1.5)
 	if threat > fear:
 		var jumped: bool = threat > 0.6 and fear < 0.6

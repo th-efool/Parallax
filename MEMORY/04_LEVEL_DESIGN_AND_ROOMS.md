@@ -142,3 +142,17 @@ Single creatures/plants for hand placement: `scenes/ambient/creatures/*.tscn`, `
 **Habitat knobs**: `count`, `radius`, `group_mode` (ONE_GROUP / SMALL_GROUPS / ALL_LONERS / MIXED), `loner_chance`, `archetype_override` (force e.g. all CURIOUS), `realm_presence`, `home_radius_scale`, `debug_labels` (floating species/personality/behaviour text). **Flora knobs**: `kind`, `count`, `radius`, `min_spacing`, `clump_size`, `shyness`, `realm_presence`.
 
 **Perf budget**: AI ticks ~8 Hz staggered; creatures/flora freeze + hide beyond ~45 m / 40 m from camera; max 10 wisp `OmniLight3D`s globally (rest are glow-only). Suggested per-room cap: ~25 creatures, ~120 flora.
+
+### 5.1 Animated animals & MegaKit vegetation (realm rules)
+| Prefab | Contents | Realm |
+| :--- | :--- | :--- |
+| `habitats/deer_herd`, `stag_pair` | Quaternius deer / stags (grazers: graze, glance, freeze-alert, bolt) | Reality only |
+| `habitats/fox_den` | Fox (stalks rats / doves / scurriers, pounces, always misses) | Reality only |
+| `habitats/pigeon_flock` | Grey **doves** (procedural `RuinCrow`, `plumage = dove`, coo) | Both (moonlit in Mirror) |
+| `habitats/alpaca_herd`, `raccoon_family`, `rat_colony` | Alpacas (kick if snuck up on), raccoon scavengers, rats | Both (moonlit in Mirror) |
+| `habitats/spectral_stags`, `spirit_fox` | Ghost stag / guide fox (dissolve into motes if rushed; fox runs ahead and waits) | Mirror only |
+| `vegetation/olive_grove`, `cypress_stand`, `shrubland`, `fern_hollow` | Broadleaf trees, pines, bushes, ferns | Both (luminous foliage in Mirror) |
+| `vegetation/wildflower_meadow` | Flower clumps, clover, grass | Flowers/clover Reality only |
+| `vegetation/spirit_grove` | Spirit ferns, crystal mushrooms, ghost pines | Mirror only |
+
+**Placement intent** (map team): trees, herds, foxes and meadows belong in open-air or garden spaces, not inside halls; inside fortifications use doves, crows, rats, wisps and small wall/crack growth.

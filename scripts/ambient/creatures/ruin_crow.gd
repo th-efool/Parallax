@@ -10,6 +10,8 @@ extends AmbientCreature
 const KitScript := preload("res://scripts/ambient/fauna_mesh_kit.gd")
 const GameFeelScript := preload("res://scripts/core/game_feel.gd")
 
+## "crow" (glossy black ruin crows / ravens) or "dove" (grey colosseum doves that coo).
+@export_enum("crow", "dove") var plumage: String = "crow"
 @export var circle_altitude: float = 6.0
 @export var ground_speed: float = 1.5
 @export var air_speed: float = 5.2
@@ -35,7 +37,10 @@ var _circle_dir: float = 1.0
 
 
 func _configure() -> void:
-	species = "crow"
+	species = "dove" if plumage == "dove" else "crow"
+	if plumage == "dove":
+		circle_altitude = 4.0
+		ground_speed = 1.1
 	flies = false
 	max_speed = ground_speed
 	accel = 7.0
@@ -46,24 +51,32 @@ func _configure() -> void:
 
 
 func _species_traits() -> Dictionary:
+	if plumage == "dove":
+		return {"bold": 0.45, "curiosity": 0.55, "sociability": 0.9, "mischief": 0.3, "energy": 0.55}
 	return {"bold": 0.55, "curiosity": 0.6, "sociability": 0.65, "mischief": 0.5, "energy": 0.5}
 
 
 func _build_body(root: Node3D) -> void:
-	var s: float = randf_range(0.9, 1.08)
-	if archetype == Archetype.LONER:
+	var dove: bool = plumage == "dove"
+	var s: float = randf_range(0.9, 1.08) * (0.78 if dove else 1.0)
+	if archetype == Archetype.LONER and not dove:
 		s *= 1.3  # raven
 	root.scale = Vector3.ONE * s
-	var black := KitScript.mat(Color(0.06, 0.06, 0.08))
-	var sheen := KitScript.mat(Color(0.1, 0.12, 0.2))
-	var beak := KitScript.mat(Color(0.18, 0.17, 0.16))
+	# Crow: glossy black. Dove: ash-grey body, slate head, and an iridescent green/violet neck band.
+	var grey_v: float = randf_range(0.55, 0.72)
+	var black := KitScript.mat(Color(grey_v, grey_v, grey_v * 1.06) if dove else Color(0.06, 0.06, 0.08))
+	var sheen := KitScript.mat(Color(0.38, 0.4, 0.46) if dove else Color(0.1, 0.12, 0.2))
+	var beak := KitScript.mat(Color(0.55, 0.42, 0.42) if dove else Color(0.18, 0.17, 0.16))
+	if dove:
+		var neck := KitScript.mat(Color(0.25, 0.55, 0.42) if randf() < 0.5 else Color(0.45, 0.3, 0.55))
+		KitScript.part(root, KitScript.sphere(0.07, 8, 4), neck, Vector3(0, 0.24, -0.09), Vector3(1.0, 0.7, 0.8))
 	KitScript.part(root, KitScript.sphere(0.12, 8, 5), black, Vector3(0, 0.17, 0.02), Vector3(0.8, 0.85, 1.35), Vector3.ZERO, "Torso")
 	_head = KitScript.pivot(root, Vector3(0, 0.28, -0.13), "Head")
 	KitScript.part(_head, KitScript.sphere(0.075, 8, 5), sheen, Vector3.ZERO)
 	KitScript.part(_head, KitScript.prism(Vector3(0.045, 0.1, 0.035)), beak, Vector3(0, 0.0, -0.1), Vector3.ONE, Vector3(-PI * 0.5, 0, 0))
 	_beak_low = KitScript.pivot(_head, Vector3(0, -0.012, -0.05), "BeakLow")
 	KitScript.part(_beak_low, KitScript.box(Vector3(0.03, 0.01, 0.07)), beak, Vector3(0, -0.005, -0.03))
-	var eye := KitScript.mat(Color(0.95, 0.85, 0.5), 1.5, true)
+	var eye := KitScript.mat(Color(1.0, 0.45, 0.15) if dove else Color(0.95, 0.85, 0.5), 1.5, true)
 	KitScript.part(_head, KitScript.sphere(0.012, 6, 4), eye, Vector3(0.055, 0.02, -0.03))
 	KitScript.part(_head, KitScript.sphere(0.012, 6, 4), eye, Vector3(-0.055, 0.02, -0.03))
 	if archetype == Archetype.MISCHIEVOUS:
@@ -229,6 +242,9 @@ func _caw(force: bool) -> void:
 		return
 	_caw_cd = randf_range(2.5, 6.0)
 	_caw_t = 0.35
+	if plumage == "dove":
+		GameFeelScript.play_sound(self, "coo", global_position, -16.0 if force else -19.0, randf_range(0.9, 1.1), 0.05)
+		return
 	GameFeelScript.play_sound(self, "caw", global_position, -11.0 if force else -14.0, randf_range(0.85, 1.15) / (1.2 if archetype == Archetype.LONER else 1.0), 0.06)
 
 
@@ -280,3 +296,6 @@ func _animate(delta: float) -> void:
 			_body.rotation.x = 0.0
 	if _tail != null:
 		_tail.rotation.x = 0.2 * sin(_hop_phase * 0.5) + (0.3 if airborne else 0.0)
+
+func _realm_look_profile() -> String:
+	return "feather"

@@ -450,13 +450,13 @@ func _refresh_active_state() -> void:
 	for child in get_children():
 		if child is CollisionShape3D:
 			var cs: CollisionShape3D = child as CollisionShape3D
-			cs.disabled = not should_be_active
 			cs.set_deferred("disabled", not should_be_active)
 
 	var hurtbox: Hurtbox3D = get_hurtbox()
 	if hurtbox != null:
 		hurtbox.is_invulnerable = not should_be_active
-		hurtbox.monitorable = should_be_active
+		# Deferred only: this runs inside physics signal flushes (death mid-swing); is_invulnerable above
+		# already blocks hits immediately.
 		hurtbox.set_deferred("monitorable", should_be_active)
 
 	if not should_be_active:

@@ -24,6 +24,8 @@ var _lights_in_use: int = 0
 var _bound: Dictionary = {}
 var _scan_timer: float = 0.0
 var _player: Node3D = null
+var _env_ctrl: Node = null
+var _fallback_blend: float = 0.0
 
 
 static func get_for(context: Node) -> FaunaDirector:
@@ -48,6 +50,11 @@ func _exit_tree() -> void:
 	var kit: GDScript = load("res://scripts/ambient/fauna_mesh_kit.gd") as GDScript
 	if kit != null:
 		kit.call("clear_caches")
+	RealmLook.clear_caches()
+	for path in ["res://scripts/ambient/creatures/model_creature.gd", "res://scripts/ambient/vegetation.gd", "res://scripts/core/character_loadout.gd"]:
+		var s: GDScript = load(path) as GDScript
+		if s != null and s.has_method("clear_caches"):
+			s.call("clear_caches")
 
 
 func _ready() -> void:
@@ -190,6 +197,27 @@ func _process(delta: float) -> void:
 		_scan_timer = 1.0
 		_bind_world()
 	_ambient_player_presence()
+	RealmLook.set_blend(_current_realm_blend())
+
+
+## Follows the level's own realm transition (`RealmEnvironmentController.current_realm_blend`, the
+## value it pushes to the `realm_mirror_blend` shader global); falls back to RealmManager state with a
+## short local ease when no environment controller exists (e.g. test scenes).
+func _current_realm_blend() -> float:
+	if not is_instance_valid(_env_ctrl) and is_inside_tree():
+		_env_ctrl = get_tree().get_first_node_in_group("realm_environment")
+	if _env_ctrl != null and is_instance_valid(_env_ctrl):
+		var v: Variant = _env_ctrl.get("current_realm_blend")
+		if v is float:
+			return v as float
+	var target: float = 0.0
+	if RealmManager.instance != null:
+		if RealmManager.instance.is_merged:
+			target = 0.5
+		elif RealmManager.instance.current_realm == RealmManager.Realm.MIRROR:
+			target = 1.0
+	_fallback_blend = move_toward(_fallback_blend, target, get_process_delta_time() * 5.0)
+	return _fallback_blend
 
 
 ## The player is a walking disturbance: louder when sprinting, rolling or attacking.

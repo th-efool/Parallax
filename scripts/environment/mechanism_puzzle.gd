@@ -50,7 +50,7 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 			var hb: Hurtbox3D = child as Hurtbox3D
 			var can_hit: bool = (not is_solved) and should_show_weight
 			hb.is_invulnerable = not can_hit
-			hb.monitorable = can_hit
+			hb.set_deferred("monitorable", can_hit)  # may run inside a physics signal flush
 			hb.set_deferred("monitorable", can_hit)
 
 
