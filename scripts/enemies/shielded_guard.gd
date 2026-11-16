@@ -26,6 +26,11 @@ func _init() -> void:
 	attack_name = "shield_bash"
 	section_id = EncounterDirector.Section.COLLAPSED_GALLERY
 	encounter_id = "shielded_guard"
+	# Heavy armour: shoves less, rarely dodges (it has a shield), slower to flinch.
+	knockback_scale = 0.55
+	evade_skill = 0.15
+	max_flinch_chain = 1
+	attack_lunge_speed = 4.0
 
 
 func is_shield_raised() -> bool:

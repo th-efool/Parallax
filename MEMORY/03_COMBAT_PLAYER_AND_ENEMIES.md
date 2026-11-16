@@ -23,10 +23,13 @@
 - **Camera**: Third-person follow camera positioned behind and slightly right-of-shoulder (`SpringArm3D` with collision push-in so walls never clip view).
   - **FOV**: `60°–70°` (start around `65°`).
   - **Follow Distance**: `350–450 cm` (`3.5 m – 4.5 m`). Player remains visible head-to-toe during combat and gap jumps.
-- **Locomotion**:
-  - Single default run speed: **`450 cm/s` (`4.5 m/s`)** — no sprint toggle needed for 1-week build.
-  - Jump impulse: Tuned to reliably clear the `3.0 m` Entrance stepping-stone gaps and jump onto the `Mechanism Chamber` dais/weight.
-  - Ground dodge: `0.55 s` duration with `~0.18 s` invulnerability frames centered in the dodge (not full animation).
+- **Locomotion** (game-feel pass, `feature/game-feel-combat`):
+  - Run **`6.0 m/s`**, momentum ramps to **`7.6 m/s`** after ~`1.1 s` of held direction (no button, no stamina); sharp reversal at speed = skid (resets ramp, dust).
+  - Accel `46`, friction `40`, air accel `20`; turning against momentum uses friction-strength accel so direction changes snap.
+  - Jump `7.8` impulse (apex height unchanged ~`1.9 m`): early release = `2.3x` gravity (short hop), apex hang `0.55x` while held, fall `1.75x`, max fall `26 m/s`. Jump buffer `0.13 s`, coyote `0.12 s`. Horizontal reach ≈ old (faster run compensates faster fall) so authored gaps still clear.
+  - Dodge `0.42 s` (burst `1.3x` then eased into a run), i-frames `0.03–0.29 s`, cooldown `0.14 s`. **One air-dash per airtime** (holds altitude for 60%).
+  - **Perfect dodge**: an enemy hit landing inside i-frames (`Hurtbox3D.hit_blocked_invulnerable`) → `0.3x` slow-mo for `0.55 s` real time + ghosts.
+  - Camera (`PlayerFeelRig`): trauma shake (real-time, respects `camera_shake_intensity`), FOV spring kicks, sprint FOV `+7°` & arm `+0.45 m`, loose vertical lag in air.
 
 ---
 
@@ -41,6 +44,22 @@
 | **Landing Attack** | `F` (in air) | `60` / `2.2 m` radius | Single radial pulse on ground contact; area damage + knockback + triggers Mechanism Chamber Mirror weight. Never auto-triggers on normal jump landing. |
 
 > **Hitbox Contract**: Track a `hit_targets_this_swing: Array[Node]` per attack activation so a single swing or shockwave damages each target **at most once** (no per-physics-frame damage ticks).
+
+**Phase-based attacks** (`PlayerController.ATTACK_DEFS`): every swing is WINDUP → ACTIVE → RECOVERY. The hitbox is live only during ACTIVE, and a shape sweep (arc / line / 360° ring) runs each active frame in addition to Area3D overlaps.
+
+| Attack | Clip (time-remapped) | Windup / Active / Recovery (s) | Shape | Hit-stop |
+| :--- | :--- | :--- | :--- | :--- |
+| `light_1` | `1H_Melee_Attack_Slice_Horizontal` | `0.11 / 0.10 / 0.26` | 120° arc, 2.35 m | 0.05 |
+| `light_2` | `1H_Melee_Attack_Slice_Diagonal` | `0.11 / 0.10 / 0.26` | 120° arc | 0.055 |
+| `light_3` finisher | `1H_Melee_Attack_Chop` | `0.17 / 0.10 / 0.36` | 90° arc + ground crack | 0.09 |
+| `heavy` Cleave (neutral) | `2H_Melee_Attack_Chop` | `0.30 / 0.12 / 0.42` | 70° arc + 4.2 m line | 0.12 |
+| `heavy_spin` Whirlwind (RMB mid-chain) | `2H_Melee_Attack_Spin` | `0.15 / 0.30 / 0.34` | 360°, 2.8 m | 0.085 |
+
+- **Input buffer** `0.24 s`; attacks chain in the recovery cancel window (`cancel` fraction of recovery); dodge cancels anything except ACTIVE frames; late-dodge (`>60%`) can chain straight into an attack.
+- **Magnetism**: target within `4.8 m` and ±75° of stick (or facing); stick neutral falls back to any enemy within `2.8 m`. Lunge closes to `1.25 m`, tracks target through windup.
+- **Shield deflect**: a fully blocked light swing calls `on_attack_deflected()` → blade bounces (forced recovery, knock-back, sparks, clang).
+- Kill = extra hit-stop; killing the last nearby enemy = `0.22x` kill-cam slow-mo for `0.42 s`.
+- Contact times were measured from each clip's `hand.r` peak speed (GLB FK), so remapped clips whip exactly on the active frames.
 
 ### 2.2 Combo System
 - Increment hit count on any **successful** Light or Heavy hit against an active enemy.
@@ -95,6 +114,17 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
     - HUD banner/chip changes to **`REALMS MERGED`**; `Q` is locked/disabled (`shift_locked = true`).
   - **Phase 2 (`500 -> 0 HP`)**:
     - Directly vulnerable in Reality to all player attacks (Light, Heavy, Landing). Uses faster cleave combos & shorter lunge recovery. At `0 HP`: death animation, exit gate lifts, run timer stops, Results sequence begins.
+
+### 3.3 Squad Tactics, Hit Reactions & Gore (`SquadCoordinator`, `EnemyAI`, `EnemyBase`)
+- **Attack tokens**: max `2` simultaneous attackers (1 if squad < 3), `0.42 s` minimum gap between attack starts. Token priority = time waited + up to `+1.2 s` for standing behind the player (pincer). Released on recovery / stagger / death.
+- **Holding ring**: non-token enemies circle at `attack_range + ring_margin (1.7)` with angular spacing (62°), drift toward the player's flank, back off if crowding, separation steering, random orbit flips.
+- **Alert**: first spotter taunts `0.55 s` and alerts every idle ally in the same `encounter_id` or within `14 m`.
+- **Evade**: uncommitted enemies within `3.4 m` in the player's front cone may side-step a telegraphed swing (`evade_skill`: Skeleton `0.45`, Phantom `0.7`, Shielded `0.15`, Warden `0`).
+- **Flinch & poise**: light hits flinch (`0.26 s`) unless ATTACK or past 50% of WINDUP (hyper-armour). After `max_flinch_chain` (2; Shielded 1) flinches → `1.6 s` poise; `70%` chance of an immediate fast counter-swing. Warden never flinches on lights.
+- **Enrage**: last survivor of a squad of ≥2 moves `1.25x`, winds up `0.8x`, recovers `0.7x`.
+- **Every hit**: knock-back (`knockback_scale`: Warden `0.15`, Shielded `0.55`, Phantom `1.3`), hit-lean spring on `ModelRoot`, white flash overlay, directional blood spray + floor splat decals, wound drip below 55% HP. Spectral (Mirror-only) enemies bleed emissive cyan ichor.
+- **Death**: `GoreFX.dismember()` splits the rig into per-bone physics gibs posed exactly as the killing frame (meshes grouped by dominant skin bone; helmets/weapons follow their bone attachment), blood fountain + pool, gib bleed trails; gibs fade after ~7 s (cap 80, decals cap 48).
+- **Loadouts** (`CharacterLoadout`): Knight player = `1H_Sword + Badge_Shield`; Knight Shielded Guard = `1H_Sword + Rectangle_Shield`; Barbarian Warden = `2H_Axe`; Skeleton Warrior borrows Barbarian `1H_Axe` + Knight `Round_Shield`; Skeleton Rogue borrows Knight `1H_Sword` + offhand.
 
 ---
 

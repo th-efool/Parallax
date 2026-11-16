@@ -62,6 +62,11 @@ func _init() -> void:
 	attack_name = "warden_cleave"
 	section_id = EncounterDirector.Section.EXECUTION_ARENA
 	encounter_id = "the_warden"
+	# Boss poise: light hits don't flinch, barely budges, never side-steps.
+	flinch_on_light_hits = false
+	knockback_scale = 0.15
+	evade_skill = 0.0
+	attack_lunge_speed = 0.0
 
 
 func step_ai(delta: float) -> void:

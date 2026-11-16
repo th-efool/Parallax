@@ -9,6 +9,9 @@ signal staggered(duration: float)
 signal died(enemy: Node, kill_context: Dictionary)
 signal realm_activity_changed(active: bool)
 
+const GoreFXScript := preload("res://scripts/core/gore_fx.gd")
+const GameFeelScript := preload("res://scripts/core/game_feel.gd")
+
 @export_group("Identity & Realm")
 @export var enemy_id: String = ""
 @export var section_id: int = 1
@@ -25,7 +28,20 @@ signal realm_activity_changed(active: bool)
 @export var attack_hitbox_path: NodePath = NodePath("AttackHitbox")
 @export var visual_root_path: NodePath = NodePath("VisualRoot")
 
+@export_group("Hit Feel & Gore")
+## Alpha 0 = automatic (red blood; cyan ichor for Mirror-only spectral enemies).
+@export var blood_color: Color = Color(0.0, 0.0, 0.0, 0.0)
+@export var gib_on_death: bool = true
+@export var flinch_on_light_hits: bool = true
+@export var knockback_scale: float = 1.0
+
 var health: int = 100
+var last_hit_direction: Vector3 = Vector3.FORWARD
+var last_hit_source: String = ""
+var last_hit_heavy: bool = false
+var _flash_mat: StandardMaterial3D = null
+var _flash_serial: int = 0
+var _wound_fx: CPUParticles3D = null
 var is_active: bool = true
 var is_section_enabled: bool = true
 var is_realm_enabled: bool = true
@@ -49,6 +65,9 @@ func _ready() -> void:
 		EncounterDirector.instance.register_section_enemy(section_id as EncounterDirector.Section, self)
 		if not EncounterDirector.instance.section_reset_requested.is_connected(_on_section_reset_requested):
 			EncounterDirector.instance.section_reset_requested.connect(_on_section_reset_requested)
+
+	if has_signal("shield_deflected"):
+		connect("shield_deflected", _on_shield_deflected_fx)
 
 	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:
@@ -122,6 +141,7 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 		return false
 
 	_last_attacker = attacker
+	_record_hit(attacker, is_heavy, source_type)
 	var final_damage: int = _modify_incoming_damage(amount, is_heavy, source_type)
 	if final_damage <= 0:
 		return false
@@ -131,11 +151,19 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 	health_changed.emit(health, max_health)
 
 	_on_damage_taken(final_damage, is_heavy, source_type)
+	if is_dead:
+		return true  # a subclass hook (e.g. phase change) already resolved the death
 
-	if health <= 0:
+	var lethal: bool = health <= 0
+	_play_hit_feedback(final_damage, is_heavy, source_type, lethal)
+
+	if lethal:
 		_die(source_type)
 	elif is_heavy and _should_stagger_on_hit(is_heavy, source_type):
 		_on_stagger_triggered()
+		_on_hit_reaction(final_damage, is_heavy, source_type, true)
+	else:
+		_on_hit_reaction(final_damage, is_heavy, source_type, false)
 
 	return true
 
@@ -149,6 +177,7 @@ func reset_enemy() -> void:
 	var fwd: Vector3 = -_spawn_transform.basis.z
 	fwd.y = 0.0
 	facing_direction = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
+	_clear_wound_fx()
 	_on_enemy_reset()
 	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:
@@ -186,6 +215,191 @@ func _on_enemy_reset() -> void:
 	pass
 
 
+## Virtual: per-hit reaction (flinch / knockback). `staggered` = heavy stagger already triggered.
+func _on_hit_reaction(_final_damage: int, _is_heavy: bool, _source_type: String, _staggered: bool) -> void:
+	pass
+
+
+# ------------------------------------------------------------------ hit feel & gore
+
+func _record_hit(attacker: Node, is_heavy: bool, source_type: String) -> void:
+	last_hit_heavy = is_heavy
+	last_hit_source = source_type
+	var dir: Vector3 = Vector3.ZERO
+	if attacker is Node3D and (attacker as Node3D).is_inside_tree() and is_inside_tree():
+		dir = global_position - (attacker as Node3D).global_position
+		dir.y = 0.0
+		if attacker.has_method("get_facing_direction") and dir.length_squared() < 0.04:
+			dir = attacker.call("get_facing_direction")
+	if dir.length_squared() < 0.0001:
+		dir = -get_facing_direction()
+	last_hit_direction = dir.normalized()
+
+
+func get_blood_color() -> Color:
+	if blood_color.a > 0.0:
+		return blood_color
+	return GoreFXScript.blood_color_for(is_spectral())
+
+
+func is_spectral() -> bool:
+	return realm_affinity == RealmReactive.Affinity.MIRROR_ONLY
+
+
+func get_chest_position() -> Vector3:
+	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
+	var h: float = 1.15
+	var model: Node3D = get_node_or_null(NodePath(String(visual_root_path) + "/ModelRoot")) as Node3D
+	if model != null:
+		h *= model.scale.y
+	return (vis.global_position if vis != null else global_position) + Vector3.UP * h
+
+
+func _play_hit_feedback(final_damage: int, is_heavy: bool, source_type: String, lethal: bool) -> void:
+	if not is_inside_tree() or source_type == "environmental":
+		return
+	var col: Color = get_blood_color()
+	var spectral: bool = is_spectral()
+	var chest: Vector3 = get_chest_position()
+	var contact: Vector3 = chest - last_hit_direction * 0.3
+	if not lethal:
+		var intensity: float = clampf(float(final_damage) / 28.0, 0.45, 1.5) + (0.5 if is_heavy else 0.0)
+		# Spray exits away from the blade, fanned sideways like a cut.
+		var side: Vector3 = Vector3(last_hit_direction.z, 0.0, -last_hit_direction.x) * randf_range(-0.6, 0.6)
+		GoreFXScript.blood_burst(self, contact, last_hit_direction + side, intensity, col, spectral)
+		GameFeelScript.play_sound(self, "splat", contact, -9.0 if not is_heavy else -4.0, 1.1)
+		if is_heavy:
+			GameFeelScript.play_sound(self, "bone_crunch", contact, -6.0, 1.0)
+	_hit_flash(Color(1.0, 0.95, 0.9, 0.85) if not spectral else Color(0.7, 1.0, 1.0, 0.9), 0.07 if not is_heavy else 0.11)
+	_update_wound_fx()
+
+
+## Additive white overlay for a few frames (restores whatever overlay was there).
+func _hit_flash(color: Color, duration: float) -> void:
+	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
+	if vis == null:
+		return
+	if _flash_mat == null:
+		_flash_mat = StandardMaterial3D.new()
+		_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_flash_mat.albedo_color = color
+	var meshes: Array[MeshInstance3D] = []
+	_collect_mesh_instances(vis, meshes)
+	var previous: Dictionary = {}
+	for mi in meshes:
+		if mi.material_overlay != _flash_mat:
+			previous[mi] = mi.material_overlay
+		mi.material_overlay = _flash_mat
+	_flash_serial += 1
+	var serial: int = _flash_serial
+	get_tree().create_timer(duration, true, false, true).timeout.connect(func() -> void:
+		if serial != _flash_serial or not is_instance_valid(self):
+			return
+		for mi2 in meshes:
+			if is_instance_valid(mi2) and mi2.material_overlay == _flash_mat:
+				mi2.material_overlay = previous.get(mi2, null) as Material
+	)
+
+
+func _collect_mesh_instances(node: Node, out: Array[MeshInstance3D]) -> void:
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for c in node.get_children():
+		if c is CPUParticles3D:
+			continue
+		_collect_mesh_instances(c, out)
+
+
+## Badly wounded enemies drip continuously.
+func _update_wound_fx() -> void:
+	var hurt_ratio: float = 1.0 - float(health) / maxf(1.0, float(max_health))
+	if hurt_ratio < 0.45 or is_dead:
+		return
+	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
+	if vis == null:
+		return
+	if _wound_fx == null or not is_instance_valid(_wound_fx):
+		_wound_fx = CPUParticles3D.new()
+		_wound_fx.name = "WoundDrip"
+		_wound_fx.amount = 6
+		_wound_fx.lifetime = 0.7
+		_wound_fx.local_coords = false
+		var m := SphereMesh.new()
+		m.radius = 0.025
+		m.height = 0.05
+		m.radial_segments = 6
+		m.rings = 3
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = get_blood_color()
+		mat.roughness = 0.2
+		if is_spectral():
+			mat.emission_enabled = true
+			mat.emission = get_blood_color()
+			mat.emission_energy_multiplier = 2.0
+		m.material = mat
+		_wound_fx.mesh = m
+		_wound_fx.direction = Vector3.DOWN
+		_wound_fx.spread = 25.0
+		_wound_fx.initial_velocity_min = 0.1
+		_wound_fx.initial_velocity_max = 0.6
+		_wound_fx.gravity = Vector3(0.0, -12.0, 0.0)
+		_wound_fx.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		_wound_fx.emission_sphere_radius = 0.18
+		vis.add_child(_wound_fx)
+		_wound_fx.position = Vector3(0.0, 1.0, 0.0)
+	_wound_fx.amount = clampi(int(4.0 + hurt_ratio * 14.0), 4, 18)
+	_wound_fx.emitting = true
+
+
+func _clear_wound_fx() -> void:
+	if _wound_fx != null and is_instance_valid(_wound_fx):
+		_wound_fx.queue_free()
+	_wound_fx = null
+
+
+func _on_shield_deflected_fx(is_heavy: bool) -> void:
+	if not is_inside_tree():
+		return
+	var contact: Vector3 = get_chest_position() - last_hit_direction * 0.55
+	GoreFXScript.sparks(self, contact, -last_hit_direction, Color(1.0, 0.82, 0.4), 40 if is_heavy else 26)
+	GameFeelScript.play_sound(self, "clang", contact, 0.0 if is_heavy else -3.0, 0.85 if is_heavy else 1.05)
+	if _last_attacker != null and is_instance_valid(_last_attacker) and _last_attacker.has_method("on_attack_deflected"):
+		_last_attacker.call("on_attack_deflected", is_heavy, contact)
+
+
+## Explodes the rig into posed physics gibs with a blood fountain and a floor pool.
+func _spawn_death_gore(source_type: String) -> void:
+	if not is_inside_tree():
+		return
+	var col: Color = get_blood_color()
+	var spectral: bool = is_spectral()
+	var chest: Vector3 = get_chest_position()
+	var force: float = 3.2
+	match source_type:
+		"player_heavy":
+			force = 7.5
+		"player_landing":
+			force = 8.5
+		"environmental":
+			force = 1.5
+		_:
+			force = 4.2 if not last_hit_heavy else 7.0
+	var model: Node3D = get_node_or_null(NodePath(String(visual_root_path) + "/ModelRoot")) as Node3D
+	var gibs: int = 0
+	if gib_on_death and model != null:
+		gibs = GoreFXScript.dismember(self, model, last_hit_direction, force, col, spectral)
+	GoreFXScript.blood_burst(self, chest, last_hit_direction, 2.4, col, spectral)
+	GoreFXScript.blood_burst(self, chest + Vector3.UP * 0.35, Vector3.UP + last_hit_direction * 0.4, 1.4, col, spectral)
+	GoreFXScript.blood_decal(self, global_position, randf_range(1.3, 1.9), col, 0.25)
+	if spectral:
+		GoreFXScript.flash_light(self, chest, col, 5.0, 0.35, 5.0)
+	GameFeelScript.play_sound(self, "gib_burst", chest, 0.0, 1.0 if gibs > 0 else 1.2)
+	GameFeelScript.play_sound(self, "bone_crunch", chest, -2.0, 0.8)
+	GameFeelScript.add_trauma(self, 0.18, chest)
+
+
 func _die(source_type: String) -> void:
 	if is_dead:
 		return
@@ -194,6 +408,9 @@ func _die(source_type: String) -> void:
 	var hb: Hitbox3D = get_attack_hitbox()
 	if hb != null:
 		hb.end_swing()
+
+	_clear_wound_fx()
+	_spawn_death_gore(source_type)
 
 	var in_mirror: bool = false
 	if RealmManager.instance != null and not RealmManager.instance.is_merged:

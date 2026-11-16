@@ -23,6 +23,10 @@ func _init() -> void:
 	attack_name = "phantom_lunge"
 	section_id = EncounterDirector.Section.HALL_COMBAT
 	encounter_id = "hall_of_echoes"
+	# Spectral duelist: light on its feet, slips out of telegraphed swings.
+	evade_skill = 0.7
+	knockback_scale = 1.3
+	ring_margin = 1.2
 
 
 func start_windup(custom_windup: float = -1.0) -> void:
