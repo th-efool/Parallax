@@ -38,6 +38,7 @@ var _std_cache: Dictionary = {}
 var _scenery: Node3D = null
 var _decor: Node3D = null
 var _anim_tweens: Array[Tween] = []
+var _parapet_count: int = 0
 
 
 # =====================================================================================================
@@ -111,8 +112,9 @@ func get_route_waypoints() -> Array:
 		[Vector3(0, Y_GALLERY, 65), 0], [Vector3(0, Y_GALLERY, 72), 1], [Vector3(0, Y_GALLERY, 76), 1],
 		[Vector3(0, Y_GALLERY, 83), 0], [Vector3(0, Y_GALLERY, 86), 0], [Vector3(0, Y_GALLERY, 90), 0],
 		[Vector3(0, Y_GALLERY, 101), 0], [Vector3(0, 8.0, 109), 0], [Vector3(0, Y_ARENA, 118), 0],
-		[Vector3(0, Y_ARENA, 130), 0], [Vector3(0, Y_ARENA, 143), 0], [Vector3(6, Y_ARENA, 154), 0],
-		[Vector3(0, Y_ARENA, 165), 0], [Vector3(0, Y_ARENA, 177), 0], [Vector3(0, Y_ARENA, 194), 0],
+		[Vector3(0, Y_ARENA, 130), 0], [Vector3(0, Y_ARENA, 140), 0], [Vector3(2.6, Y_ARENA, 144), 0],
+		[Vector3(6, Y_ARENA, 154), 0], [Vector3(2.6, Y_ARENA, 164), 0], [Vector3(0, Y_ARENA, 168), 0],
+		[Vector3(0, Y_ARENA, 177), 0], [Vector3(0, Y_ARENA, 194), 0],
 	]
 
 
@@ -330,6 +332,40 @@ func _ramp(parent: Node, n: String, from: Vector3, to: Vector3, width: float, ma
 	return body
 
 
+func _prop_collider(parent: Node, n: String, pos: Vector3, shape: Shape3D, rot: Vector3 = Vector3.ZERO, layer: int = LAYER_WORLD_SHARED) -> StaticBody3D:
+	## Collision-only body for decor props standing on walkable floors (braziers, obelisks, crystals...).
+	var body := StaticBody3D.new()
+	body.name = n
+	body.collision_layer = layer
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	body.position = pos
+	body.rotation = rot
+	parent.add_child(body)
+	return body
+
+
+func _cyl_shape(radius: float, height: float) -> CylinderShape3D:
+	var s := CylinderShape3D.new()
+	s.radius = radius
+	s.height = height
+	return s
+
+
+func _box_shape(size: Vector3) -> BoxShape3D:
+	var s := BoxShape3D.new()
+	s.size = size
+	return s
+
+
+func _configure_enemy_actor(enemy: EnemyBase, node_name: String, unique_id: String, pos: Vector3, color: Color, body_size: Vector3 = Vector3(0.8, 1.8, 0.8)) -> void:
+	super._configure_enemy_actor(enemy, node_name, unique_id, pos, color, body_size)
+	# Enemies respect the same railings as the player (they must never be lured off a cliff edge).
+	enemy.collision_mask |= RealmManager.LAYER_PLAYER_BLOCKER
+
+
 func _parapet(parent: Node, n: String, a: Vector3, b: Vector3, mat: Material, visual_h: float = 1.05, block_h: float = 2.7, thick: float = 0.45) -> void:
 	## Low balustrade (visual) + tall invisible collider (jump apex is ~1.94 m) from a to b at feet height.
 	var d: Vector3 = b - a
@@ -345,13 +381,20 @@ func _parapet(parent: Node, n: String, a: Vector3, b: Vector3, mat: Material, vi
 	vis.name = n
 	var art: Node3D = _static_art(parent)
 	art.add_child(vis)
+	# Neighbouring parapets overlap at corners. Stagger height by heading octant (segments that meet always
+	# differ in heading) so overlapping caps/tops never share a plane — no corner flicker.
+	_parapet_count += 1
+	var octant: int = posmod(roundi(yaw / (PI * 0.25)), 8)
+	var h: float = visual_h + 0.012 * float(octant)
 	var body_mesh := BoxMesh.new()
-	body_mesh.size = Vector3(thick, visual_h, length)
-	_mesh(vis, "Parapet", body_mesh, mat, Transform3D(basis, mid + basis.y * (visual_h * 0.5)))
+	body_mesh.size = Vector3(thick, h, length)
+	_mesh(vis, "Parapet", body_mesh, mat, Transform3D(basis, mid + basis.y * (h * 0.5)))
 	var cap := BoxMesh.new()
 	cap.size = Vector3(thick + 0.16, 0.14, length + 0.1)
-	_mesh(vis, "Cap", cap, _m_marble(), Transform3D(basis, mid + basis.y * (visual_h + 0.07)))
-	_invisible_wall(vis, "Blocker", mid + basis.y * (block_h * 0.5), Vector3(thick, block_h, length), rot)
+	_mesh(vis, "Cap", cap, _m_marble(), Transform3D(basis, mid + basis.y * (h + 0.07)))
+	# Low visible rail (solid to the player at its real height) + tall blocker on the camera-ignored layer.
+	_solid(vis, "RailBody", mid + basis.y * (h * 0.5 + 0.035), Vector3(thick + 0.16, h + 0.07, length), null, LAYER_WORLD_SHARED, rot, false)
+	_solid(vis, "Blocker", mid + basis.y * (block_h * 0.5), Vector3(thick, block_h, length), null, RealmManager.LAYER_PLAYER_BLOCKER, rot, false)
 
 
 func _static_art(parent: Node) -> Node3D:
@@ -416,13 +459,15 @@ func _brazier(groups: Array[Node3D], pos: Vector3, light: bool = true) -> void:
 	bowl.height = 0.45
 	bowl.radial_segments = 16
 	bowl.rings = 1
+	bowl.cap_top = false # open bowl: the ember bed sits inside it (no coplanar cap to z-fight with)
 	_mesh(shared, "BrazierBowl", bowl, _m_bronze(), Transform3D(Basis.IDENTITY, pos + Vector3(0, 1.3, 0)), true, 90.0)
 	var coals := CylinderMesh.new()
-	coals.top_radius = 0.48
-	coals.bottom_radius = 0.48
+	coals.top_radius = 0.46
+	coals.bottom_radius = 0.42
 	coals.height = 0.05
 	coals.radial_segments = 12
-	_mesh(groups[1], "Embers", coals, _std("embers", Color(0.2, 0.05, 0.0), 0.0, 1.0, Color(1.0, 0.35, 0.05), 3.0), Transform3D(Basis.IDENTITY, pos + Vector3(0, 1.5, 0)), false, 90.0)
+	_mesh(groups[1], "Embers", coals, _std("embers", Color(0.2, 0.05, 0.0), 0.0, 1.0, Color(1.0, 0.35, 0.05), 3.0), Transform3D(Basis.IDENTITY, pos + Vector3(0, 1.44, 0)), false, 90.0)
+	_prop_collider(shared, "BrazierCollider", pos + Vector3(0, 0.8, 0), _cyl_shape(0.5, 1.6))
 	groups[1].add_child(_flame(pos + Vector3(0, 1.55, 0), Color(1.6, 1.0, 0.45), Color(1.0, 0.25, 0.04, 0.0), 1.0))
 	groups[2].add_child(_flame(pos + Vector3(0, 1.55, 0), Color(0.7, 0.95, 1.6), Color(0.1, 0.3, 1.0, 0.0), 0.85))
 	if light:
@@ -507,7 +552,7 @@ func _flame_material() -> StandardMaterial3D:
 	return m
 
 
-func _sword_monument(parent: Node3D, base_pos: Vector3, yaw_deg: float, height: float) -> void:
+func _sword_monument(parent: Node3D, base_pos: Vector3, yaw_deg: float, height: float, collide: bool = false) -> void:
 	## Colossal stone greatsword plunged point-down into a rubble mound (replaces figurative statues).
 	var w: float = height * 0.11
 	var blade_len: float = height * 0.72
@@ -541,6 +586,9 @@ func _sword_monument(parent: Node3D, base_pos: Vector3, yaw_deg: float, height: 
 	_mesh(parent, "SwordPommel", pommel, _m_bronze(), Transform3D(basis, base_pos + Vector3(0, blade_len + height * 0.27, 0)))
 	var mound: ArrayMesh = ProcMesh.rock_mesh(Vector3(w * 2.6, w * 1.3, w * 2.3), int(base_pos.z * 7.0 + base_pos.x), 0.25, 8, 0.0)
 	_mesh(parent, "SwordMound", mound, _m_ruin(), Transform3D(basis, base_pos))
+	if collide:
+		_prop_collider(parent, "SwordMoundCollider", base_pos + Vector3(0, w * 0.4, 0), _cyl_shape(w * 1.2, w * 0.8))
+		_prop_collider(parent, "SwordBladeCollider", base_pos + Vector3(0, blade_len * 0.5, 0), _box_shape(Vector3(w * 1.05, blade_len, w * 0.3)), Vector3(0, deg_to_rad(yaw_deg), 0))
 
 
 func _banner(parent: Node3D, top: Vector3, yaw_deg: float, width: float, length: float, mirror_kind: bool) -> void:
@@ -611,7 +659,10 @@ func _find_anim_player(node: Node) -> AnimationPlayer:
 	return null
 
 
-func _crystal_cluster(parent: Node3D, pos: Vector3, size: float, seed_val: int) -> void:
+func _crystal_cluster(parent: Node3D, pos: Vector3, size: float, seed_val: int, collide: bool = false) -> void:
+	if collide:
+		# Mirror-layer collider: solid only while the player is in the Mirror (RealmManager swaps masks).
+		_prop_collider(parent, "CrystalCollider", pos + Vector3(0, 0.6 * size, 0), _cyl_shape(0.55 * size, 1.2 * size), Vector3.ZERO, LAYER_WORLD_MIRROR)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	var prism := CylinderMesh.new()
@@ -666,9 +717,26 @@ func _restyle_pillar(prop: BreakableProp, column_h: float, radius: float, broken
 			if c.name != "FractureSeam":
 				c.free()
 		_mesh(intact, "Column", ProcMesh.column_mesh(radius, column_h, 16), _m_marble(), Transform3D.IDENTITY)
-		var seam: Node3D = intact.get_node_or_null("FractureSeam") as Node3D
+		var seam: MeshInstance3D = intact.get_node_or_null("FractureSeam") as MeshInstance3D
 		if seam != null:
-			seam.position = Vector3(0, 1.7, -radius - 0.02)
+			# Embedded glowing crack (half inside the fluted shaft) instead of a stick floating in front of it.
+			var sm := BoxMesh.new()
+			sm.size = Vector3(0.07, 1.9, 0.08)
+			seam.mesh = sm
+			seam.position = Vector3(0, 1.75, -radius * 0.93)
+	# Collider matches the column: base plinth box + shaft (old greybox cylinder was thinner than the base).
+	var solid: StaticBody3D = prop.get_node_or_null("SolidBody") as StaticBody3D
+	if solid != null:
+		for c in solid.get_children():
+			c.free()
+		var base_cs := CollisionShape3D.new()
+		base_cs.shape = _box_shape(Vector3(radius * 2.6, radius * 0.9, radius * 2.6))
+		base_cs.position = Vector3(0, radius * 0.45, 0)
+		solid.add_child(base_cs)
+		var shaft_cs := CollisionShape3D.new()
+		shaft_cs.shape = _cyl_shape(radius * 1.02, column_h)
+		shaft_cs.position = Vector3(0, column_h * 0.5, 0)
+		solid.add_child(shaft_cs)
 	if broken != null:
 		for c in broken.get_children():
 			c.free()
@@ -677,12 +745,27 @@ func _restyle_pillar(prop: BreakableProp, column_h: float, radius: float, broken
 		drum.bottom_radius = radius * 0.92
 		drum.height = column_h * 0.28
 		drum.radial_segments = 16
+		# Fallen drums are real obstacles once the pillar is down (BreakableProp toggles these colliders).
+		var debris := StaticBody3D.new()
+		debris.name = "DebrisBody"
+		debris.collision_layer = LAYER_WORLD_SHARED
+		debris.collision_mask = 0
+		broken.add_child(debris)
 		var n: int = 3
 		for i in range(n):
 			var along: float = 1.4 + float(i) * column_h * 0.3
 			var basis := Basis(Vector3.RIGHT, PI * 0.5).rotated(Vector3.UP, 0.12 * float(i - 1))
-			_mesh(broken, "Drum%d" % i, drum, _m_marble(), Transform3D(basis, broken_dir * along + Vector3(0.25 * float(i - 1), radius * 0.92, 0)))
-		_mesh(broken, "Stump", ProcMesh.column_mesh(radius, 1.1, 16), _m_marble(), Transform3D.IDENTITY)
+			var drum_xf := Transform3D(basis, broken_dir * along + Vector3(0.25 * float(i - 1), radius * 0.92, 0))
+			_mesh(broken, "Drum%d" % i, drum, _m_marble(), drum_xf, true, 0.0, false)
+			var dcs := CollisionShape3D.new()
+			dcs.shape = _cyl_shape(radius * 0.92, column_h * 0.28)
+			dcs.transform = drum_xf
+			debris.add_child(dcs)
+		_mesh(broken, "Stump", ProcMesh.column_mesh(radius, 1.1, 16), _m_marble(), Transform3D.IDENTITY, true, 0.0, false)
+		var stump_cs := CollisionShape3D.new()
+		stump_cs.shape = _box_shape(Vector3(radius * 2.95, 1.1, radius * 2.95)) # abacus is 2.9 r wide
+		stump_cs.position = Vector3(0, 0.55, 0)
+		debris.add_child(stump_cs)
 
 
 # =====================================================================================================
@@ -802,13 +885,19 @@ func _build_stage_01_entry() -> Node3D:
 	fallen.bottom_radius = 1.0
 	fallen.height = 7.0
 	fallen.radial_segments = 16
-	_mesh(g[0], "FallenColumn", fallen, _m_marble(), Transform3D(Basis(Vector3(0, 0, 1), PI * 0.5).rotated(Vector3.UP, 0.5), Vector3(-9.8, 0.95, -31.0)))
+	# Toppled column lies along the west balustrade (clear of the causeway-to-causeway walking line).
+	fallen.height = 4.4
+	var fallen_basis: Basis = Basis(Vector3(1, 0, 0), PI * 0.5).rotated(Vector3.UP, 0.06)
+	_mesh(g[0], "FallenColumn", fallen, _m_marble(), Transform3D(fallen_basis, Vector3(-10.3, 0.95, -31.75)))
+	var fallen_col := _prop_collider(g[0], "FallenColumnCollider", Vector3(-10.3, 0.95, -31.75), _cyl_shape(0.98, 4.4))
+	fallen_col.basis = fallen_basis
 	_mesh(g[0], "OverlookObelisk", ProcMesh.column_mesh(0.45, 6.5, 12), _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-10.5, 0, -35.5)))
+	_prop_collider(g[0], "OverlookObeliskCollider", Vector3(-10.5, 3.25, -35.5), _cyl_shape(0.75, 6.5))
 	for z in [-48.0, -40.0, -26.0, -19.0]:
 		var x: float = lerpf(0.0, -7.0, clampf((z + 51.5) / 15.5, 0.0, 1.0)) if z < -30.0 else lerpf(-7.0, 0.0, clampf((z + 30.0) / 15.5, 0.0, 1.0))
 		_mesh(g[0], "Waystone", ProcMesh.column_mesh(0.25, 2.2, 8), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(x + 3.2, 0, z)), true, 120.0)
-	_crystal_cluster(g[2], Vector3(-10.0, 0.0, -30.5), 1.4, 11)
-	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0), 1.0, 12)
+	_crystal_cluster(g[2], Vector3(-3.5, 0.0, -35.4), 1.2, 11, true)
+	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0), 1.0, 12, true)
 	g[1].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), false))
 	g[2].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), true))
 	return root
@@ -825,7 +914,11 @@ func _build_stage_02_hall() -> Node3D:
 	var y: float = Y_HALL
 
 	# --- Sunlit Stair: Z 8 -> 22, Y 0 -> 4 ---
-	_ramp(root, "SunlitStair_Ramp", Vector3(0, 0, 8.0), Vector3(0, y, 22.0), 8.0, null, false)
+	# Ramp collider runs through the middle of each step (shifted half a run) so feet neither sink into the
+	# nosings nor float over the treads; an invisible top-step slab closes the gap to the landing.
+	var s_run: float = 14.0 / 20.0
+	_ramp(root, "SunlitStair_Ramp", Vector3(0, 0, 8.0 - s_run * 0.5), Vector3(0, y, 22.0 - s_run * 0.5), 8.0, null, false)
+	_solid(root, "SunlitStair_TopStep", Vector3(0, y - 0.25, 22.0 - s_run * 0.5), Vector3(8.0, 0.5, s_run), null, LAYER_WORLD_SHARED, Vector3.ZERO, false)
 	_mesh(g[0], "SunlitStair_Steps", ProcMesh.steps_mesh(8.0, y, 14.0, 20), _m_floor(), Transform3D(Basis.IDENTITY, Vector3(0, 0, 8.0)))
 	_solid(root, "SunlitStair_Landing", Vector3(0, y - 0.25, 23.0), Vector3(8.0, 0.5, 2.0), _m_floor())
 	_parapet(root, "Rail_Stair_W", Vector3(-4.2, 0, 7.6), Vector3(-4.2, y, 22.0), _m_wall())
@@ -893,8 +986,13 @@ func _build_stage_02_hall() -> Node3D:
 	_banner(g[1], Vector3(5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, false)
 	_banner(g[2], Vector3(-5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, true)
 	_banner(g[2], Vector3(5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, true)
-	_crystal_cluster(g[2], Vector3(-9.0, y, 34.0), 1.3, 21)
-	_crystal_cluster(g[2], Vector3(9.0, y, 30.0), 1.1, 22)
+	# Crystals grow on the cliff just outside the arcades: seen through the grilles, never in the fighting space.
+	_crystal_cluster(g[2], Vector3(-12.3, 3.4, 34.0), 1.4, 21)
+	_crystal_cluster(g[2], Vector3(12.3, 3.4, 30.0), 1.2, 22)
+	# Gate-arch piers flanking the south seal gate protrude onto the landing: give them real collision.
+	for sx in [-1.0, 1.0]:
+		for gz in [23.3, 44.7]:
+			_prop_collider(root, "GateArchPier_%d" % int(sx), Vector3(sx * 2.6, y + 4.0, gz), _box_shape(Vector3(0.8, 8.0, 1.6)))
 	g[1].add_child(_make_ambient_particles(Vector3(0, y + 3.5, 34), Vector3(9, 3.5, 9), false))
 	g[2].add_child(_make_ambient_particles(Vector3(0, y + 3.5, 34), Vector3(9, 3.5, 9), true))
 
@@ -902,8 +1000,9 @@ func _build_stage_02_hall() -> Node3D:
 	_solid(root, "Corridor02_Floor", Vector3(0.0, y - 0.25, 46.0), Vector3(4.0, 0.5, 4.0), _m_floor())
 	_ramp(root, "Rampart_Ramp", Vector3(0, y, 48.0), Vector3(0, Y_GALLERY, 58.0), 5.0, _m_path())
 	_solid(root, "Rampart_Landing", Vector3(0, Y_GALLERY - 0.25, 59.0), Vector3(6.0, 0.5, 2.0), _m_path())
-	_invisible_wall(root, "Corridor02_W", Vector3(-2.2, y + 2.5, 46.0), Vector3(0.4, 5.0, 4.0))
-	_invisible_wall(root, "Corridor02_E", Vector3(2.2, y + 2.5, 46.0), Vector3(0.4, 5.0, 4.0))
+	# Visible balustrades instead of invisible walls on the open-air corridor.
+	_parapet(root, "Corridor02_W", Vector3(-2.2, y, 44.4), Vector3(-2.2, y, 48.0), _m_wall())
+	_parapet(root, "Corridor02_E", Vector3(2.2, y, 44.4), Vector3(2.2, y, 48.0), _m_wall())
 	_parapet(root, "Rail_Rampart_W", Vector3(-2.7, y, 47.8), Vector3(-2.7, Y_GALLERY, 58.0), _m_wall())
 	_parapet(root, "Rail_Rampart_LW", Vector3(-3.0, Y_GALLERY, 58.0), Vector3(-3.0, Y_GALLERY, 60.0), _m_wall())
 	_parapet(root, "Rail_Rampart_LE", Vector3(3.0, Y_GALLERY, 58.0), Vector3(3.0, Y_GALLERY, 60.0), _m_wall())
@@ -1020,8 +1119,31 @@ func _build_stage_03_gallery() -> Node3D:
 			c.free()
 	var block := BoxMesh.new()
 	block.size = Vector3(3.2, 3.4, 1.4)
-	_mesh(sup_intact, "BarrierBlock", block, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(0, 1.7, 0)))
-	(sup_intact.get_node("FractureSeam") as Node3D).position = Vector3(0, 1.7, -0.73)
+	_mesh(sup_intact, "BarrierBlock", block, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(0, 1.7, 0)), true, 0.0, false)
+	(sup_intact.get_node("FractureSeam") as Node3D).position = Vector3(0, 1.7, -0.69)
+	# Collider = the barrier block (the greybox cylinder let players walk through both ends of the wall).
+	var sup_body: StaticBody3D = support.get_node("SolidBody") as StaticBody3D
+	for c in sup_body.get_children():
+		c.free()
+	var sup_cs := CollisionShape3D.new()
+	sup_cs.shape = _box_shape(Vector3(3.2, 3.4, 1.4))
+	sup_cs.position = Vector3(0, 1.7, 0)
+	sup_body.add_child(sup_cs)
+	# Rubble: low piles pushed against the balustrades, clear of the anchor switch path.
+	var sup_broken: Node3D = support.get_node("BrokenVisual") as Node3D
+	for c in sup_broken.get_children():
+		c.free()
+	var rubble_body := StaticBody3D.new()
+	rubble_body.name = "DebrisBody"
+	rubble_body.collision_layer = LAYER_WORLD_SHARED
+	sup_broken.add_child(rubble_body)
+	for sx in [-1.0, 1.0]:
+		var pile: ArrayMesh = ProcMesh.rock_mesh(Vector3(1.6, 0.5, 1.4), 88 + int(sx), 0.3, 6, 0.0)
+		_mesh(sup_broken, "Rubble", pile, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(sx * 2.7, 0.05, 0.2)), true, 0.0, false)
+		var rcs := CollisionShape3D.new()
+		rcs.shape = _box_shape(Vector3(1.6, 0.45, 1.3))
+		rcs.position = Vector3(sx * 2.7, 0.22, 0.2)
+		rubble_body.add_child(rcs)
 	root.add_child(support)
 
 	var anchor := _make_switch("BridgeAnchorSwitch", Vector3(0.0, y, 79.0), InteractSwitch.SwitchRole.BRIDGE_ANCHOR, 1,
@@ -1047,8 +1169,8 @@ func _build_stage_03_gallery() -> Node3D:
 		_parapet(root, "Rail_N_%d" % int(sx), Vector3(sx * 3.95, y, 74.0), Vector3(sx * 3.95, y, 84.0), _m_wall())
 		_parapet(root, "Rail_SouthJoin_%d" % int(sx), Vector3(sx * 2.9, y, 60.0), Vector3(sx * 3.95, y, 60.0), _m_wall())
 		_parapet(root, "Rail_NorthJoin_%d" % int(sx), Vector3(sx * 2.2, y, 84.0), Vector3(sx * 3.95, y, 84.0), _m_wall())
-	_invisible_wall(root, "Corridor03_W", Vector3(-2.2, y + 2.5, 86.0), Vector3(0.4, 5.0, 4.0))
-	_invisible_wall(root, "Corridor03_E", Vector3(2.2, y + 2.5, 86.0), Vector3(0.4, 5.0, 4.0))
+	_parapet(root, "Corridor03_W", Vector3(-2.2, y, 84.0), Vector3(-2.2, y, 87.0), _m_wall())
+	_parapet(root, "Corridor03_E", Vector3(2.2, y, 84.0), Vector3(2.2, y, 87.0), _m_wall())
 
 	# --- Art: aqueduct arcade plunging into the gorge, broken at the gap ---
 	var aq: ArrayMesh = ProcMesh.arch_mesh(5.0, 46.0, 3.2, 31.0, 7.6)
@@ -1071,7 +1193,7 @@ func _build_stage_03_gallery() -> Node3D:
 			body.collision_layer = LAYER_WORLD_SHARED
 			var cs := CollisionShape3D.new()
 			var cyl := CylinderShape3D.new()
-			cyl.radius = 0.4
+			cyl.radius = 0.5 # covers the 0.78 m square base block of the ruin column
 			cyl.height = h
 			cs.shape = cyl
 			body.add_child(cs)
@@ -1177,7 +1299,8 @@ func _build_stage_04_mechanism() -> Node3D:
 	plate_mesh.bottom_radius = 1.05
 	plate_mesh.height = 0.14
 	plate_mesh.radial_segments = 24
-	_mesh(plate, "PlateMesh", plate_mesh, _m_bronze(), Transform3D(Basis.IDENTITY, Vector3(0, 0.07, 0)))
+	# Recessed plate: top sits 3 cm proud of the floor (was 14 cm, which feet clipped through).
+	_mesh(plate, "PlateMesh", plate_mesh, _m_bronze(), Transform3D(Basis.IDENTITY, Vector3(0, -0.04, 0)), true, 0.0, false)
 	puzzle.add_child(plate)
 	root.add_child(puzzle)
 
@@ -1190,15 +1313,16 @@ func _build_stage_04_mechanism() -> Node3D:
 		_anim_tweens.append(tw)
 	# Pilasters
 	var pil := BoxMesh.new()
-	pil.size = Vector3(0.6, 17.0, 0.9)
+	pil.size = Vector3(0.4, 17.0, 0.9)
 	var pils: Array = []
 	for sx in [-1.0, 1.0]:
 		for z in [89.0, 99.0]:
-			pils.append(Transform3D(Basis.IDENTITY, Vector3(sx * 5.75, y + 8.5, z)))
+			pils.append(Transform3D(Basis.IDENTITY, Vector3(sx * 5.8, y + 8.5, z)))
+			_prop_collider(root, "PilasterCollider", Vector3(sx * 5.8, y + 8.5, z), _box_shape(Vector3(0.4, 17.0, 0.9)))
 	_multimesh(g[0], "Pilasters", pil, _m_marble(), pils)
 	_brazier(g, Vector3(-4.6, y, 99.0))
 	_brazier(g, Vector3(4.6, y, 99.0))
-	_crystal_cluster(g[2], Vector3(4.2, y, 89.6), 1.2, 41)
+	_crystal_cluster(g[2], Vector3(4.6, y, 89.4), 1.0, 41, true)
 	g[1].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), false))
 	g[2].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), true))
 	return root
@@ -1218,9 +1342,11 @@ func _build_stage_05_arena() -> Node3D:
 
 	# --- Processional: corridor Z 100..102, stair Z 102..116 (Y 6 -> 10), esplanade Z 116..120 ---
 	_solid(root, "Corridor04_Floor", Vector3(0.0, y0 - 0.25, 101.0), Vector3(4.0, 0.5, 2.0), _m_floor())
-	_invisible_wall(root, "Corridor04_W", Vector3(-2.2, y0 + 2.5, 101.0), Vector3(0.4, 5.0, 2.0))
-	_invisible_wall(root, "Corridor04_E", Vector3(2.2, y0 + 2.5, 101.0), Vector3(0.4, 5.0, 2.0))
-	_ramp(root, "Processional_Ramp", Vector3(0, y0, 102.0), Vector3(0, y, 116.0), 12.0, null, false)
+	_parapet(root, "Corridor04_W", Vector3(-2.2, y0, 100.6), Vector3(-2.2, y0, 102.0), _m_wall())
+	_parapet(root, "Corridor04_E", Vector3(2.2, y0, 100.6), Vector3(2.2, y0, 102.0), _m_wall())
+	var p_run: float = 14.0 / 22.0
+	_ramp(root, "Processional_Ramp", Vector3(0, y0, 102.0 - p_run * 0.5), Vector3(0, y, 116.0 - p_run * 0.5), 12.0, null, false)
+	_solid(root, "Processional_TopStep", Vector3(0, y - 0.25, 116.0 - p_run * 0.5), Vector3(12.0, 0.5, p_run), null, LAYER_WORLD_SHARED, Vector3.ZERO, false)
 	_mesh(g[0], "Processional_Steps", ProcMesh.steps_mesh(12.0, y - y0, 14.0, 22), _m_floor(), Transform3D(Basis.IDENTITY, Vector3(0, y0, 102.0)))
 	_solid(root, "Processional_Esplanade", Vector3(0.0, y - 0.25, 118.0), Vector3(18.0, 0.5, 4.0), _m_floor())
 	_parapet(root, "Rail_Proc_W", Vector3(-6.2, y0, 101.8), Vector3(-6.2, y, 116.0), _m_wall())
@@ -1352,8 +1478,17 @@ func _build_stage_05_arena() -> Node3D:
 	intact_vis.add_child(plane_mesh)
 	var frame_post := BoxMesh.new()
 	frame_post.size = Vector3(0.6, 6.4, 0.6)
+	# Frame posts are solid while the plane stands; BreakableProp disables this body when it shatters.
+	var frame_body := StaticBody3D.new()
+	frame_body.name = "FrameBody"
+	frame_body.collision_layer = LAYER_WORLD_SHARED
 	for dz in [-11.2, 11.2]:
-		_mesh(intact_vis, "PlaneFrame", frame_post, _m_bronze(), Transform3D(Basis.IDENTITY, Vector3(0, 3.2, dz)))
+		_mesh(intact_vis, "PlaneFrame", frame_post, _m_bronze(), Transform3D(Basis.IDENTITY, Vector3(0, 3.2, dz)), true, 0.0, false)
+		var fcs := CollisionShape3D.new()
+		fcs.shape = _box_shape(Vector3(0.6, 6.4, 0.6))
+		fcs.position = Vector3(0, 3.2, dz)
+		frame_body.add_child(fcs)
+	mirror_plane.add_child(frame_body)
 	mirror_plane.add_child(intact_vis)
 	mirror_plane.shatter_extent = Vector3(0.12, 5.5, 22.0)
 	mirror_plane.shatter_center_offset = Vector3(0.0, 2.75, 0.0)
@@ -1377,7 +1512,9 @@ func _build_stage_05_arena() -> Node3D:
 	root.add_child(_make_section_trigger("Trigger_RunComplete", Vector3(0.0, y + 1.25, sz0 + 3.0), Vector3(4.0, 2.5, 1.5),
 		EncounterDirector.Section.COMPLETE, Vector3(0.0, y, sz0 + 3.0), "", 0, NodePath(), true))
 	_mesh(g[0], "SummitObelisk", ProcMesh.column_mesh(0.7, 14.0, 16), _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-6.0, y, sz1 - 3.0)))
-	_sword_monument(g[0], Vector3(5.5, y, sz1 - 3.5), 25.0, 9.0)
+	_prop_collider(g[0], "SummitObeliskCollider", Vector3(-6.0, y + 7.0, sz1 - 3.0), _cyl_shape(0.95, 14.0))
+	_prop_collider(g[0], "SummitObeliskBase", Vector3(-6.0, y + 0.42, sz1 - 3.0), _box_shape(Vector3(1.86, 0.84, 1.86)))
+	_sword_monument(g[0], Vector3(5.5, y, sz1 - 3.5), 25.0, 9.0, true)
 	_brazier(g, Vector3(-7.5, y, sz0 + 2.0))
 	_brazier(g, Vector3(7.5, y, sz0 + 2.0))
 
@@ -1391,8 +1528,10 @@ func _build_stage_05_arena() -> Node3D:
 		enemies.add_child(warden)
 		root.add_child(enemies)
 
-	_crystal_cluster(g[2], c + Vector3(-9.5, 0, 6.0), 1.6, 51)
-	_crystal_cluster(g[2], c + Vector3(9.0, 0, -7.0), 1.5, 52)
+	# Crystals crown the podium (out of the duel space) instead of sitting on the arena sand.
+	for spec in [[2.3, 1.4, 51], [4.0, 1.3, 52], [5.6, 1.2, 53]]:
+		var a: float = float(spec[0])
+		_crystal_cluster(g[2], c + Vector3(sin(a), 0, cos(a)) * 14.05 + Vector3(0, 4.75, 0), float(spec[1]), int(spec[2]))
 	g[1].add_child(_make_ambient_particles(c + Vector3(0, 4, 0), Vector3(13, 4, 13), false))
 	g[2].add_child(_make_ambient_particles(c + Vector3(0, 6, 0), Vector3(16, 6, 16), true))
 	return root
