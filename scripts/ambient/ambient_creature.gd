@@ -72,6 +72,8 @@ var _play_until: float = 0.0
 var _play_cooldown: float = 0.0
 var _pending_fear: Array[Vector2] = []  # (amount, fire_time)
 var _scores: Dictionary = {}
+var _mates_cache: Array[Node3D] = []
+var _cam_dist: float = 0.0
 
 
 # ------------------------------------------------------------------ lifecycle
@@ -92,6 +94,10 @@ func _ready() -> void:
 	var look: String = _realm_look_profile()
 	if not look.is_empty():
 		RealmLook.apply(_body, look)  # moonlit / luminous variant in Mirror
+	# GPU distance culling for every body part (no per-frame script cost).
+	for gi in _body.find_children("*", "GeometryInstance3D", true, false):
+		(gi as GeometryInstance3D).visibility_range_end = lod_distance
+		(gi as GeometryInstance3D).visibility_range_end_margin = 4.0
 	_director = FaunaDirector.get_for(self)
 	if _director != null:
 		_director.register_creature(self)
@@ -204,7 +210,9 @@ func _process(delta: float) -> void:
 	if not _update_lod(delta):
 		return
 	_think_acc += delta
-	if _think_acc >= 1.0 / think_hz:
+	# Distant creatures think slower (still animate and move smoothly).
+	var hz: float = think_hz if _cam_dist < 22.0 else think_hz * 0.3
+	if _think_acc >= 1.0 / hz:
 		think(_think_acc)
 		_think_acc = 0.0
 	behaviour_time += delta
@@ -234,7 +242,8 @@ func _update_lod(delta: float) -> bool:
 	if _lod_timer <= 0.0:
 		_lod_timer = 0.5
 		var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
-		var near: bool = cam == null or cam.global_position.distance_to(global_position) <= lod_distance
+		_cam_dist = cam.global_position.distance_to(global_position) if cam != null else 0.0
+		var near: bool = cam == null or _cam_dist <= lod_distance
 		if _body != null:
 			_body.visible = near
 		set_meta("lod_far", not near)
@@ -242,6 +251,8 @@ func _update_lod(delta: float) -> bool:
 
 
 func think(_dt: float) -> void:
+	if _director != null and group_id >= 0:
+		_mates_cache = _director.flockmates(self, species, 6.0, group_id)
 	_perceive()
 	_scores = {}
 	_score_base(_scores)
@@ -294,9 +305,11 @@ func _player_is_violent(p: Node3D) -> bool:
 func nearest_enemy(radius: float) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = radius
-	for e in get_tree().get_nodes_in_group("enemy"):
+	if _director == null:
+		return null
+	for e in _director.get_enemies():
 		var eb: EnemyBase = e as EnemyBase
-		if eb == null or eb.is_dead or not eb.is_active:
+		if eb == null or not is_instance_valid(eb) or eb.is_dead or not eb.is_active:
 			continue
 		var d: float = eb.global_position.distance_to(global_position)
 		if d < best_d:
@@ -337,11 +350,10 @@ func _perceive() -> void:
 			src = dist["pos"] as Vector3
 	# Prey sense predators that hunt their species (e.g. foxes stalking rats / pigeons / scurriers).
 	if _director != null:
-		for c in _director.creatures:
+		for c in _director.hunters:
 			if not is_instance_valid(c) or c == self:
 				continue
-			var h: Variant = c.get("hunts")
-			if not (h is Array) or not (h as Array).has(species):
+			if not (c.get("hunts") as Array).has(species):
 				continue
 			var dp: float = (c as Node3D).global_position.distance_to(global_position)
 			var hunting: bool = String(c.get("behaviour")) == "hunt"
@@ -529,7 +541,7 @@ func orbit(center: Vector3, radius: float, dir: float, speed: float) -> Vector3:
 func flock(delta: float) -> Vector3:
 	if _director == null:
 		return wander(max_speed * 0.5, delta)
-	var mates: Array[Node3D] = _director.flockmates(self, species, 6.0, group_id)
+	var mates: Array[Node3D] = _mates_cache  # refreshed at think rate, not per frame
 	if mates.is_empty():
 		return wander(max_speed * 0.5, delta)
 	var center := Vector3.ZERO

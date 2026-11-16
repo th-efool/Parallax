@@ -30,6 +30,7 @@ func _configure() -> void:
 	accel = 16.0
 	turn_speed = 14.0
 	ground_offset = 0.0
+	lod_distance = 25.0
 
 
 func _species_traits() -> Dictionary:

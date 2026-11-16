@@ -34,6 +34,7 @@ func _configure() -> void:
 	min_altitude = 0.7
 	max_altitude = 4.5
 	turn_speed = 4.0
+	lod_distance = 60.0
 	_wander_alt = randf_range(1.2, 2.6)
 
 

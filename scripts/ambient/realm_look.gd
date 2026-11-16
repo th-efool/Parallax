@@ -25,6 +25,7 @@ const PROFILES: Dictionary = {
 	"bark":     {"tint": Color(0.35, 0.38, 0.55), "desat": 0.6, "glow": Color(0.2, 0.4, 1.0), "glow_e": 0.08, "rim": 0.25, "tex_glow": false},
 	"flower":   {"tint": Color(0.7, 0.75, 1.0), "desat": 0.2, "glow": Color(0.55, 0.75, 1.0), "glow_e": 1.6, "rim": 0.0, "tex_glow": true},
 	"grass":    {"tint": Color(0.4, 0.7, 0.85), "desat": 0.3, "glow": Color(0.3, 0.9, 1.0), "glow_e": 0.3, "rim": 0.0, "tex_glow": true},
+	"stone":    {"tint": Color(0.45, 0.5, 0.75), "desat": 0.6, "glow": Color(0.2, 0.45, 1.0), "glow_e": 0.06, "rim": 0.2, "tex_glow": false},
 	"mushroom": {"tint": Color(0.6, 0.7, 1.0), "desat": 0.2, "glow": Color(0.4, 0.95, 1.0), "glow_e": 2.2, "rim": 0.0, "tex_glow": true},
 }
 
@@ -62,7 +63,7 @@ static func apply(root: Node, fallback_profile: String) -> void:
 			if not (orig is StandardMaterial3D):
 				continue
 			var profile: String = fallback_profile
-			if fallback_profile == "auto" or fallback_profile == "leaves" or fallback_profile == "bark":
+			if fallback_profile == "auto" or fallback_profile == "leaves":
 				profile = guess_profile(String(orig.resource_name) + " " + String(mi.name), "leaves" if fallback_profile == "auto" else fallback_profile)
 			mi.set_surface_override_material(s, _managed_for(orig as StandardMaterial3D, profile))
 

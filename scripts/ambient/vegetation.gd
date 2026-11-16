@@ -14,6 +14,7 @@ const BASE: String = "res://assets/models/flora/megakit/"
 enum Kind {
 	TREE_COMMON, PINE, BUSH, BUSH_FLOWERS, FERN, CLOVER, PLANT_BIG, MUSHROOM, FLOWER_CLUMP, GRASS_CLUMP,
 	SPIRIT_FERN, CRYSTAL_MUSHROOM, GHOST_PINE,
+	WISPY_GRASS, WISPY_GRASS_TALL, GARDEN_ROCK,
 }
 enum RealmPresence { BOTH, REALITY_ONLY, MIRROR_ONLY }
 
@@ -32,6 +33,10 @@ const KINDS: Dictionary = {
 	Kind.SPIRIT_FERN: {"models": ["fern_1"], "h": [0.7, 1.1], "realm": 2, "sway": 0.06, "bend": true, "look": "leaves", "motes": Color(0.45, 0.95, 1.0), "glow_motes": true},
 	Kind.CRYSTAL_MUSHROOM: {"models": ["mushroom_common"], "h": [0.3, 0.6], "realm": 2, "sway": 0.0, "bend": false, "look": "mushroom", "motes": Color(0.6, 0.8, 1.0), "glow_motes": true},
 	Kind.GHOST_PINE: {"models": ["pine_1", "pine_3", "pine_5"], "h": [5.5, 8.5], "realm": 2, "sway": 0.008, "bend": false, "look": "spectral", "motes": Color(0.5, 0.85, 1.0), "glow_motes": true},
+	# Castle-appropriate growth: sun-dried wispy grass for wall bases, cracks and parapets.
+	Kind.WISPY_GRASS: {"models": ["grass_wispy_short"], "h": [0.25, 0.45], "realm": 0, "sway": 0.1, "bend": true, "look": "grass", "motes": Color(0.95, 0.85, 0.55)},
+	Kind.WISPY_GRASS_TALL: {"models": ["grass_wispy_tall"], "h": [0.5, 0.85], "realm": 0, "sway": 0.1, "bend": true, "look": "grass", "motes": Color(0.95, 0.85, 0.55)},
+	Kind.GARDEN_ROCK: {"models": ["rock_medium_1", "rock_medium_3"], "h": [0.4, 1.0], "realm": 0, "sway": 0.0, "bend": false, "look": "stone", "motes": Color(0.7, 0.7, 0.7)},
 }
 
 static var _scene_cache: Dictionary = {}
@@ -108,8 +113,13 @@ func _build() -> void:
 		RealmLook.apply_spectral(_model, Color(0.35, 0.8, 1.0))
 	else:
 		RealmLook.apply(_model, String(_spec["look"]))
+	# GPU distance culling scaled to plant size (grass vanishes early, trees stay on the skyline).
+	var cull: float = clampf(14.0 + float(hr[1]) * 18.0, 22.0, 160.0)
+	lod_distance = minf(lod_distance, cull)
 	for mi in RealmLook._meshes(_model):
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if float(hr[1]) > 1.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visibility_range_end = cull
+		mi.visibility_range_end_margin = 3.0
 	if bool(_spec.get("glow_motes", false)):
 		_add_motes(Color(_spec["motes"]), float(hr[1]) * height_scale)
 
@@ -216,17 +226,19 @@ func _process(delta: float) -> void:
 func _sense_push() -> void:
 	var push := Vector3.ZERO
 	var actors: Array[Node3D] = []
+	var reach: float = 0.5 + float(KINDS[kind]["h"][1]) * 0.5
+	var reach2: float = (reach + 0.5) * (reach + 0.5)
 	if _director != null:
 		var p: Node3D = _director.get_player()
-		if p != null:
+		if p != null and p.global_position.distance_squared_to(global_position) < reach2:
 			actors.append(p)
-		for c in _director.creatures:
-			if is_instance_valid(c) and not bool(c.get("flies")) and (c as Node3D).global_position.distance_squared_to(global_position) < 2.0:
-				actors.append(c as Node3D)
-	for e in get_tree().get_nodes_in_group("enemy"):
-		if e is EnemyBase and (e as EnemyBase).is_active and (e as Node3D).global_position.distance_squared_to(global_position) < 4.0:
-			actors.append(e as Node3D)
-	var reach: float = 0.5 + float(KINDS[kind]["h"][1]) * 0.5
+		for e in _director.get_enemies():
+			if is_instance_valid(e) and e.global_position.distance_squared_to(global_position) < reach2:
+				actors.append(e)
+	if actors.is_empty():
+		if _push != Vector3.ZERO:
+			_push = Vector3.ZERO
+		return
 	for a in actors:
 		var rel: Vector3 = global_position - a.global_position
 		rel.y = 0.0

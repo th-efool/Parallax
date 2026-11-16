@@ -100,6 +100,7 @@ func _configure() -> void:
 	var pres: int = int(_spec["presence"]) if presence_override < 0 else presence_override
 	realm_presence = pres as RealmPresence
 	_is_spectral = String(_spec["look"]) == "spectral"
+	lod_distance = 25.0 + float(_spec["height"]) * 40.0
 	if role == "grazer" or role == "spirit":
 		home_radius = maxf(home_radius, 10.0)
 

@@ -48,6 +48,7 @@ func _configure() -> void:
 	max_altitude = 3.2
 	turn_speed = 6.0
 	_wander_alt = randf_range(0.6, 1.8)
+	lod_distance = 30.0
 
 
 func _species_traits() -> Dictionary:

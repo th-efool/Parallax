@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/core/encounter_director.gd" id="3_ed"]
 [ext_resource type="Script" path="res://scripts/environment/realm_environment_controller.gd" id="4_env"]
 [ext_resource type="Script" path="res://scripts/core/audio_manager.gd" id="5_audio"]
+[ext_resource type="PackedScene" path="res://scenes/environment/ambient_life.tscn" id="20_ambient"]
 [ext_resource type="PackedScene" path="res://scenes/environment/grand_journey.tscn" id="6_level"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="7_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="8_hud"]
@@ -66,6 +67,8 @@ mouse_filter = 2
 script = ExtResource("5_audio")
 
 [node name="LevelRoot" parent="." instance=ExtResource("6_level")]
+
+[node name="AmbientLife" parent="." instance=ExtResource("20_ambient")]
 
 [node name="Player" parent="." instance=ExtResource("7_player")]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -56)

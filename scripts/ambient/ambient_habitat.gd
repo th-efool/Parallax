@@ -11,6 +11,7 @@ extends Node3D
 enum Species {
 	SPIRIT_WISP, BUTTERFLY, MIRROR_MOTH, RUIN_CROW, SCURRIER,
 	DEER, STAG, ALPACA, FOX, RACCOON, RAT, PIGEON, SPECTRAL_STAG, SPIRIT_FOX,
+	SUN_LIZARD,
 }
 enum GroupMode { ONE_GROUP, SMALL_GROUPS, ALL_LONERS, MIXED }
 
@@ -22,6 +23,7 @@ const SCRIPTS: Dictionary = {
 	Species.RUIN_CROW: "res://scripts/ambient/creatures/ruin_crow.gd",
 	Species.SCURRIER: "res://scripts/ambient/creatures/scurrier.gd",
 	Species.PIGEON: "res://scripts/ambient/creatures/ruin_crow.gd",  # dove plumage
+	Species.SUN_LIZARD: "res://scripts/ambient/creatures/sun_lizard.gd",
 }
 ## Animated-model species -> ModelCreature.species_key
 const MODEL_KEYS: Dictionary = {

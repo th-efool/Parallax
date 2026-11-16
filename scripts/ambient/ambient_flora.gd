@@ -178,15 +178,19 @@ func _sense() -> void:
 	var actors: Array[Node3D] = []
 	if _director != null:
 		var p: Node3D = _director.get_player()
-		if p != null:
+		if p != null and p.global_position.distance_squared_to(global_position) < 9.0:
 			actors.append(p)
-	for e in get_tree().get_nodes_in_group("enemy"):
-		if e is EnemyBase and (e as EnemyBase).is_active:
-			actors.append(e as Node3D)
-	if kind == Kind.SWAY_GRASS and _director != null:
-		for c in _director.creatures:
-			if is_instance_valid(c) and not bool(c.get("flies")) and (c as Node3D).global_position.distance_squared_to(global_position) < 1.0:
-				actors.append(c as Node3D)
+		for e in _director.get_enemies():
+			if is_instance_valid(e) and e.global_position.distance_squared_to(global_position) < 9.0:
+				actors.append(e)
+		# Grass also parts for nearby ground critters (only the walking species).
+		if kind == Kind.SWAY_GRASS:
+			for sp in ["scurrier", "rat", "lizard", "fox", "deer", "dove", "crow", "raccoon"]:
+				for c in _director.by_species.get(sp, []):
+					if is_instance_valid(c) and not bool(c.get("flies")) and (c as Node3D).global_position.distance_squared_to(global_position) < 1.0:
+						actors.append(c as Node3D)
+	if actors.is_empty() and kind != Kind.SWAY_GRASS:
+		return
 	for a in actors:
 		var rel: Vector3 = global_position - a.global_position
 		rel.y = 0.0

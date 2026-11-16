@@ -18,6 +18,12 @@ static var _instance: Node = null
 
 var creatures: Array[Node] = []
 var flora: Array[Node] = []
+var by_species: Dictionary = {}   # species -> Array of creatures
+var hunters: Array[Node] = []     # creatures with a non-empty `hunts`
+var _enemies: Array[Node3D] = []
+var _enemy_scan: float = 0.0
+var _footstep_cd: float = 0.0
+var _sweep_t: float = 0.0
 var _disturbances: Array[Dictionary] = []  # {pos, radius, strength, kind, t}
 var _interest: Array[Dictionary] = []      # {pos, kind, t, ttl}
 var _lights_in_use: int = 0
@@ -65,10 +71,25 @@ func _ready() -> void:
 func register_creature(c: Node) -> void:
 	if not creatures.has(c):
 		creatures.append(c)
+		var sp: String = String(c.get("species"))
+		if not by_species.has(sp):
+			by_species[sp] = []
+		(by_species[sp] as Array).append(c)
+		var h: Variant = c.get("hunts")
+		if h is Array and not (h as Array).is_empty():
+			hunters.append(c)
 
 
 func unregister_creature(c: Node) -> void:
 	creatures.erase(c)
+	hunters.erase(c)
+	for sp in by_species.keys():
+		(by_species[sp] as Array).erase(c)
+
+
+## Active enemies, refreshed twice a second (creatures query this instead of the scene-tree group).
+func get_enemies() -> Array[Node3D]:
+	return _enemies
 
 
 func register_flora(f: Node) -> void:
@@ -149,12 +170,10 @@ func nearest_interest(pos: Vector3, kind: String, radius: float) -> Dictionary:
 func flockmates(c: Node3D, species: String, radius: float, group_id: int = -1) -> Array[Node3D]:
 	var out: Array[Node3D] = []
 	var r2: float = radius * radius
-	for o in creatures:
+	for o in by_species.get(species, []):
 		if o == c or not is_instance_valid(o):
 			continue
 		var oc: Node3D = o as Node3D
-		if String(o.get("species")) != species:
-			continue
 		if group_id >= 0 and int(o.get("group_id")) != group_id:
 			continue
 		if not bool(o.get("is_present")):
@@ -196,7 +215,39 @@ func _process(delta: float) -> void:
 	if _scan_timer <= 0.0:
 		_scan_timer = 1.0
 		_bind_world()
+	_enemy_scan -= delta
+	if _enemy_scan <= 0.0:
+		_enemy_scan = 0.5
+		_enemies.clear()
+		for e in get_tree().get_nodes_in_group("enemy"):
+			if e is EnemyBase and (e as EnemyBase).is_active and not (e as EnemyBase).is_dead:
+				_enemies.append(e as Node3D)
+	_footstep_cd = maxf(0.0, _footstep_cd - delta)
+	_sweep_t -= delta
+	if _sweep_t <= 0.0:
+		_sweep_t = 0.3
+		_activation_sweep()
 	_ambient_player_presence()
+
+
+## Whole subtrees beyond their view range stop processing entirely (scripts *and* particles), so a
+## level full of life only pays for what is near the camera.
+func _activation_sweep() -> void:
+	var vp: Viewport = get_viewport()
+	var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+	if cam == null:
+		return
+	var cp: Vector3 = cam.global_position
+	for list in [creatures, flora]:
+		for n in list:
+			if not is_instance_valid(n):
+				continue
+			var lod: Variant = n.get("lod_distance")
+			var r: float = (float(lod) if lod != null else 45.0) * 1.1
+			var near: bool = (n as Node3D).global_position.distance_squared_to(cp) < r * r
+			var want: int = Node.PROCESS_MODE_INHERIT if near else Node.PROCESS_MODE_DISABLED
+			if n.process_mode != want:
+				n.process_mode = want
 	RealmLook.set_blend(_current_realm_blend())
 
 
@@ -227,7 +278,8 @@ func _ambient_player_presence() -> void:
 		return
 	var v: Vector3 = (p as CharacterBody3D).velocity if p is CharacterBody3D else Vector3.ZERO
 	var speed: float = Vector2(v.x, v.z).length()
-	if speed > 6.4:
+	if speed > 6.4 and _footstep_cd <= 0.0:
+		_footstep_cd = 0.25  # broadcast a few times a second, not every frame
 		emit_disturbance(p.global_position, 4.5, 0.35, "footsteps")
 
 

@@ -156,3 +156,16 @@ Single creatures/plants for hand placement: `scenes/ambient/creatures/*.tscn`, `
 | `vegetation/spirit_grove` | Spirit ferns, crystal mushrooms, ghost pines | Mirror only |
 
 **Placement intent** (map team): trees, herds, foxes and meadows belong in open-air or garden spaces, not inside halls; inside fortifications use doves, crows, rats, wisps and small wall/crack growth.
+
+### 5.2 LIVE placement: `AmbientLife` (`scenes/environment/ambient_life.tscn`, `AmbientLifeLayout`)
+Instanced in `scenes/main/main.tscn` as `Main/AmbientLife` (delete the node to remove all ambient life). Built at runtime; never adds collision to the route.
+
+| Zone | What lives there (Reality) | Mirror |
+| :--- | :--- | :--- |
+| **Cliff Garden** — new sunken terrace (floor Y `-1.5`, X `1..12`, Z `-45..-21` + wedge X `-1.5..1`) cradled between Causeway A and B; `realm_pbr` rock massif, sand-soil floor (layer 3 collider for creatures only), broken castle-brick kerb, marble fountain. Seen from both causeways + overlook; parapets keep the player out. | Olive grove (3), cypresses (3), grass carpet, wildflower meadow, hedges, fern corner, rocks, glow-blooms, spore pods; deer (3), fox, butterflies, fountain doves, rock lizards | Spirit grove (ferns, crystal mushrooms, ghost pine), ghost stags, moths, wisps |
+| Start terrace / overlook / forecourt | Wispy grass at parapet feet & corners, crows on braziers + obelisk, doves on the forecourt flagstones, lizards by braziers | Spirit fox guide on the overlook, wisps, spirit ferns |
+| Hall of Echoes | Ivy on arcade piers (corners only), weeds/ferns in corners, rats by braziers (cover), doves | Moths |
+| Rampart / Aqueduct / Clock tower | Ivy on the curtain wall (clear of the Z 53 banner), wispy grass at the balustrade, lizards, sunset butterflies; colonnade-base growth, doves, rats | Wisps under the oculus |
+| Esplanade / Colosseum / Summit | Lizards + edge grass; ivy & weeds at the podium wall, doves on the sand, crows on the stands; summit wildflowers, butterflies, lizards | Arena wisps, summit spirit ferns |
+
+Perf (RTX 3070, 1080p, steady state, without -> with): Colosseum 78 -> 68 FPS, Hall 77 -> 67, Garden view 68 -> 56, Forecourt 66 -> 56. Cost is mostly draw calls from multi-part procedural birds / dense small plants; knobs = habitat `count`, patch `count`, creature `lod_distance`.
