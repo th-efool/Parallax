@@ -296,3 +296,16 @@ func _sync_visuals_and_colliders() -> void:
 			var hb: Hurtbox3D = child as Hurtbox3D
 			hb.monitorable = is_intact
 			hb.set_deferred("monitorable", is_intact)
+
+	# Debris colliders living under the broken visual are solid only once the prop is broken.
+	if broken_vis != null:
+		_set_debris_colliders(broken_vis, not is_intact)
+
+
+func _set_debris_colliders(node: Node, enabled: bool) -> void:
+	for sub in node.get_children():
+		if sub is CollisionShape3D:
+			var cs: CollisionShape3D = sub as CollisionShape3D
+			cs.disabled = not enabled
+			cs.set_deferred("disabled", not enabled)
+		_set_debris_colliders(sub, enabled)

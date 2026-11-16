@@ -43,7 +43,10 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 	if reality_node != null:
 		_set_subtree_active(reality_node, reality_active)
 	if mirror_node != null:
-		_set_subtree_active(mirror_node, mirror_active)
+		# Once a RepairedGeometry span exists and is active it fully replaces the spectral one (it collides in
+		# both realms), so the spectral copy is retired instead of overlapping it (coplanar z-fighting).
+		var superseded: bool = is_permanently_repaired and repaired_node != null
+		_set_subtree_active(mirror_node, mirror_active and not superseded)
 	if repaired_node != null:
 		_set_subtree_active(repaired_node, is_permanently_repaired)
 
