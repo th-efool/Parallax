@@ -187,6 +187,19 @@ func get_stream(key: String) -> AudioStream:
 			s = _synth_thud(0.42, 70.0, 30.0)
 		"gib_burst":
 			s = _mix(_synth_crunch(0.32, 11), _synth_splat(0.34), 0.8, 0.9)
+		# --- ambient life ---
+		"caw":
+			s = _synth_caw()
+		"squeak":
+			s = _synth_chirp(0.09, 2600.0, 3600.0, 0.28, 2)
+		"chirp":
+			s = _synth_chirp(0.06, 3400.0, 4800.0, 0.2, 3)
+		"chime":
+			s = _synth_chime()
+		"flutter":
+			s = _synth_crunch(0.18, 9)
+		"spore_puff":
+			s = _synth_whoosh(0.4, 300.0, 900.0, 0.22)
 		_:
 			return null
 	_streams[key] = s
@@ -298,6 +311,50 @@ func _synth_thud(duration: float, f0: float, f1: float) -> AudioStreamWAV:
 		phase += TAU * lerpf(f0, f1, sqrt(t)) / SAMPLE_RATE
 		lp += (_rng.randf_range(-1.0, 1.0) - lp) * 0.12
 		b[i] = (sin(phase) * 0.85 + lp * 0.6) * pow(1.0 - t, 2.6) * minf(1.0, float(i) / 40.0)
+	return _to_wav(b)
+
+
+func _synth_caw() -> AudioStreamWAV:
+	# Harsh nasal "kraa": buzzy pulse with a falling pitch and noisy grit.
+	var b: PackedFloat32Array = _buffer(0.32)
+	var phase: float = 0.0
+	for i in range(b.size()):
+		var t: float = float(i) / float(b.size())
+		var f: float = lerpf(720.0, 520.0, t) * (1.0 + 0.04 * sin(t * 90.0))
+		phase += f / SAMPLE_RATE
+		var saw: float = fmod(phase, 1.0) * 2.0 - 1.0
+		var pulse: float = 1.0 if fmod(phase, 1.0) < 0.3 else -0.4
+		var env: float = sin(clampf(t * 1.15, 0.0, 1.0) * PI) * minf(1.0, float(i) / 200.0)
+		b[i] = (saw * 0.45 + pulse * 0.35 + _rng.randf_range(-0.25, 0.25)) * env * 0.42
+	return _to_wav(b)
+
+
+func _synth_chirp(duration: float, f0: float, f1: float, amp: float, notes: int) -> AudioStreamWAV:
+	var b: PackedFloat32Array = _buffer(duration * notes + 0.04 * (notes - 1))
+	var note_len: int = int(duration * SAMPLE_RATE)
+	var gap: int = int(0.04 * SAMPLE_RATE)
+	for n in range(notes):
+		var start: int = n * (note_len + gap)
+		var phase: float = 0.0
+		var pitch_k: float = 1.0 + 0.08 * n
+		for k in range(note_len):
+			var idx: int = start + k
+			if idx >= b.size():
+				break
+			var t: float = float(k) / note_len
+			phase += TAU * lerpf(f0, f1, t) * pitch_k / SAMPLE_RATE
+			b[idx] = sin(phase) * sin(t * PI) * amp
+	return _to_wav(b)
+
+
+func _synth_chime() -> AudioStreamWAV:
+	# Soft glassy bell: two detuned partials, long gentle decay.
+	var b: PackedFloat32Array = _buffer(0.9)
+	var base_f: float = 1318.5
+	for i in range(b.size()):
+		var tsec: float = float(i) / SAMPLE_RATE
+		var env: float = exp(-tsec * 4.5) * minf(1.0, float(i) / 120.0)
+		b[i] = (sin(TAU * base_f * tsec) * 0.5 + sin(TAU * base_f * 2.01 * tsec) * 0.25 + sin(TAU * base_f * 2.99 * tsec) * 0.1) * env * 0.35
 	return _to_wav(b)
 
 

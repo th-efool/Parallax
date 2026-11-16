@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/ambient_habitat.gd" id="1"]
+
+[node name="MirrorMothDrift" type="Node3D"]
+script = ExtResource("1")
+species = 2
+count = 6
+radius = 4.0
+group_mode = 1
+small_group_size = 3
+realm_presence = 2

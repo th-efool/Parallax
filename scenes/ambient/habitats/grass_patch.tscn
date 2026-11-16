@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/flora_patch.gd" id="1"]
+
+[node name="GrassPatch" type="Node3D"]
+script = ExtResource("1")
+kind = 1
+count = 40
+radius = 3.0
+min_spacing = 0.18
+clump_size = 4

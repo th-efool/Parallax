@@ -82,3 +82,24 @@ All 4 user-uploaded reference JPGs live in `MEMORY/reference_images/` and define
 4. **`03_shielded_guard_and_execution_arena_warden.jpg`**:
    - **Top — Shielded Guard / Armored Knight in Mirror**: Glowing cobalt spectral knight with sun/rune shield/body contrast under Mirror state.
    - **Bottom — The Warden (Execution Arena)**: Massive cloaked armored juggernaut (`THE WARDEN` bottom-center boss bar) standing before the glowing half-amber / half-cobalt circular Mirror Plane portal (`REALITY` <-> `MIRROR`), fiery ground telegraph rings on the dark stone floor.
+
+---
+
+## 5. Ambient Life Placement Kit (fauna & flora — non-combat)
+
+Ready-to-place prefabs; **not yet placed in the level** (map team owns placement). Everything is cosmetic: no collision, never damages, never counts toward encounters, hides itself in the wrong realm. Test bench: `scenes/ambient/ambient_showcase.tscn` (walk around, swing, press `Q`).
+
+| Drop-in prefab (`scenes/ambient/habitats/`) | Spawns | Group style | Good spots |
+| :--- | :--- | :--- | :--- |
+| `wisp_swarm.tscn` | 7 Spirit Wisps | mixed flock + loners | Hall of Echoes, Arena edges (they gather over fresh kills) |
+| `butterfly_meadow.tscn` | 6 Butterflies | mixed, courting pairs | Sunlit Exit, Entry with `bloom_bed` nearby |
+| `mirror_moth_drift.tscn` | 6 luminous moths (Mirror-only) | small groups of 3 | Gallery, Mechanism Chamber |
+| `crow_murder.tscn` | 6 Ruin Crows | one flock | Arena stands, broken walls — add child `Marker3D` named `Perch*` on ledges |
+| `scurrier_nest.tscn` | 5 rodents | follow-the-leader line | Rubble corners — add child `Marker3D` named `Cover*` behind rubble/pillars |
+| `grass_patch.tscn` / `bloom_bed.tscn` / `spore_cluster.tscn` | reactive flora | — | Cracked floors, wall bases, around pillars |
+
+Single creatures/plants for hand placement: `scenes/ambient/creatures/*.tscn`, `scenes/ambient/flora/*.tscn` (`mirror_bloom` = Mirror-only).
+
+**Habitat knobs**: `count`, `radius`, `group_mode` (ONE_GROUP / SMALL_GROUPS / ALL_LONERS / MIXED), `loner_chance`, `archetype_override` (force e.g. all CURIOUS), `realm_presence`, `home_radius_scale`, `debug_labels` (floating species/personality/behaviour text). **Flora knobs**: `kind`, `count`, `radius`, `min_spacing`, `clump_size`, `shyness`, `realm_presence`.
+
+**Perf budget**: AI ticks ~8 Hz staggered; creatures/flora freeze + hide beyond ~45 m / 40 m from camera; max 10 wisp `OmniLight3D`s globally (rest are glow-only). Suggested per-room cap: ~25 creatures, ~120 flora.

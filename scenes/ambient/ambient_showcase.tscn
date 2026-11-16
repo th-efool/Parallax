@@ -1,0 +1,198 @@
+[gd_scene load_steps=24 format=3]
+
+[ext_resource type="Script" path="res://scripts/core/realm_manager.gd" id="1_rm"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="2_player"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/enemy_base.tscn" id="3_enemy"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/wisp_swarm.tscn" id="4_wisp"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/butterfly_meadow.tscn" id="5_bfly"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/mirror_moth_drift.tscn" id="6_moth"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/crow_murder.tscn" id="7_crow"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/scurrier_nest.tscn" id="8_rat"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/grass_patch.tscn" id="9_grass"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/bloom_bed.tscn" id="10_bloom"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/habitats/spore_cluster.tscn" id="11_spore"]
+[ext_resource type="PackedScene" path="res://scenes/ambient/creatures/spirit_wisp.tscn" id="12_lonewisp"]
+
+[sub_resource type="Environment" id="Env"]
+background_mode = 1
+background_color = Color(0.16, 0.13, 0.11, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.47, 0.38, 1)
+ambient_light_energy = 0.7
+tonemap_mode = 2
+glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.36, 0.29, 0.23, 1)
+fog_density = 0.01
+
+[sub_resource type="BoxShape3D" id="FloorShape"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxMesh" id="FloorMesh"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="StandardMaterial3D" id="FloorMat"]
+albedo_color = Color(0.5, 0.43, 0.35, 1)
+roughness = 0.95
+
+[sub_resource type="BoxShape3D" id="PillarShape"]
+size = Vector3(1.2, 3, 1.2)
+
+[sub_resource type="BoxMesh" id="PillarMesh"]
+size = Vector3(1.2, 3, 1.2)
+
+[sub_resource type="StandardMaterial3D" id="StoneMat"]
+albedo_color = Color(0.58, 0.52, 0.44, 1)
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="RubbleShape"]
+size = Vector3(1.6, 0.7, 1)
+
+[sub_resource type="BoxMesh" id="RubbleMesh"]
+size = Vector3(1.6, 0.7, 1)
+
+[sub_resource type="BoxShape3D" id="WallShape"]
+size = Vector3(40, 4, 1)
+
+[sub_resource type="BoxMesh" id="WallMesh"]
+size = Vector3(40, 4, 1)
+
+[node name="AmbientShowcase" type="Node3D"]
+
+[node name="RealmManager" type="Node" parent="."]
+script = ExtResource("1_rm")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 8, 0)
+light_color = Color(1, 0.82, 0.62, 1)
+light_energy = 1.1
+shadow_enabled = true
+
+[node name="Floor" type="StaticBody3D" parent="."]
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("FloorShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+mesh = SubResource("FloorMesh")
+surface_material_override/0 = SubResource("FloorMat")
+
+[node name="WallNorth" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -20)
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="WallNorth"]
+shape = SubResource("WallShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="WallNorth"]
+mesh = SubResource("WallMesh")
+surface_material_override/0 = SubResource("StoneMat")
+
+[node name="PillarA" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 1.5, -7)
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="PillarA"]
+shape = SubResource("PillarShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarA"]
+mesh = SubResource("PillarMesh")
+surface_material_override/0 = SubResource("StoneMat")
+
+[node name="PillarB" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -9)
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="PillarB"]
+shape = SubResource("PillarShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarB"]
+mesh = SubResource("PillarMesh")
+surface_material_override/0 = SubResource("StoneMat")
+
+[node name="RubbleA" type="StaticBody3D" parent="."]
+transform = Transform3D(0.94, 0, 0.34, 0, 1, 0, -0.34, 0, 0.94, 7, 0.35, 5)
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="RubbleA"]
+shape = SubResource("RubbleShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="RubbleA"]
+mesh = SubResource("RubbleMesh")
+surface_material_override/0 = SubResource("StoneMat")
+
+[node name="RubbleB" type="StaticBody3D" parent="."]
+transform = Transform3D(0.7, 0, -0.71, 0, 1, 0, 0.71, 0, 0.7, 10, 0.35, 8)
+collision_layer = 4
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="RubbleB"]
+shape = SubResource("RubbleShape")
+
+[node name="Mesh" type="MeshInstance3D" parent="RubbleB"]
+mesh = SubResource("RubbleMesh")
+surface_material_override/0 = SubResource("StoneMat")
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 6)
+
+[node name="SkeletonDummy" parent="." instance=ExtResource("3_enemy")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, -6)
+encounter_id = ""
+detection_range = 5.0
+
+[node name="WispSwarm" parent="." instance=ExtResource("4_wisp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, -2)
+
+[node name="LoneWisp" parent="." instance=ExtResource("12_lonewisp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1.8, -10)
+archetype = 1
+
+[node name="ButterflyMeadow" parent="." instance=ExtResource("5_bfly")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 1)
+
+[node name="MirrorMothDrift" parent="." instance=ExtResource("6_moth")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, 4)
+
+[node name="CrowMurder" parent="." instance=ExtResource("7_crow")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, -6)
+
+[node name="PerchA" type="Marker3D" parent="CrowMurder"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 3, -1)
+
+[node name="PerchB" type="Marker3D" parent="CrowMurder"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 3, -3)
+
+[node name="ScurrierNest" parent="." instance=ExtResource("8_rat")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 4)
+
+[node name="CoverA" type="Marker3D" parent="ScurrierNest"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 1.6)
+
+[node name="CoverB" type="Marker3D" parent="ScurrierNest"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 3.4)
+
+[node name="GrassPatchA" parent="." instance=ExtResource("9_grass")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2)
+count = 70
+radius = 4.0
+
+[node name="GrassPatchB" parent="." instance=ExtResource("9_grass")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, 3)
+
+[node name="BloomBed" parent="." instance=ExtResource("10_bloom")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0)
+
+[node name="SporeCluster" parent="." instance=ExtResource("11_spore")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0, 3)

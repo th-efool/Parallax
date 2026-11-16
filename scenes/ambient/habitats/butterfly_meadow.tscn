@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ambient/ambient_habitat.gd" id="1"]
+
+[node name="ButterflyMeadow" type="Node3D"]
+script = ExtResource("1")
+species = 1
+count = 6
+radius = 4.0
+group_mode = 3
+loner_chance = 0.4
