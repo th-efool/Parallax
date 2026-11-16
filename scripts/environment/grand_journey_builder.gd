@@ -1878,6 +1878,16 @@ func _configure_atmosphere() -> void:
 	env.adjustment_enabled = true
 	env.adjustment_contrast = 1.06
 	env.adjustment_saturation = 1.08
+	# Zone-driven weather (golden -> storm -> blood moon over the Warden -> clear aftermath).
+	if main.get_node_or_null("WeatherDirector") == null:
+		var wd: Node = (load("res://scripts/environment/weather_director.gd") as GDScript).new()
+		wd.name = "WeatherDirector"
+		wd.set("base_fog_density", env.fog_density)
+		wd.set("world_environment_path", NodePath("../WorldEnvironment"))
+		wd.set("sun_path", NodePath("../SunLight"))
+		wd.set("realm_controller_path", NodePath("../RealmEnvironmentController"))
+		wd.set("warden_path", NodePath("../%s/Stage05_ExecutionArena/Enemies/TheWarden" % String(name)))
+		main.add_child(wd)
 	# Let the realm controller re-apply palette + sky blend onto the new sky.
 	var rec: Node = main.get_node_or_null("RealmEnvironmentController")
 	if rec != null and rec.has_method("apply_state_immediate"):
