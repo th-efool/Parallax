@@ -162,7 +162,7 @@ func _m_rock_far() -> ShaderMaterial:
 	return _pbr("rock_face", 0.01, Color(0.62, 0.58, 0.6), {"blend_sharpness": 2.0, "macro_variation": 0.7, "rune_strength": 0.5, "normal_strength": 1.4})
 
 func _m_sand() -> ShaderMaterial:
-	return _pbr("coast_sand_rocks_02", 0.16, Color(1.0, 0.92, 0.8), {"rune_strength": 1.0})
+	return _pbr("coast_sand_rocks_02", 0.16, Color(1.08, 0.9, 0.7), {"rune_strength": 1.0})
 
 func _m_marble() -> ShaderMaterial:
 	return _pbr("marble_01", 0.35, Color(1.0, 0.97, 0.93), {"roughness_bias": -0.1, "rune_strength": 1.6, "rune_threshold": 0.55})
@@ -1347,7 +1347,8 @@ func _build_stage_04_mechanism() -> Node3D:
 	root.add_child(puzzle)
 
 	# Clockwork: big bronze gears turning on both side walls.
-	for spec in [[-5.95, 12.0, 92.0, 3.4, 1.0], [-5.95, 15.5, 97.5, 2.2, -1.6], [5.95, 11.0, 96.0, 3.0, -1.0], [5.95, 15.0, 90.5, 2.0, 1.4]]:
+	# Meshing pairs sit on different depth planes (0.4 m apart) and clear the pilasters at z 89 / 99.
+	for spec in [[-5.95, 12.0, 93.3, 3.4, 1.0], [-5.55, 15.5, 96.2, 2.2, -1.6], [5.95, 11.0, 95.2, 3.0, -1.0], [5.55, 15.0, 91.6, 2.0, 1.4]]:
 		var gear: ArrayMesh = ProcMesh.gear_mesh(float(spec[3]), 0.35, int(float(spec[3]) * 6.0), 0.35)
 		var gm := _mesh(g[0], "Gear", gear, _m_bronze(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(float(spec[0]), y + float(spec[1]) - 6.0, float(spec[2]))), true, 0.0, false)
 		var tw := gm.create_tween().set_loops()
@@ -1668,11 +1669,16 @@ func _build_world_scenery() -> void:
 		var ang: float = TAU * float(i) / 10.0
 		var pos := Vector3(sin(ang) * rng.randf_range(45.0, 90.0), rng.randf_range(18.0, 55.0), 120.0 + cos(ang) * rng.randf_range(50.0, 95.0))
 		var s: float = rng.randf_range(4.0, 9.0)
-		var isle := _mesh(isles[2], "SkyIsle", isle_mesh, rock_m, Transform3D(Basis.IDENTITY.scaled(Vector3(s, s * 0.7, s)), pos), false, 0.0, false)
-		_crystal_cluster(isles[2], pos + Vector3(0, s * 0.3, 0), s * 0.5, 600 + i)
-		var tw := isle.create_tween().set_loops()
-		tw.tween_property(isle, "position:y", pos.y + 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(isle, "position:y", pos.y - 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
+		# Isle + its crystal crown share one bobbing pivot (they used to drift apart).
+		var pivot := Node3D.new()
+		pivot.name = "SkyIslePivot"
+		pivot.position = pos
+		isles[2].add_child(pivot)
+		_mesh(pivot, "SkyIsle", isle_mesh, rock_m, Transform3D(Basis.IDENTITY.scaled(Vector3(s, s * 0.7, s)), Vector3.ZERO), false, 0.0, false)
+		_crystal_cluster(pivot, Vector3(0, s * 0.3, 0), s * 0.5, 600 + i)
+		var tw := pivot.create_tween().set_loops()
+		tw.tween_property(pivot, "position:y", pos.y + 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(pivot, "position:y", pos.y - 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
 		_anim_tweens.append(tw)
 
 	# One world kill plane catches every fall off the cliffs.
