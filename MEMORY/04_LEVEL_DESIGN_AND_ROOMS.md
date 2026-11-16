@@ -156,3 +156,76 @@ Single creatures/plants for hand placement: `scenes/ambient/creatures/*.tscn`, `
 | `vegetation/spirit_grove` | Spirit ferns, crystal mushrooms, ghost pines | Mirror only |
 
 **Placement intent** (map team): trees, herds, foxes and meadows belong in open-air or garden spaces, not inside halls; inside fortifications use doves, crows, rats, wisps and small wall/crack growth.
+
+## 6. MAP ATLAS FOR AGENTS — read this instead of the builder (dumped from the live level, 2026-11-17)
+
+Use this to place flora, fauna, props, lights or sounds **without loading `grand_journey_builder.gd` (≈2k lines)**. Everything is procedural: the level is built at runtime by `LevelRoot` (`GrandJourneyBuilder`) in `scenes/main/main.tscn`. There is no saved geometry to edit in a `.tscn`. Put your content **in a scene or script you own** and instance it as a sibling under `Main`, or add a builder hook. Do not hand-edit `StageNN_*` children: their names are a save/MainController contract. Axes: `+Z` = north = forward along the route; `+Y` up; `X < 0` is west, where the sunset is (keep the west skyline clear).
+
+### 6.1 Walkable floors (collider tops, `World_Shared` layer 3 = bit value 4 unless noted)
+| Floor node (under `StageNN_*`) | Top Y | Centre (x,z) | Size x × z (m) | Zone |
+| :--- | :--- | :--- | :--- | :--- |
+| `Prologue_StartTerrace` | 0 | (0, -56) | 12 × 10 | Spawn terrace (spawn `(0,0,-56)`) |
+| `Prologue_CausewayA` | 0 | (-3.5, -43.8) | 5 × 17 | Narrow causeway, parapets both sides |
+| `Prologue_Overlook` | 0 | (-7, -33) | 9 × 7 | West balcony over the cliffs |
+| `Prologue_CausewayB` | 0 | (-3.5, -22.3) | 5 × 17 | Causeway |
+| `Gate_Forecourt` | 0 | (0, -10) | 14 × 10 | Plaza before the gatehouse |
+| `EntryFloorSouth/North`, `EntrySteppingStones` | 0 | z -5..8 | ~8 wide | Gatehouse. **Gap z -0.5..2.5 is a pit** (Mirror stones only) |
+| `SunlitStair_Ramp` + `_Landing` | 0 -> 4 | (0, 14.7) | 8 × 15 | 16° stair, landing z 22–24 |
+| `HallFloor` | 4 | (0, 34) | 20 × 20 | Hall of Echoes (combat arena) |
+| `Corridor02_Floor`, `Rampart_Ramp`, `Rampart_Landing` | 4 -> 6 | z 44..60 | ~6 wide | Windswept rampart, open to the west |
+| `GalleryFloorSouth` / `GalleryFloorNorth` | 6 | (0, 65) / (0, 79) | 8 × 10 each | Aqueduct deck. **Gap z 70..74 is a pit** (spectral bridge `(0,6,72)` is Mirror-only until repaired) |
+| `ChamberFloor` | 6 | (0, 94) | 12 × 12 | Clock-tower chamber, enclosed, roof oculus at Y 24.5 |
+| `Processional_Ramp` | 6 -> 8 -> 10 | (0, 108.8) | 12 × 15 | Grand stair |
+| `Processional_Esplanade` | 10 | (0, 118) | 18 × 4 | Terrace with statue plinth |
+| `TunnelSouth_Floor` | 10 | (0, 130.3) | 6 × 21 | Dark tunnel into the colosseum |
+| `ArenaFloor` | 10 | (0, 154) | 28 × 28 (round, R 13.6) | Boss arena: sand, podium wall ring |
+| `TunnelNorth_Floor` | 10 | (0, 176.8) | 6 × 19 | Exit tunnel |
+| `SunlitExitFloor` | 10 | (0, 194) | 18 × 16 | Sunset summit (end of run) |
+
+Critical path (feet positions, in order): `GrandJourneyBuilder.get_route_waypoints()`: (0,0,-56) → (-3.5,0,-44) → (-7,0,-33) → (-3.5,0,-22) → (0,0,-10) → (0,0,1)ᴹ → (0,0,4)ᴹ → (0,2,15) → (0,4,26) → (±3.5,4,30..40) → (0,4,46) → (0,5,53) → (0,6,59..65) → (0,6,72)ᴹ → (0,6,76)ᴹ → (0,6,83..90) → (0,6,101) → (0,8,109) → (0,10,118..140) → arena ring (2.6..6,10,144..164) → (0,10,168..194). ᴹ means Mirror realm is required there.
+
+### 6.2 No-go / keep-clear zones (never put colliders, big meshes, or creatures that block here)
+- **Pits**: z -0.5..2.5 (Stage 01) and z 70..74 (Stage 03), plus everything off the floor edges (kill plane `Y -6` world-wide; Stage 03 pit threshold `Y 3`).
+- **Gates** (keep 2 m clear on both sides): `Gate_Forecourt` z -10 (decor arch), `Gate01_EntryToHall` z 5, `Gate02a_HallSouthSeal` z 24, `Gate02_HallToGallery` z 44, `Gate03_GalleryToMechanism` z 84, `Gate04_MechanismToArena` z 100, `Gate04b_ArenaSouthSeal` z 140.5, `Gate05_ArenaExit` z 167.5. All gates are at x 0.
+- **Puzzle and combat props**: switch `(0,0,4)`; hall pillar `(0,4,34)`, which falls toward `+Z` (keep z 34..40 clear); weak support `(0,6,77)`; bridge anchor `(0,6,79)`; dais `(-3,7.35,93)`; plate `(0,6,94)`; Mirror Plane along x 0, z 143..165; Warden spawn `(0,10,153)`.
+- **Triggers / checkpoints** (Area3D, keep clear): `(0,0,-56)`, `(0,0,-7.5)`, `(0,4,26)`, `(0,6,61.5)`, `(0,6,89.5)`, `(0,10,142.5)`, `(0,10,189)`.
+- **Combat floors** (Hall, Gallery north, Chamber, Arena): flora is fine (no collision); creatures should flee or hide in combat, never path through fights.
+- Cosmetic content must have **no collision** on layers 1–5/8 and must not occlude the camera on narrow walkways (causeways, rampart, gallery deck).
+
+### 6.3 Enemies (all `enemy` group). Section: 0 ENTRY, 1 HALL, 2 GALLERY, 3 MECHANISM, 4 ARENA. Roamers have `encounter_id = ""`
+| Node path (under `LevelRoot`) | Type | Position | Section / encounter |
+| :--- | :--- | :--- | :--- |
+| `Stage01_EntryVestibule/Roamers/OverlookSkeleton_A`, `_B` | Skeleton | (-8,0,-31), (-5,0,-30.5) | 0 / roamer |
+| `Stage01_EntryVestibule/Roamers/ForecourtPhantom` | Phantom | (3.5,0,-8) | 0 / roamer |
+| `Stage02_HallOfEchoes/Enemies/SkeletonGuard_1`, `_2` | Skeleton | (-6,4,30), (6,4,38) | 1 / `hall_of_echoes` |
+| `Stage02_HallOfEchoes/Enemies/PhantomTwin_1`, `_2` | Phantom | (-6,4,40), (6,4,40) | 1 / `hall_of_echoes` |
+| `Stage02_HallOfEchoes/Roamers/RampartSentry` | Skeleton | (0,6,58.6) | 1 / roamer |
+| `Stage03_CollapsedGallery/Enemies/ShieldedGuard_1` | Shielded Guard | (0,6,82) | 2 / `shielded_guard` |
+| `Stage04_MechanismChamber/Roamers/TowerSkeleton_A`, `_B`, `TowerPhantom` | Skel ×2, Phantom | (3.5,6,97.5), (-4.2,6,97), (3.8,6,91) | 3 / roamer |
+| `Stage05_ExecutionArena/Roamers/EsplanadeGatekeeper`, `EsplanadeSkeleton`, `StairPhantom` | Guard, Skel, Phantom | (0,10,118.4), (-5.5,10,118), (3,8.3,110) | 3 / roamer |
+| `Stage05_ExecutionArena/Enemies/TheWarden` | Warden | (0,10,153) | 4 / `the_warden` |
+
+Add roamers with `GrandJourneyBuilder._add_roamer(parent, "skeleton"/"phantom"/"shield", name, pos, section, face_toward)`. Enemies only wake up while `EncounterDirector.current_section` equals their section.
+
+### 6.4 Lights, sound and weather bands
+- **Braziers** (`BrazierLight` OmniLight3D, fire in Reality, cobalt in Mirror, 3D fire-crackle audio): (-6,2.1,-14), (-8.2,6.1,25.8), (-3,8.1,61), (-4.6,8.1,99), (-7.8,12.1,117.5). Ring braziers sit on the arena podium cap. Keep extra lights sparse: the budget is around 10 dynamic omni lights visible.
+- **Decor roots**: `LevelRoot/Decor/{Zone01_Gate, Zone02_Hall, Zone03_Gallery, Zone04_Tower, Zone05_Colosseum, Zone_SkyIsles}/{Shared,RealityDressing,MirrorDressing}`. Put realm-specific dressing under the matching child, which `RealmReactive` hides in the other realm. Scenery (`LevelRoot/Scenery`) holds rock massifs under every floor, crag spires, distant ranges, and the cloud sea at Y -32; it is cosmetic and statically batched.
+- **Weather bands** (`WeatherDirector`, by player Z): golden < 8 · haze 8–44 · storm 44–88 · tempest 88–137 · blood moon 137–186 (blood rain; `blood_frenzy` in Warden Phase 2; `aftermath` once he dies) · aftermath ≥ 186. Rain particles follow the camera with a heightfield collider. Wet surfaces come from the `realm_wetness` shader global. Ambient creatures should hide or shelter when `WeatherDirector.get_wetness() > 0.5` (group `weather_director`).
+- **Music zones**: explore below z 44, interior from z 44, combat during encounters, boss in the arena section, ending after the Warden dies (`05` §3.6).
+
+### 6.5 Recommended flora / fauna slots (pre-checked against floors and no-go zones)
+| Spot (centre, radius) | Zone feel | Suggested prefab(s) |
+| :--- | :--- | :--- |
+| (4, 0, -56), r 3 (terrace east half) | Golden morning, calm | `butterfly_meadow` + `bloom_bed`, `grass_patch` along the parapet bases |
+| (-7, 0, -34), r 3 (overlook) | Windy cliff balcony | `crow_murder`: add `Perch*` markers on parapet tops at Y ≈ 1.0 |
+| (4, 0, -12), r 4 (forecourt east) | Approach plaza | `grass_patch`, `scurrier_nest` with `Cover*` behind the forecourt plinths |
+| (±3, 2, 12..20), sides of the Sunlit Stair | Sunlit stair | `bloom_bed` and `grass_patch` on the cheek-wall bases |
+| (±8, 4, 26..42), hall perimeter under the arcades | Echoing hall | `wisp_swarm` at Y 6–8 and `spore_cluster` at the column bases. Keep the centre clear (combat + pillar fall) |
+| (2, 5, 50..56) on the rampart's east (curtain-wall) side | Storm onset | `crow_murder` perched on the curtain wall (Y ≈ 8) |
+| (±3, 6, 62..68) and (±3, 6, 76..82), gallery deck edges | Storm, aqueduct | `mirror_moth_drift` (Mirror-only), `grass_patch` in the deck cracks |
+| (±4.5, 6, 89..99), tower chamber corners | Enclosed, gears | `mirror_moth_drift`, `scurrier_nest` (`Cover*` behind pilasters) |
+| (±5, 8..10, 104..118), processional stair sides and esplanade | Tempest | `spore_cluster` and `grass_patch` (wind-whipped), crows on the sword monuments |
+| Arena stands, ring R 15–22 at Y 12–20 (outside the podium wall) | Blood moon | `crow_murder` (perches on seating tiers), `wisp_swarm` over the stands. Nothing inside R 13.6 |
+| (0, 10, 190..200), summit | Clear aftermath, sunset | `butterfly_meadow`, `bloom_bed`, `grass_patch` (the reward moment) |
+
+Respect the §5 budget (~25 creatures and ~120 flora per room) and stay cosmetic only.

@@ -7,6 +7,7 @@ render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_sc
 //   0 = Reality (sun-warmed stone)  ->  1 = Mirror (cobalt slate whose cracks & mortar glow as runes).
 
 global uniform float realm_mirror_blend;
+global uniform float realm_wetness; // 0 dry .. 1 soaked (WeatherDirector rain)
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
@@ -101,6 +102,12 @@ void fragment() {
 	ALBEDO = mix(alb, mirror_alb, mb);
 
 	float rough = clamp(arm.g + roughness_bias, 0.04, 1.0);
+	// Rain: up-facing surfaces darken and turn glossy; puddles collect in cavities.
+	float wet = clamp(realm_wetness, 0.0, 1.0) * smoothstep(0.2, 0.9, n.y);
+	float puddle = wet * smoothstep(0.55, 0.25, arm.r * (0.6 + macro * 0.6));
+	ALBEDO *= mix(1.0, 0.62, wet) * mix(1.0, 0.85, puddle);
+	rough = mix(rough, 0.18, wet * 0.75);
+	rough = mix(rough, 0.03, puddle);
 	ROUGHNESS = mix(rough, rough * 0.55, mb);
 	METALLIC = metallic_override >= 0.0 ? metallic_override : arm.b;
 	AO = arm.r;

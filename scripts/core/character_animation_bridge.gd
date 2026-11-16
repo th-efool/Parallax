@@ -61,6 +61,9 @@ func _process(delta: float) -> void:
 		_action_lock_timer = maxf(0.0, _action_lock_timer - delta)
 	if _actor == null or not is_instance_valid(_actor):
 		return
+	# Enemies asleep in another section (or realm) are hidden: don't animate them.
+	if _actor is EnemyBase and not (_actor as EnemyBase).is_active and not (_actor as EnemyBase).is_dead:
+		return
 	if _actor is PlayerController:
 		_process_player(_actor as PlayerController, delta)
 	elif _actor is EnemyAI:
@@ -175,7 +178,11 @@ func play_candidates(
 	if _anim_player != null and _anim_player.has_animation(chosen):
 		var anim_res: Animation = _anim_player.get_animation(chosen)
 		if anim_res != null:
-			anim_res.loop_mode = Animation.LOOP_LINEAR if is_looping else Animation.LOOP_NONE
+			# Only touch loop_mode on change: every set emits 'changed' on an Animation shared by ALL instances of
+			# the rig, forcing every AnimationPlayer to rebuild its caches (O(n^2) per frame with many enemies).
+			var want_loop: Animation.LoopMode = Animation.LOOP_LINEAR if is_looping else Animation.LOOP_NONE
+			if anim_res.loop_mode != want_loop:
+				anim_res.loop_mode = want_loop
 			if target_duration > 0.0 and anim_res.length > 0.05:
 				computed_speed = clampf((anim_res.length * 0.90) / target_duration, 0.6, 3.2)
 
@@ -206,7 +213,7 @@ func start_timeline(candidates: Array[String], tl: Dictionary) -> void:
 		_tl_active = false
 		return
 	var anim_res: Animation = _anim_player.get_animation(clip)
-	if anim_res != null:
+	if anim_res != null and anim_res.loop_mode != Animation.LOOP_NONE:
 		anim_res.loop_mode = Animation.LOOP_NONE
 	_tl = tl
 	_tl_clip = clip
@@ -451,7 +458,7 @@ func _configure_animation_loops() -> void:
 		for cand in [base_name, "Animations/" + base_name]:
 			if _anim_player.has_animation(cand):
 				var anim_res: Animation = _anim_player.get_animation(cand)
-				if anim_res != null:
+				if anim_res != null and anim_res.loop_mode != Animation.LOOP_LINEAR:
 					anim_res.loop_mode = Animation.LOOP_LINEAR
 
 
