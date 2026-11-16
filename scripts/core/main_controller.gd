@@ -16,12 +16,63 @@ extends Node
 @export var death_overlay_path: NodePath = NodePath("MenusLayer/DeathOverlay")
 @export var start_on_title_screen: bool = false
 
+## QA-D01: OS cursor is captured during active gameplay and released whenever a menu is up.
+@export var manage_mouse_capture: bool = true
+
+const MENU_GROUPS: Array[String] = ["title_screen", "pause_menu", "options_screen", "leaderboard_screen", "results_screen"]
+
 var _previous_menu: Control = null
 
 
 func _ready() -> void:
 	add_to_group("main_controller")
+	# NOTE: Main is the scene root, so we must NOT set PROCESS_MODE_ALWAYS here (every child would ignore pause).
+	# SceneTree.process_frame keeps firing while paused, which is exactly what cursor management needs.
+	if get_tree() != null and not get_tree().process_frame.is_connected(_on_tree_process_frame):
+		get_tree().process_frame.connect(_on_tree_process_frame)
 	call_deferred("_wire_all_subsystems")
+
+
+func _exit_tree() -> void:
+	if get_tree() != null and get_tree().process_frame.is_connected(_on_tree_process_frame):
+		get_tree().process_frame.disconnect(_on_tree_process_frame)
+	if DisplayServer.get_name() != "headless":
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _on_tree_process_frame() -> void:
+	if manage_mouse_capture:
+		_update_mouse_mode()
+
+
+func is_gameplay_active() -> bool:
+	if not is_inside_tree() or get_tree() == null:
+		return false
+	if get_tree().paused:
+		return false
+	for grp in MENU_GROUPS:
+		for n in get_tree().get_nodes_in_group(grp):
+			if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
+				return false
+	var player: PlayerController = get_node_or_null(player_path) as PlayerController
+	if player != null and player.current_state == PlayerController.State.DEAD:
+		return false
+	return true
+
+
+func get_desired_mouse_mode() -> Input.MouseMode:
+	return Input.MOUSE_MODE_CAPTURED if is_gameplay_active() else Input.MOUSE_MODE_VISIBLE
+
+
+func _update_mouse_mode() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var desired: Input.MouseMode = get_desired_mouse_mode()
+	# Only grab the cursor while our window has focus, so alt-tabbing never fights the OS.
+	if desired == Input.MOUSE_MODE_CAPTURED and not DisplayServer.window_is_focused():
+		return
+	if Input.mouse_mode != desired:
+		Input.mouse_mode = desired
 
 
 func _wire_all_subsystems() -> void:

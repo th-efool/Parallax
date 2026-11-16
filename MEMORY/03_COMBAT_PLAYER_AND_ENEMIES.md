@@ -42,6 +42,19 @@
 
 > **Hitbox Contract**: Track a `hit_targets_this_swing: Array[Node]` per attack activation so a single swing or shockwave damages each target **at most once** (no per-physics-frame damage ticks).
 
+### 2.1b Combat Game Feel (Claude Pass A — `PlayerController` "Game Feel" export group)
+`PlayerController` listens to its own `SwordHitbox.hit_landed` and drives all hit feedback; `CombatVFX` (`scripts/core/combat_vfx.gd`, static, preload it) builds particles/ribbons.
+
+| Feature | Trigger | Value |
+| :--- | :--- | :--- |
+| **Hit-stop** (`trigger_hit_stop()`, QA-A02) | Heavy hit lands, Landing Slam hits, player takes `> 20` dmg or any Warden strike. Gated by `hit_stop_enabled`. | `Engine.time_scale = 0.05` for `0.06 s` real time (`SceneTreeTimer` with `ignore_time_scale`, `process_always`); serial-guarded; restored in `_exit_tree`. |
+| **Trauma camera shake** (`add_camera_trauma()`, QA-A03) | Heavy hit `+0.35`, Landing Slam `+0.60`, Pillar collapse `+0.75` (distance falloff, from `BreakableProp`), damage taken `+0.40`, light hit `+0.06`. | Trauma decays `1.8/s` (real time). Pitch/yaw offset `∝ trauma²`, roll `∝ trauma³`, max `2.4° / 2.8° / 3.6°`, × `camera_shake_intensity`. Applied as additive offset on `CameraPivot.global_rotation`. |
+| **Player stagger** (`State.STAGGER`, QA-A04) | Incoming hit `> heavy_hit_stagger_threshold (20)` and not dead / not plunging. | `0.25 s`, ends swing, resets combo step, `3.2 m/s` knockback away from source; bridge plays `Hit_A`/`Hit_B`. Hits `<= 20` never lock locomotion. |
+| **Slash ribbon** | Every Light/Heavy swing. | `CombatVFX.build_arc_ribbon_mesh()` + `sword_slash_trail.gdshader` (`progress` sweep, `fade`, `trail_length`). L1 R→L, L2 L→R, L3 overhead, Heavy wide diagonal. Amber (Reality) / cobalt (Mirror). |
+| **Impact burst** | Any accepted sword hit; Shielded Guard deflect; Pillar collapse. | One-shot `GPUParticles3D`: amber sparks (Reality / parries) or cobalt glass shards (Mirror / Warden rune strikes) + `0.14 s` omni flash; self-frees. |
+| **Wind-up telegraph** | `EnemyAI.start_windup()` | Additive red `material_overlay` on all `VisualRoot` meshes + red `TelegraphGlow` omni at eye height, ramping over the wind-up; fast falloff on strike; cleared on stagger/reset/death. |
+| **Warden chest rune** | `_enter_recover()` in Phase 1 (`is_chest_rune_exposed`). | Cobalt `ChestRuneGlow` (sphere + omni) on `VisualRoot`: bright pulsing in Mirror, faint hint in Reality; re-evaluated in `on_realm_changed()`. |
+
 ### 2.2 Combo System
 - Increment hit count on any **successful** Light or Heavy hit against an active enemy.
 - Combo timer: **`4.0 s`** after last successful hit (misses do NOT increment hits or refresh timer).
@@ -94,7 +107,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
     - Stops current attack immediately -> plays `<= 2.0 s` Mirror Plane shatter sequence -> **one-way transition**.
     - HUD banner/chip changes to **`REALMS MERGED`**; `Q` is locked/disabled (`shift_locked = true`).
   - **Phase 2 (`500 -> 0 HP`)**:
-    - Directly vulnerable in Reality to all player attacks (Light, Heavy, Landing). Uses faster cleave combos & shorter lunge recovery. At `0 HP`: death animation, exit gate lifts, run timer stops, Results sequence begins.
+    - Directly vulnerable in Reality to all player attacks (Light, Heavy, Landing). Uses faster cleave combos & shorter lunge recovery. *Implemented (Claude Pass C)*: wind-up `0.65 s`, recovery `0.85 s`, and every Cleave **chains** straight into a Lunge with a `0.45 s` (still red-telegraphed) wind-up, skipping recovery (`phase2_chain_windup`, `phase2_chain_enabled`). At `0 HP`: death animation, exit gate lifts, run timer stops, Results sequence begins.
 
 ---
 
@@ -115,6 +128,8 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 | Shielded Guard HP / Dmg | `250` / `20` | Encounter drags or Reality chip too easy to brute-force. |
 | Warden HP / Recovery Window | `1,000` / `1.4 s` | Boss <2 min or >6 min; Phase 1 opening too tight to shift+strike. |
 | Pillar Fall Damage / Warning | `150` Enemy / `40` Player (`2.5 m` radius, `0.6 s` warn) | Enemies miss zone or player unfairly clipped. |
+
+> **Live code values (audited Claude Pass C, 2026-11-16)** — `_init()` of each enemy script: Skeleton `100 HP / 15 dmg / 0.55 s windup / 0.80 s rec`; Phantom `80 / 20 / 0.65 / 1.00`; Shielded Guard `250 / 20 / 0.65 / 0.90`; Warden P1 Cleave `20` / Lunge `25`, windup `0.90`, recovery `1.40`; P2 windup `0.65`, recovery `0.85`, chain windup `0.45`. Player (`player_controller.gd` export defaults; `player.tscn` doesn't override them) still uses dodge `0.48 s` / i-frames `0.24 s` and run speed `5.5`, which differ from the `0.55/0.18` and `4.5` baselines above — intentional Pass 5 feel tuning, not changed here.
 
 ### 4.2 Appendix B — Locked Glossary
 - **Reality**: Warm physical limestone/amber state of the arena.

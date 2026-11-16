@@ -4,6 +4,8 @@ extends EnemyAI
 ## In Reality: raised shield blocks Light attacks (0 dmg) and mitigates Heavy attacks (10 chip dmg, no stagger).
 ## In Mirror: reflection loses its shield and takes full damage + staggers on Heavy attacks.
 
+const CombatVFXScript := preload("res://scripts/core/combat_vfx.gd")
+
 signal shield_deflected(is_heavy: bool)
 signal shield_state_changed(shield_raised: bool)
 
@@ -60,13 +62,24 @@ func _modify_incoming_damage(amount: int, is_heavy: bool, source_type: String) -
 
 	if is_shield_raised() and is_attacker_in_front(_last_attacker):
 		if not is_heavy and block_light_in_reality:
+			_spawn_deflect_sparks(false)
 			shield_deflected.emit(false)
 			return 0
 		if is_heavy:
+			_spawn_deflect_sparks(true)
 			shield_deflected.emit(true)
 			return mini(amount, reality_heavy_chip_damage)
 
 	return amount
+
+
+func _spawn_deflect_sparks(is_heavy: bool) -> void:
+	## Claude Pass A: amber parry sparks off the raised shield face.
+	if not is_inside_tree():
+		return
+	var host: Node = get_parent() if get_parent() != null else self
+	var pos: Vector3 = global_position + get_facing_direction() * 0.6 + Vector3(0.0, 1.1, 0.0)
+	CombatVFXScript.spawn_impact_burst(host, pos, false, is_heavy, 1.2)
 
 
 func _should_stagger_on_hit(is_heavy: bool, source_type: String) -> bool:

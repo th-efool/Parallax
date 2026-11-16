@@ -28,6 +28,18 @@ const SFX_PATHS: Dictionary = {
 @export var auto_start_music: bool = true
 @export var sfx_pool_size: int = 8
 
+@export_group("Dynamic Mix (Claude Pass C)")
+## Drone ducking applied on the MusicPlayer's own volume_db, so user bus volumes stay untouched.
+@export var music_base_db: float = -3.0
+@export var combat_duck_db: float = -4.0
+@export var duck_speed_db_per_sec: float = 10.0
+## Master low-pass: fully open when idle, muffled while paused or at critical health.
+@export var lowpass_open_hz: float = 20500.0
+@export var lowpass_paused_hz: float = 700.0
+@export var lowpass_low_hp_hz: float = 1400.0
+@export var low_hp_threshold: int = 25
+@export var lowpass_smoothing: float = 8.0
+
 static var instance: AudioManager = null
 
 var last_played_sfx: String = ""
@@ -41,6 +53,12 @@ var _sfx_cursor: int = 0
 var _footstep_timer: float = 0.0
 var _tracked_player: WeakRef = null
 
+var is_music_ducked: bool = false
+var current_lowpass_hz: float = 20500.0
+var _player_hp: int = 100
+var _lowpass: AudioEffectLowPassFilter = null
+var _lowpass_effect_idx: int = -1
+
 
 func _enter_tree() -> void:
 	if instance == null or not is_instance_valid(instance):
@@ -53,6 +71,7 @@ func _exit_tree() -> void:
 			get_tree().node_added.disconnect(_bind_recursive)
 	if instance == self:
 		instance = null
+		_release_master_lowpass()
 	if _music_player != null:
 		_music_player.stop()
 		_music_player.stream = null
@@ -76,6 +95,7 @@ func _ready() -> void:
 		instance = self
 	bind_singletons()
 	if instance == self:
+		_ensure_master_lowpass()
 		if is_inside_tree() and get_tree() != null:
 			if not get_tree().node_added.is_connected(_bind_recursive):
 				get_tree().node_added.connect(_bind_recursive)
@@ -92,6 +112,8 @@ func _deferred_bind_tree() -> void:
 func _process(delta: float) -> void:
 	if instance != self:
 		return
+	var real_dt: float = minf(delta / maxf(Engine.time_scale, 0.01), 0.1)
+	_update_dynamic_mix(real_dt)
 	if is_inside_tree() and get_tree() != null and get_tree().paused:
 		return
 	var pc: PlayerController = null
@@ -188,6 +210,9 @@ func _bind_recursive(node: Node) -> void:
 			pc.connect("dodge_started", _on_player_dodge_started)
 		if pc.has_signal("player_damaged") and not pc.is_connected("player_damaged", _on_player_damaged):
 			pc.connect("player_damaged", _on_player_damaged)
+		if not pc.health_changed.is_connected(_on_player_health_changed):
+			pc.health_changed.connect(_on_player_health_changed)
+		_player_hp = pc.health
 	elif node is BaseButton:
 		var btn: BaseButton = node as BaseButton
 		if not btn.pressed.is_connected(_on_ui_button_pressed):
@@ -255,6 +280,80 @@ func _on_player_dodge_started(_dir: Vector3, _dur: float = 0.0) -> void:
 
 func _on_player_damaged(_amount: int) -> void:
 	play_sfx("player_hurt")
+
+
+func _on_player_health_changed(current_hp: int, _max_hp: int) -> void:
+	_player_hp = current_hp
+
+
+# --- Dynamic mix: combat ducking + Master low-pass (Claude Pass C) ---
+
+func is_in_combat() -> bool:
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	return ed != null and not ed.current_encounter_id.is_empty()
+
+
+func get_target_lowpass_hz() -> float:
+	if is_inside_tree() and get_tree() != null and get_tree().paused:
+		return lowpass_paused_hz
+	if _player_hp > 0 and _player_hp < low_hp_threshold:
+		return lowpass_low_hp_hz
+	return lowpass_open_hz
+
+
+func _update_dynamic_mix(real_dt: float) -> void:
+	is_music_ducked = is_in_combat()
+	if _music_player != null:
+		var target_db: float = music_base_db + (combat_duck_db if is_music_ducked else 0.0)
+		_music_player.volume_db = move_toward(_music_player.volume_db, target_db, duck_speed_db_per_sec * real_dt)
+
+	var target_hz: float = get_target_lowpass_hz()
+	# Interpolate in log space so the sweep sounds even across octaves.
+	var cur_log: float = log(maxf(current_lowpass_hz, 20.0))
+	var tgt_log: float = log(maxf(target_hz, 20.0))
+	cur_log = lerpf(cur_log, tgt_log, clampf(lowpass_smoothing * real_dt, 0.0, 1.0))
+	current_lowpass_hz = exp(cur_log)
+	if absf(current_lowpass_hz - target_hz) < 1.0:
+		current_lowpass_hz = target_hz
+	_apply_lowpass(current_lowpass_hz)
+
+
+func _ensure_master_lowpass() -> void:
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx < 0:
+		return
+	for i in range(AudioServer.get_bus_effect_count(master_idx)):
+		var fx: AudioEffect = AudioServer.get_bus_effect(master_idx, i)
+		if fx is AudioEffectLowPassFilter and fx.resource_name == "ParallaxDynamicLowPass":
+			_lowpass = fx as AudioEffectLowPassFilter
+			_lowpass_effect_idx = i
+			break
+	if _lowpass == null:
+		_lowpass = AudioEffectLowPassFilter.new()
+		_lowpass.resource_name = "ParallaxDynamicLowPass"
+		_lowpass.resonance = 0.5
+		AudioServer.add_bus_effect(master_idx, _lowpass)
+		_lowpass_effect_idx = AudioServer.get_bus_effect_count(master_idx) - 1
+	current_lowpass_hz = lowpass_open_hz
+	_apply_lowpass(current_lowpass_hz)
+
+
+func _apply_lowpass(hz: float) -> void:
+	if _lowpass == null:
+		return
+	_lowpass.cutoff_hz = hz
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx >= 0 and _lowpass_effect_idx >= 0 and _lowpass_effect_idx < AudioServer.get_bus_effect_count(master_idx):
+		# Bypass the filter entirely when fully open (no colouration, no cost).
+		AudioServer.set_bus_effect_enabled(master_idx, _lowpass_effect_idx, hz < lowpass_open_hz - 1.0)
+
+
+func _release_master_lowpass() -> void:
+	if _lowpass == null:
+		return
+	current_lowpass_hz = lowpass_open_hz
+	_apply_lowpass(lowpass_open_hz)
+	_lowpass = null
 
 
 func _on_ui_button_pressed() -> void:

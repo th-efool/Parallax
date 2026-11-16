@@ -108,6 +108,13 @@ pause={
 3d_physics/layer_6="Interactable"
 3d_physics/layer_7="Hitbox"
 
+[shader_globals]
+
+realm_mirror_blend={
+"type": "float",
+"value": 0.0
+}
+
 [rendering]
 
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3

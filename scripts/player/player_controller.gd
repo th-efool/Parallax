@@ -63,6 +63,26 @@ signal interact_requested()
 @export var pitch_max_degrees: float = 60.0
 @export var character_turn_speed: float = 14.0
 
+@export_group("Game Feel")
+@export var hit_stop_time_scale: float = 0.05
+@export var hit_stop_duration: float = 0.06
+@export var trauma_decay_per_sec: float = 1.8
+@export var shake_max_pitch_deg: float = 2.4
+@export var shake_max_yaw_deg: float = 2.8
+@export var shake_max_roll_deg: float = 3.6
+@export var shake_noise_speed: float = 38.0
+@export var heavy_hit_stagger_threshold: int = 20
+@export var heavy_hit_stagger_duration: float = 0.25
+@export var stagger_knockback_speed: float = 3.2
+
+const CombatVFXScript := preload("res://scripts/core/combat_vfx.gd")
+const SLASH_TRAIL_SHADER_PATH: String = "res://assets/shaders/sword_slash_trail.gdshader"
+const TRAUMA_HEAVY_HIT: float = 0.35
+const TRAUMA_LANDING_SLAM: float = 0.60
+const TRAUMA_PILLAR_COLLAPSE: float = 0.75
+const TRAUMA_DAMAGE_TAKEN: float = 0.40
+const TRAUMA_LIGHT_HIT: float = 0.06
+
 var health: int = 100
 var current_state: State = State.LOCOMOTION
 var camera_yaw: float = 0.0
@@ -89,6 +109,14 @@ var _pending_ground_slam_timer: float = 0.0
 var _landing_recover_timer: float = 0.0
 var _last_move_input_dir: Vector3 = Vector3.ZERO
 
+var camera_trauma: float = 0.0
+var _shake_offset: Vector3 = Vector3.ZERO
+var _shake_time: float = 0.0
+var _shake_noise: FastNoiseLite = null
+var _hit_stop_active: bool = false
+var _hit_stop_serial: int = 0
+var _slash_shader: Shader = null
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -103,10 +131,16 @@ func _ready() -> void:
 		RealmManager.instance.register_player(self)
 	_load_mouse_settings_from_store()
 	_update_mouse_capture_state()
+	var sword: Hitbox3D = get_sword_hitbox()
+	if sword != null and not sword.hit_landed.is_connected(_on_sword_hit_landed):
+		sword.hit_landed.connect(_on_sword_hit_landed)
 	health_changed.emit(health, max_health)
 
 
 func _exit_tree() -> void:
+	if _hit_stop_active:
+		_hit_stop_active = false
+		Engine.time_scale = 1.0
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -121,8 +155,9 @@ func _load_mouse_settings_from_store() -> void:
 		hit_stop_enabled = bool(s.get("hit_stop_enabled", true))
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_mouse_capture_state()
+	_update_camera_shake(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -157,7 +192,7 @@ func _update_camera_pivot() -> void:
 	var cam_pivot: Node3D = get_node_or_null(camera_pivot_path) as Node3D
 	if cam_pivot != null:
 		if cam_pivot.is_inside_tree():
-			cam_pivot.global_rotation = Vector3(camera_pitch, camera_yaw, 0.0)
+			cam_pivot.global_rotation = Vector3(camera_pitch + _shake_offset.x, camera_yaw + _shake_offset.y, _shake_offset.z)
 		else:
 			cam_pivot.rotation = Vector3(camera_pitch, wrapf(camera_yaw - global_rotation.y, -PI, PI), 0.0)
 
@@ -281,6 +316,8 @@ func _physics_process(delta: float) -> void:
 			_process_attack_state(delta)
 		State.LANDING_PLUNGE:
 			_process_landing_plunge_state(delta)
+		State.STAGGER:
+			_process_stagger_state(delta)
 		State.LOCOMOTION:
 			_process_locomotion_state(delta)
 
@@ -421,6 +458,7 @@ func complete_landing_slam(candidates: Array[Node] = []) -> int:
 			hits = hb.pulse_radial_targets(global_position, landing_attack_radius, tree_targets, landing_attack_damage, true, "player_landing")
 
 	_spawn_landing_shockwave_vfx(global_position, landing_attack_radius)
+	add_camera_trauma(TRAUMA_LANDING_SLAM)
 	landing_slam_triggered.emit(global_position, landing_attack_radius, landing_attack_damage)
 	return hits
 
@@ -463,9 +501,135 @@ func apply_damage(amount: int, _source: Node = null) -> bool:
 	if run_state != null and run_state.has_method("on_player_damaged"):
 		run_state.call("on_player_damaged")
 
+	add_camera_trauma(TRAUMA_DAMAGE_TAKEN)
+	var is_heavy_strike: bool = amount > heavy_hit_stagger_threshold
+	if is_heavy_strike or (_source != null and _source is WardenBoss):
+		trigger_hit_stop()
+
 	if health <= 0:
 		_on_death()
+	elif is_heavy_strike:
+		_enter_stagger(_source)
 	return true
+
+
+func _enter_stagger(source: Node = null) -> void:
+	## QA-A04: heavy incoming hits (> 20 HP) briefly flinch the player; light hits never lock locomotion.
+	if current_state == State.DEAD or current_state == State.LANDING_PLUNGE:
+		return
+	var hb: Hitbox3D = get_sword_hitbox()
+	if hb != null:
+		hb.end_swing()
+	_update_hurtbox_invulnerability(false)
+	combo_step = 0
+	_combo_window_timer = 0.0
+	var push: Vector3 = -get_facing_direction()
+	if source != null and source is Node3D and is_inside_tree() and (source as Node3D).is_inside_tree():
+		var away: Vector3 = global_position - (source as Node3D).global_position
+		away.y = 0.0
+		if away.length_squared() > 0.0001:
+			push = away.normalized()
+	velocity.x = push.x * stagger_knockback_speed
+	velocity.z = push.z * stagger_knockback_speed
+	_set_state(State.STAGGER, heavy_hit_stagger_duration)
+
+
+func _process_stagger_state(delta: float) -> void:
+	_state_timer = maxf(0.0, _state_timer - delta)
+	if not is_on_floor():
+		var grav: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
+		velocity.y -= grav * delta
+	velocity.x = move_toward(velocity.x, 0.0, friction * 0.6 * delta)
+	velocity.z = move_toward(velocity.z, 0.0, friction * 0.6 * delta)
+	if is_inside_tree():
+		move_and_slide()
+	if _state_timer <= 0.0:
+		_set_state(State.LOCOMOTION, 0.0)
+
+
+# --- Game feel: hit-stop & trauma camera shake (QA-A02 / QA-A03) ---
+
+func trigger_hit_stop(duration: float = -1.0) -> void:
+	_load_mouse_settings_from_store()
+	if not hit_stop_enabled or not is_inside_tree() or get_tree() == null:
+		return
+	var dur: float = hit_stop_duration if duration < 0.0 else duration
+	if dur <= 0.0:
+		return
+	_hit_stop_serial += 1
+	_hit_stop_active = true
+	Engine.time_scale = hit_stop_time_scale
+	# process_always = true, ignore_time_scale = true -> restores in real time even while paused / frozen.
+	var t: SceneTreeTimer = get_tree().create_timer(dur, true, false, true)
+	t.timeout.connect(_release_hit_stop.bind(_hit_stop_serial))
+
+
+func _release_hit_stop(serial: int) -> void:
+	if serial != _hit_stop_serial:
+		return
+	_hit_stop_active = false
+	Engine.time_scale = 1.0
+
+
+func is_hit_stop_active() -> bool:
+	return _hit_stop_active
+
+
+func add_camera_trauma(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	camera_trauma = clampf(camera_trauma + amount, 0.0, 1.0)
+
+
+func _update_camera_shake(delta: float) -> void:
+	if camera_trauma <= 0.0 and _shake_offset == Vector3.ZERO:
+		return
+	# Shake runs on real time so it keeps reading during hit-stop micro-freezes.
+	var real_dt: float = minf(delta / maxf(Engine.time_scale, 0.01), 0.1)
+	camera_trauma = maxf(0.0, camera_trauma - trauma_decay_per_sec * real_dt)
+	if camera_trauma <= 0.0 or camera_shake_intensity <= 0.0:
+		_shake_offset = Vector3.ZERO
+		_update_camera_pivot()
+		return
+	if _shake_noise == null:
+		_shake_noise = FastNoiseLite.new()
+		_shake_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		_shake_noise.seed = 1337
+		_shake_noise.frequency = 0.08
+	_shake_time += real_dt * shake_noise_speed
+	var t2: float = camera_trauma * camera_trauma
+	var t3: float = t2 * camera_trauma
+	var k: float = clampf(camera_shake_intensity, 0.0, 1.0)
+	_shake_offset = Vector3(
+		deg_to_rad(shake_max_pitch_deg) * k * t2 * _shake_noise.get_noise_2d(_shake_time, 11.0),
+		deg_to_rad(shake_max_yaw_deg) * k * t2 * _shake_noise.get_noise_2d(_shake_time, 47.0),
+		deg_to_rad(shake_max_roll_deg) * k * t3 * _shake_noise.get_noise_2d(_shake_time, 91.0)
+	)
+	_update_camera_pivot()
+
+
+func _on_sword_hit_landed(target: Node, _damage_dealt: int, is_heavy_hit: bool, source_type: String) -> void:
+	var in_mirror: bool = RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR and not RealmManager.instance.is_merged
+	var rune_strike: bool = target is WardenBoss and (target as WardenBoss).is_chest_rune_exposed
+	var hit_pos: Vector3 = global_position + Vector3(0.0, 1.0, 0.0) + get_facing_direction() * 0.9
+	if target is Node3D and (target as Node3D).is_inside_tree():
+		var t3d: Node3D = target as Node3D
+		hit_pos = t3d.global_position + Vector3(0.0, 1.0, 0.0)
+		var to_me: Vector3 = global_position - t3d.global_position
+		to_me.y = 0.0
+		if to_me.length_squared() > 0.0001:
+			hit_pos += to_me.normalized() * 0.35
+	var host: Node = get_parent() if get_parent() != null else self
+	CombatVFXScript.spawn_impact_burst(host, hit_pos, in_mirror or rune_strike, is_heavy_hit)
+
+	match source_type:
+		"player_heavy":
+			add_camera_trauma(TRAUMA_HEAVY_HIT)
+			trigger_hit_stop()
+		"player_landing":
+			trigger_hit_stop()
+		_:
+			add_camera_trauma(TRAUMA_LIGHT_HIT)
 
 
 func respawn_at(spawn_transform: Transform3D) -> void:
@@ -489,6 +653,8 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		hb.end_swing()
+	camera_trauma = 0.0
+	_shake_offset = Vector3.ZERO
 	_set_state(State.LOCOMOTION, 0.0)
 	health_changed.emit(health, max_health)
 
@@ -675,45 +841,69 @@ func _spawn_slash_arc_vfx(is_heavy: bool, step_num: int) -> void:
 	if vis == null:
 		return
 
-	var arc := MeshInstance3D.new()
-	arc.name = "SlashArcVFX"
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.85 if not is_heavy else 1.05
-	torus.outer_radius = 1.38 if not is_heavy else 1.85
-	torus.rings = 24
-	torus.ring_segments = 8
-	arc.mesh = torus
-
 	var in_mirror: bool = (RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR)
-	var slash_col: Color = Color(0.28, 0.82, 1.0, 0.85) if in_mirror else Color(1.0, 0.72, 0.24, 0.85)
+	var slash_col: Color = Color(0.28, 0.82, 1.0, 0.9) if in_mirror else Color(1.0, 0.62, 0.18, 0.9)
 	if is_heavy:
-		slash_col = Color(0.38, 0.92, 1.0, 0.95) if in_mirror else Color(1.0, 0.42, 0.16, 0.95)
+		slash_col = Color(0.38, 0.92, 1.0, 1.0) if in_mirror else Color(1.0, 0.40, 0.12, 1.0)
 
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = slash_col
-	mat.emission_enabled = true
-	mat.emission = slash_col
-	mat.emission_energy_multiplier = 2.4 if is_heavy else 1.8
-	arc.material_override = mat
-
-	arc.position = Vector3(0.0, 1.05, -0.55)
-	arc.scale = Vector3(1.0, 0.12, 1.0)
+	# Ribbon sweep: angle 0 = straight ahead (-Z). Step 1 sweeps right->left, step 2 left->right,
+	# step 3 / heavy are rolled into an overhead/diagonal chop.
+	var inner_r: float = 0.55 if not is_heavy else 0.60
+	var outer_r: float = 1.45 if not is_heavy else 1.95
+	var start_deg: float = 80.0
+	var end_deg: float = -80.0
+	var roll_deg: float = -8.0
 	match step_num:
 		1:
-			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(-10.0))
+			pass
 		2:
-			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(32.0))
+			start_deg = -80.0
+			end_deg = 80.0
+			roll_deg = 28.0
+		3:
+			roll_deg = 78.0
 		_:
-			arc.rotation = Vector3(0.08, 0.0, deg_to_rad(80.0))
-	vis.add_child(arc)
+			start_deg = 110.0
+			end_deg = -110.0
+			roll_deg = 62.0
+
+	var arc := MeshInstance3D.new()
+	arc.name = "SlashArcVFX"
+	arc.mesh = CombatVFXScript.build_arc_ribbon_mesh(inner_r, outer_r, start_deg, end_deg, 32)
+	arc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	arc.position = Vector3(0.0, 1.05, 0.0)
+	arc.rotation = Vector3(0.06, 0.0, deg_to_rad(roll_deg))
+
+	var sweep_time: float = 0.20 if is_heavy else 0.14
+	var fade_time: float = 0.14 if is_heavy else 0.10
+	if _slash_shader == null and ResourceLoader.exists(SLASH_TRAIL_SHADER_PATH):
+		_slash_shader = load(SLASH_TRAIL_SHADER_PATH) as Shader
 
 	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(arc, "scale", Vector3(1.35 if is_heavy else 1.18, 0.04, 1.35 if is_heavy else 1.18), 0.22)
-	tw.tween_property(mat, "albedo_color:a", 0.0, 0.22)
-	tw.chain().tween_callback(arc.queue_free)
+	if _slash_shader != null:
+		var smat := ShaderMaterial.new()
+		smat.shader = _slash_shader
+		smat.set_shader_parameter("slash_color", slash_col)
+		smat.set_shader_parameter("intensity", 2.8 if is_heavy else 2.2)
+		smat.set_shader_parameter("trail_length", 0.70 if is_heavy else 0.55)
+		smat.set_shader_parameter("progress", 0.0)
+		smat.set_shader_parameter("fade", 1.0)
+		arc.material_override = smat
+		vis.add_child(arc)
+		var end_progress: float = 1.0 + (0.70 if is_heavy else 0.55)
+		tw.tween_property(smat, "shader_parameter/progress", end_progress, sweep_time + fade_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_property(smat, "shader_parameter/fade", 0.0, fade_time).set_delay(sweep_time)
+	else:
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.albedo_color = slash_col
+		arc.material_override = mat
+		vis.add_child(arc)
+		tw.tween_property(mat, "albedo_color:a", 0.0, sweep_time + fade_time)
+	tw.tween_callback(arc.queue_free)
 
 
 func _spawn_landing_shockwave_vfx(impact_pos: Vector3, radius: float) -> void:

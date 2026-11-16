@@ -11,16 +11,32 @@ const LAYER_PLAYER: int = RealmManager.LAYER_PLAYER
 const LAYER_ENEMY: int = RealmManager.LAYER_ENEMY
 const LAYER_HITBOX: int = RealmManager.LAYER_HITBOX
 
+const STONE_SHADER_PATH: String = "res://assets/shaders/realm_stone.gdshader"
+const SPECTRAL_SHADER_PATH: String = "res://assets/shaders/mirror_spectral.gdshader"
+const OBSIDIAN_SHADER_PATH: String = "res://assets/shaders/mirror_obsidian.gdshader"
+const DUNGEON_DIR: String = "res://assets/models/dungeon/"
+const RealmTorchLightScript := preload("res://scripts/environment/realm_torch_light.gd")
+const REALM_BLEND_DURATION: float = 0.20
+
 signal hall_mirror_hint_pulsed()
 
 @export var spawn_enemies: bool = true
+## Claude Pass B: purely cosmetic KayKit props, torches, banners & ambient particles (no colliders).
+@export var dress_environment: bool = true
 
 var _is_built: bool = false
 var _hall_mirror_hint_emitted: bool = false
+var _stone_mat_cache: Dictionary = {}
+var _spectral_mat_cache: Dictionary = {}
+var _mirror_plane_mat: ShaderMaterial = null
+var _model_cache: Dictionary = {}
+var _realm_blend: float = 0.0
+var _realm_blend_tween: Tween = null
 
 
 func _ready() -> void:
 	build_greybox()
+	_bind_realm_visuals()
 
 
 func build_greybox() -> void:
@@ -37,6 +53,9 @@ func build_greybox() -> void:
 	]
 	for st in stages:
 		add_child(st)
+
+	if dress_environment:
+		_dress_environment()
 
 
 func get_key_anchors() -> Dictionary:
@@ -291,7 +310,7 @@ func _build_stage_04_mechanism() -> Node3D:
 
 	var plate := Node3D.new()
 	plate.name = "PressurePlate"
-	var plate_mesh := _make_mesh_box("PlateMesh", Vector3(1.6, 0.14, 1.6), Color(0.85, 0.65, 0.25))
+	var plate_mesh := _make_mesh_box("PlateMesh", Vector3(1.6, 0.14, 1.6), Color(0.85, 0.65, 0.25), "plain")
 	plate_mesh.position = Vector3(0.0, 0.07, 0.0)
 	plate.add_child(plate_mesh)
 	puzzle.add_child(plate)
@@ -319,10 +338,16 @@ func _build_stage_05_arena() -> Node3D:
 	mirror_plane.warning_duration = 0.0
 	var intact_vis := Node3D.new()
 	intact_vis.name = "IntactVisual"
-	var plane_mesh := _make_mesh_box("MirrorPlaneMesh", Vector3(0.12, 5.5, 22.0), Color(0.25, 0.72, 1.0, 0.35))
+	var plane_mesh := _make_mesh_box("MirrorPlaneMesh", Vector3(0.12, 5.5, 22.0), Color(0.25, 0.72, 1.0, 0.35), "plain")
 	plane_mesh.position = Vector3(0.0, 2.75, 0.0)
+	var obsidian: ShaderMaterial = _get_mirror_plane_material()
+	if obsidian != null:
+		plane_mesh.material_override = obsidian
+	plane_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	intact_vis.add_child(plane_mesh)
 	mirror_plane.add_child(intact_vis)
+	mirror_plane.shatter_extent = Vector3(0.12, 5.5, 22.0)
+	mirror_plane.shatter_center_offset = Vector3(0.0, 2.75, 0.0)
 	root.add_child(mirror_plane)
 
 	root.add_child(_make_gate("Gate05_ArenaExit", Vector3(0.0, 0.0, 102.0), 4, "the_warden", false))
@@ -357,6 +382,7 @@ func _build_stage_05_arena() -> Node3D:
 		var warden := WardenBoss.new()
 		_configure_enemy_actor(warden, "TheWarden", "boss_the_warden", Vector3(0.0, 0.0, 88.0), Color(0.32, 0.14, 0.14), Vector3(1.15, 2.3, 1.15))
 		warden.mirror_plane_prop_path = NodePath("../../CentralMirrorPlane")
+		warden.health_changed.connect(_on_warden_health_changed)
 		enemies_node.add_child(warden)
 		root.add_child(enemies_node)
 
@@ -379,18 +405,145 @@ func _make_box_body(node_name: String, pos: Vector3, box_size: Vector3, layer_ma
 	return body
 
 
-func _make_mesh_box(node_name: String, box_size: Vector3, color: Color) -> MeshInstance3D:
+func _make_mesh_box(node_name: String, box_size: Vector3, color: Color, surface: String = "auto") -> MeshInstance3D:
+	## surface: "auto" (opaque -> realm stone, translucent -> mirror spectral), "stone", "spectral", "plain".
 	var mi := MeshInstance3D.new()
 	mi.name = node_name
 	var mesh := BoxMesh.new()
 	mesh.size = box_size
+	mesh.material = _material_for_surface(color, surface)
+	mi.mesh = mesh
+	return mi
+
+
+func _material_for_surface(color: Color, surface: String) -> Material:
+	var kind: String = surface
+	if kind == "auto":
+		kind = "spectral" if color.a < 0.99 else "stone"
+	if kind == "stone":
+		var sm: ShaderMaterial = _get_stone_material(color)
+		if sm != null:
+			return sm
+	elif kind == "spectral":
+		var sp: ShaderMaterial = _get_spectral_material(color)
+		if sp != null:
+			return sp
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	if color.a < 0.99:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh.material = mat
-	mi.mesh = mesh
-	return mi
+	return mat
+
+
+func _get_stone_material(color: Color) -> ShaderMaterial:
+	var key: String = color.to_html(false)
+	if _stone_mat_cache.has(key):
+		return _stone_mat_cache[key] as ShaderMaterial
+	if not ResourceLoader.exists(STONE_SHADER_PATH):
+		return null
+	var sh: Shader = load(STONE_SHADER_PATH) as Shader
+	if sh == null:
+		return null
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("reality_tint", color.lightened(0.18))
+	var lum: float = clampf(color.get_luminance() * 1.6, 0.6, 1.3)
+	m.set_shader_parameter("mirror_tint", Color(0.10 * lum, 0.14 * lum, 0.23 * lum, 1.0))
+	m.set_shader_parameter("mirror_blend", _realm_blend)
+	_stone_mat_cache[key] = m
+	return m
+
+
+func _get_spectral_material(color: Color) -> ShaderMaterial:
+	var key: String = color.to_html(true)
+	if _spectral_mat_cache.has(key):
+		return _spectral_mat_cache[key] as ShaderMaterial
+	if not ResourceLoader.exists(SPECTRAL_SHADER_PATH):
+		return null
+	var sh: Shader = load(SPECTRAL_SHADER_PATH) as Shader
+	if sh == null:
+		return null
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("base_tint", Color(color.r * 0.35, color.g * 0.45, color.b * 0.6, clampf(color.a * 0.75, 0.35, 0.9)))
+	m.set_shader_parameter("rim_color", Color(0.25, 0.78, 1.0, 1.0))
+	m.set_shader_parameter("min_alpha", 0.35)
+	_spectral_mat_cache[key] = m
+	return m
+
+
+func _get_mirror_plane_material() -> ShaderMaterial:
+	if _mirror_plane_mat != null:
+		return _mirror_plane_mat
+	if not ResourceLoader.exists(OBSIDIAN_SHADER_PATH):
+		return null
+	var sh: Shader = load(OBSIDIAN_SHADER_PATH) as Shader
+	if sh == null:
+		return null
+	_mirror_plane_mat = ShaderMaterial.new()
+	_mirror_plane_mat.shader = sh
+	_mirror_plane_mat.set_shader_parameter("crack_amount", 0.0)
+	return _mirror_plane_mat
+
+
+func _on_warden_health_changed(current_hp: int, max_hp: int) -> void:
+	if _mirror_plane_mat == null:
+		return
+	# Cracks spread from full HP down to the 50% Phase-2 shatter threshold.
+	var half: float = float(maxi(1, max_hp)) * 0.5
+	var crack: float = clampf((float(max_hp) - float(current_hp)) / half, 0.0, 1.0)
+	_mirror_plane_mat.set_shader_parameter("crack_amount", crack)
+
+
+# --- Realm visual blend (stone shader `mirror_blend`) ---
+
+func _bind_realm_visuals() -> void:
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm == null:
+		_apply_realm_blend(0.0)
+		return
+	if not rm.realm_changed.is_connected(_on_realm_visual_changed):
+		rm.realm_changed.connect(_on_realm_visual_changed)
+	if not rm.realms_merged.is_connected(_on_realms_visual_merged):
+		rm.realms_merged.connect(_on_realms_visual_merged)
+	_apply_realm_blend(_target_blend_for(int(rm.current_realm), rm.is_merged))
+
+
+func _target_blend_for(realm: int, merged: bool) -> float:
+	if merged:
+		return 0.5
+	return 1.0 if realm == RealmManager.Realm.MIRROR else 0.0
+
+
+func _on_realm_visual_changed(new_realm: int) -> void:
+	var merged: bool = RealmManager.instance != null and bool(RealmManager.instance.is_merged)
+	_tween_realm_blend(_target_blend_for(new_realm, merged))
+
+
+func _on_realms_visual_merged() -> void:
+	_tween_realm_blend(0.5)
+
+
+func _tween_realm_blend(target: float) -> void:
+	if _realm_blend_tween != null and _realm_blend_tween.is_valid():
+		_realm_blend_tween.kill()
+	if not is_inside_tree():
+		_apply_realm_blend(target)
+		return
+	_realm_blend_tween = create_tween()
+	_realm_blend_tween.tween_method(_apply_realm_blend, _realm_blend, target, REALM_BLEND_DURATION)
+
+
+func _apply_realm_blend(value: float) -> void:
+	_realm_blend = value
+	for key in _stone_mat_cache:
+		var m: ShaderMaterial = _stone_mat_cache[key] as ShaderMaterial
+		if m != null:
+			m.set_shader_parameter("mirror_blend", value)
+
+
+func get_realm_blend() -> float:
+	return _realm_blend
 
 
 func _make_gate(node_name: String, pos: Vector3, sec_id: int, encounter_id: String, starts_open_flag: bool) -> EncounterGate:
@@ -402,7 +555,7 @@ func _make_gate(node_name: String, pos: Vector3, sec_id: int, encounter_id: Stri
 	gate.starts_open = starts_open_flag
 	gate.gate_mesh_path = NodePath("GateMesh")
 
-	var mesh := _make_mesh_box("GateMesh", Vector3(4.0, 3.0, 0.35), Color(0.75, 0.32, 0.18))
+	var mesh := _make_mesh_box("GateMesh", Vector3(4.0, 3.0, 0.35), Color(0.75, 0.32, 0.18), "plain")
 	mesh.position = Vector3(0.0, 1.5, 0.0)
 	gate.add_child(mesh)
 
@@ -447,7 +600,7 @@ func _make_switch(
 	col.position = Vector3(0.0, 0.8, 0.0)
 	sw.add_child(col)
 
-	var plinth := _make_mesh_box("SwitchPlinth", Vector3(0.7, 1.2, 0.7), Color(0.25, 0.78, 1.0))
+	var plinth := _make_mesh_box("SwitchPlinth", Vector3(0.7, 1.2, 0.7), Color(0.25, 0.78, 1.0), "plain")
 	plinth.position = Vector3(0.0, 0.6, 0.0)
 	sw.add_child(plinth)
 	return sw
@@ -480,7 +633,27 @@ func _make_breakable_pillar(
 	cm.height = 3.5
 	cyl.mesh = cm
 	cyl.position = Vector3(0.0, 1.75, 0.0)
+	var stone: ShaderMaterial = _get_stone_material(Color(0.62, 0.55, 0.45))
+	if stone != null:
+		cyl.material_override = stone
 	intact.add_child(cyl)
+
+	# Glowing amber fracture seam on the approach (south, -Z) face marks the Heavy-attack weak point.
+	var seam := MeshInstance3D.new()
+	seam.name = "FractureSeam"
+	var seam_mesh := BoxMesh.new()
+	seam_mesh.size = Vector3(0.10, 2.2, 0.06)
+	seam.mesh = seam_mesh
+	var seam_mat := StandardMaterial3D.new()
+	seam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	seam_mat.albedo_color = Color(1.0, 0.62, 0.20)
+	seam_mat.emission_enabled = true
+	seam_mat.emission = Color(1.0, 0.55, 0.15)
+	seam_mat.emission_energy_multiplier = 2.5
+	seam.material_override = seam_mat
+	seam.position = Vector3(0.0, 1.6, -0.68)
+	seam.rotation.z = deg_to_rad(8.0)
+	intact.add_child(seam)
 	prop.add_child(intact)
 
 	var broken := Node3D.new()
@@ -616,7 +789,7 @@ func _configure_enemy_actor(
 				model_added = true
 
 	if not model_added:
-		var mesh := _make_mesh_box("ProxyMesh", body_size, color)
+		var mesh := _make_mesh_box("ProxyMesh", body_size, color, "spectral" if color.a < 0.99 else "plain")
 		mesh.position = Vector3(0.0, body_size.y * 0.5, 0.0)
 		vis_root.add_child(mesh)
 	enemy.add_child(vis_root)
@@ -691,3 +864,359 @@ func _attach_enemy_hp_bar(enemy: EnemyBase, height_offset: float) -> void:
 
 	enemy.health_changed.connect(update_fn)
 	update_fn.call(enemy.health, enemy.max_health)
+
+
+# =====================================================================================================
+# Claude Pass B — Environmental art dressing (cosmetic only: every instanced model has its colliders
+# stripped, so gameplay collision stays exactly as authored above / in MEMORY/04).
+# Layout per stage: Shared (walls, columns, lights, scatter), RealityDressing (torches, red sun banners,
+# dust motes) and MirrorDressing (cobalt crystal sconces, blue moon banners, glass flecks), the latter two
+# gated by a RealmReactive child (Golden Collision Rule for Mirror-only cosmetics).
+# =====================================================================================================
+
+func _dress_environment() -> void:
+	var root := Node3D.new()
+	root.name = "EnvironmentDressing"
+	add_child(root)
+
+	var side_t2: Array[float] = [0.25, 0.75]
+	var side_t3: Array[float] = [1.0 / 6.0, 0.5, 5.0 / 6.0]
+	var banner_t1: Array[float] = [0.5]
+	var banner_t2: Array[float] = [1.0 / 3.0, 2.0 / 3.0]
+
+	# Stage 01 — Entry Vestibule
+	_dress_stage(root, "Stage01_Dressing", [
+		[Vector3(-6.0, 0.0, -5.0), Vector3(6.0, 0.0, -5.0), Vector3(0.0, 0.0, 1.0)],
+		[Vector3(-6.0, 0.0, -5.0), Vector3(-6.0, 0.0, 5.25), Vector3(1.0, 0.0, 0.0)],
+		[Vector3(6.0, 0.0, -5.0), Vector3(6.0, 0.0, 5.25), Vector3(-1.0, 0.0, 0.0)],
+	], 3.5, ["wall_arched.gltf.glb", "wall.gltf.glb", "wall_pillar.gltf.glb"], side_t2, banner_t1, 1.0,
+	Vector3(0.0, 2.0, 0.0), Vector3(6.0, 2.0, 5.0), [
+		["barrel_large.gltf.glb", Vector3(-5.2, 0.0, -4.2), 1.0],
+		["box_large.gltf.glb", Vector3(5.2, 0.0, -4.3), 0.9],
+	])
+
+	# Stage 02 — Hall of Echoes
+	_dress_stage(root, "Stage02_Dressing", [
+		[Vector3(-10.0, 0.0, 10.0), Vector3(-10.0, 0.0, 30.0), Vector3(1.0, 0.0, 0.0)],
+		[Vector3(10.0, 0.0, 10.0), Vector3(10.0, 0.0, 30.0), Vector3(-1.0, 0.0, 0.0)],
+	], 3.5, ["wall_pillar.gltf.glb", "wall.gltf.glb", "wall_cracked.gltf.glb", "wall.gltf.glb"], side_t2, banner_t1, 1.0,
+	Vector3(0.0, 2.5, 20.0), Vector3(10.0, 2.5, 10.0), [
+		["pillar_decorated.gltf.glb", Vector3(-8.6, 0.0, 11.4), 3.6],
+		["pillar_decorated.gltf.glb", Vector3(8.6, 0.0, 11.4), 3.6],
+		["pillar_decorated.gltf.glb", Vector3(-8.6, 0.0, 28.6), 3.6],
+		["pillar_decorated.gltf.glb", Vector3(8.6, 0.0, 28.6), 3.6],
+		["barrel_large.gltf.glb", Vector3(-9.1, 0.0, 13.0), 1.1],
+		["barrel_large.gltf.glb", Vector3(-9.2, 0.0, 14.1), 1.0],
+		["box_large.gltf.glb", Vector3(9.1, 0.0, 26.8), 1.0],
+		["rubble_large.gltf.glb", Vector3(8.9, 0.0, 13.2), 0.8],
+	])
+
+	# Stage 03 — Collapsed Gallery (open chasm: no wall runs, broken columns along the floor edges)
+	var none_t: Array[float] = []
+	_dress_stage(root, "Stage03_Dressing", [], 3.0, [], none_t, none_t, 1.0,
+	Vector3(0.0, 2.0, 46.0), Vector3(4.0, 2.0, 12.0), [
+		["pillar.gltf.glb", Vector3(-3.5, 0.0, 34.8), 3.0],
+		["pillar.gltf.glb", Vector3(3.5, 0.0, 34.8), 3.0],
+		["pillar.gltf.glb", Vector3(-3.5, 0.0, 43.2), 2.2],
+		["pillar.gltf.glb", Vector3(3.5, 0.0, 43.2), 3.0],
+		["pillar.gltf.glb", Vector3(-3.5, 0.0, 48.8), 3.0],
+		["pillar.gltf.glb", Vector3(3.5, 0.0, 48.8), 2.4],
+		["pillar.gltf.glb", Vector3(-3.5, 0.0, 57.2), 3.0],
+		["pillar.gltf.glb", Vector3(3.5, 0.0, 57.2), 3.0],
+		["rubble_large.gltf.glb", Vector3(-3.0, 0.0, 43.4), 0.6],
+		["rubble_large.gltf.glb", Vector3(2.9, 0.0, 48.6), 0.6],
+	])
+
+	# Stage 04 — Mechanism Chamber
+	_dress_stage(root, "Stage04_Dressing", [
+		[Vector3(-6.0, 0.0, 62.0), Vector3(-6.0, 0.0, 74.0), Vector3(1.0, 0.0, 0.0)],
+		[Vector3(6.0, 0.0, 62.0), Vector3(6.0, 0.0, 74.0), Vector3(-1.0, 0.0, 0.0)],
+	], 3.5, ["wall.gltf.glb", "wall_gated.gltf.glb", "wall.gltf.glb"], side_t2, banner_t1, 1.0,
+	Vector3(0.0, 2.0, 68.0), Vector3(6.0, 2.0, 6.0), [
+		["barrel_large.gltf.glb", Vector3(5.1, 0.0, 72.9), 1.0],
+		["box_large.gltf.glb", Vector3(-5.1, 0.0, 63.2), 1.0],
+		["box_large.gltf.glb", Vector3(-5.2, 0.0, 64.3), 0.8],
+	])
+
+	# Stage 05 — Execution Arena
+	_dress_stage(root, "Stage05_Dressing", [
+		[Vector3(-13.0, 0.0, 76.0), Vector3(-13.0, 0.0, 102.0), Vector3(1.0, 0.0, 0.0)],
+		[Vector3(13.0, 0.0, 76.0), Vector3(13.0, 0.0, 102.0), Vector3(-1.0, 0.0, 0.0)],
+	], 4.5, ["wall_arched.gltf.glb", "wall_pillar.gltf.glb", "wall_broken.gltf.glb", "wall_pillar.gltf.glb"], side_t3, banner_t2, 1.4,
+	Vector3(0.0, 3.0, 89.0), Vector3(13.0, 3.0, 13.0), [
+		["pillar_decorated.gltf.glb", Vector3(-11.6, 0.0, 80.0), 4.8],
+		["pillar_decorated.gltf.glb", Vector3(-11.6, 0.0, 88.0), 4.8],
+		["pillar_decorated.gltf.glb", Vector3(-11.6, 0.0, 96.0), 4.8],
+		["pillar_decorated.gltf.glb", Vector3(11.6, 0.0, 80.0), 4.8],
+		["pillar_decorated.gltf.glb", Vector3(11.6, 0.0, 88.0), 4.8],
+		["pillar_decorated.gltf.glb", Vector3(11.6, 0.0, 96.0), 4.8],
+		["rubble_large.gltf.glb", Vector3(-11.4, 0.0, 100.6), 0.9],
+		["rubble_large.gltf.glb", Vector3(11.3, 0.0, 77.6), 0.9],
+		["box_large.gltf.glb", Vector3(-11.9, 0.0, 77.4), 1.0],
+	])
+
+
+func _dress_stage(
+	parent: Node3D,
+	stage_name: String,
+	wall_runs: Array,
+	wall_height: float,
+	wall_variants: Array,
+	torch_t: Array[float],
+	banner_t: Array[float],
+	banner_bottom: float,
+	ambient_center: Vector3,
+	ambient_extents: Vector3,
+	props: Array
+) -> void:
+	var stage := Node3D.new()
+	stage.name = stage_name
+	parent.add_child(stage)
+	var shared: Node3D = _make_realm_group(stage, "Shared", -1)
+	var reality: Node3D = _make_realm_group(stage, "RealityDressing", RealmReactive.Affinity.REALITY_ONLY)
+	var mirror: Node3D = _make_realm_group(stage, "MirrorDressing", RealmReactive.Affinity.MIRROR_ONLY)
+
+	var variants: Array[String] = []
+	for v in wall_variants:
+		variants.append(String(v))
+
+	for run in wall_runs:
+		var start: Vector3 = run[0]
+		var end: Vector3 = run[1]
+		var inward: Vector3 = run[2]
+		if not variants.is_empty():
+			_dress_wall_run(shared, start, end, inward, wall_height, variants)
+		if absf(inward.x) < 0.5:
+			continue # torches/banners only on the long side walls
+		for t in torch_t:
+			_place_wall_torch(shared, reality, mirror, start.lerp(end, t), inward)
+		for t in banner_t:
+			var bp: Vector3 = start.lerp(end, t) + Vector3(0.0, banner_bottom, 0.0)
+			var yaw: float = rad_to_deg(atan2(inward.x, inward.z))
+			_place_model(reality, "banner_red.gltf.glb", bp, yaw, 2.6, inward)
+			_place_model(mirror, "banner_blue.gltf.glb", bp, yaw, 2.6, inward)
+
+	for prop in props:
+		var file: String = String(prop[0])
+		var pos: Vector3 = prop[1]
+		var h: float = float(prop[2])
+		var yaw_hash: float = fmod(absf(pos.x * 37.0 + pos.z * 11.0), 360.0)
+		_place_model(shared, file, pos, yaw_hash, h)
+
+	reality.add_child(_make_ambient_particles(ambient_center, ambient_extents, false))
+	mirror.add_child(_make_ambient_particles(ambient_center, ambient_extents, true))
+
+
+func _make_realm_group(parent: Node3D, group_name: String, affinity: int) -> Node3D:
+	var g := Node3D.new()
+	g.name = group_name
+	if affinity >= 0:
+		var rr := RealmReactive.new()
+		rr.name = "RealmReactive"
+		rr.realm_affinity = affinity as RealmReactive.Affinity
+		rr.target_node_path = NodePath("..")
+		rr.manage_collisions = false
+		g.add_child(rr)
+	parent.add_child(g)
+	return g
+
+
+func _place_wall_torch(shared: Node3D, reality: Node3D, mirror: Node3D, wall_point: Vector3, inward: Vector3) -> void:
+	var yaw: float = rad_to_deg(atan2(inward.x, inward.z))
+	var mount: Vector3 = wall_point + Vector3(0.0, 1.75, 0.0)
+	_place_model(reality, "torch_lit.gltf.glb", mount, yaw, 0.9, inward)
+
+	# Mirror counterpart: cold cobalt crystal sconce.
+	var crystal := MeshInstance3D.new()
+	crystal.name = "CrystalSconce"
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.0
+	cm.bottom_radius = 0.11
+	cm.height = 0.42
+	cm.radial_segments = 6
+	cm.rings = 1
+	crystal.mesh = cm
+	var cmat := StandardMaterial3D.new()
+	cmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cmat.albedo_color = Color(0.45, 0.78, 1.0)
+	cmat.emission_enabled = true
+	cmat.emission = Color(0.3, 0.65, 1.0)
+	cmat.emission_energy_multiplier = 3.0
+	crystal.material_override = cmat
+	crystal.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	crystal.position = mount + inward.normalized() * 0.22 + Vector3(0.0, 0.45, 0.0)
+	mirror.add_child(crystal)
+
+	var light: OmniLight3D = RealmTorchLightScript.new() as OmniLight3D
+	light.name = "TorchLight"
+	light.omni_range = 7.5
+	light.omni_attenuation = 1.4
+	light.position = mount + inward.normalized() * 0.45 + Vector3(0.0, 0.6, 0.0)
+	shared.add_child(light)
+
+
+func _dress_wall_run(parent: Node3D, start: Vector3, end: Vector3, inward: Vector3, height: float, variants: Array[String]) -> void:
+	var run: Vector3 = end - start
+	var length: float = run.length()
+	if length < 0.5 or variants.is_empty():
+		return
+	var dir: Vector3 = run / length
+	var probe: Node3D = _instance_dungeon_model(variants[0])
+	if probe == null:
+		return
+	var pa: AABB = _compute_local_aabb(probe)
+	probe.free()
+	if pa.size.y <= 0.001:
+		return
+	var module_len: float = maxf(pa.size.x, pa.size.z) * (height / pa.size.y)
+	var count: int = maxi(1, int(round(length / maxf(0.5, module_len))))
+	var seg: float = length / float(count)
+	for i in range(count):
+		var file: String = variants[i % variants.size()]
+		var center: Vector3 = start + dir * (seg * (float(i) + 0.5))
+		_place_model(parent, file, center, 0.0, height, inward, dir, seg)
+
+
+func _place_model(
+	parent: Node3D,
+	file_name: String,
+	pos: Vector3,
+	yaw_deg: float = 0.0,
+	fit_height: float = -1.0,
+	wall_inward: Vector3 = Vector3.ZERO,
+	align_dir: Vector3 = Vector3.ZERO,
+	stretch_long_to: float = -1.0
+) -> Node3D:
+	## Instances a KayKit dungeon model, scales it to `fit_height`, rests its AABB bottom on `pos.y`, centres it
+	## on `pos.xz`, optionally aligns its long axis with `align_dir` (stretching to `stretch_long_to`), and
+	## optionally pushes it off a wall face along `wall_inward` so its back sits flush against the wall.
+	var inst: Node3D = _instance_dungeon_model(file_name)
+	if inst == null:
+		return null
+	var aabb: AABB = _compute_local_aabb(inst)
+	var s: float = 1.0
+	if fit_height > 0.0 and aabb.size.y > 0.001:
+		s = fit_height / aabb.size.y
+	var sc := Vector3(s, s, s)
+	var long_is_x: bool = aabb.size.x >= aabb.size.z
+	if stretch_long_to > 0.0:
+		var cur_len: float = (aabb.size.x if long_is_x else aabb.size.z) * s
+		if cur_len > 0.001:
+			var k: float = stretch_long_to / cur_len
+			if long_is_x:
+				sc.x *= k
+			else:
+				sc.z *= k
+	var yaw: float = deg_to_rad(yaw_deg)
+	if align_dir.length_squared() > 0.0001:
+		yaw = atan2(-align_dir.z, align_dir.x) if long_is_x else atan2(align_dir.x, align_dir.z)
+	inst.scale = sc
+	inst.rotation = Vector3(0.0, yaw, 0.0)
+	parent.add_child(inst)
+
+	var placed: AABB = Transform3D(inst.transform.basis, Vector3.ZERO) * aabb
+	var c: Vector3 = placed.get_center()
+	var p: Vector3 = pos - Vector3(c.x, placed.position.y, c.z)
+	if wall_inward.length_squared() > 0.0001:
+		var n: Vector3 = wall_inward.normalized()
+		var thick: float = absf(placed.size.x * n.x) + absf(placed.size.z * n.z)
+		p += n * (thick * 0.5 + 0.02)
+	inst.position = p
+	return inst
+
+
+func _instance_dungeon_model(file_name: String) -> Node3D:
+	var path: String = DUNGEON_DIR + file_name
+	var packed: PackedScene = null
+	if _model_cache.has(path):
+		packed = _model_cache[path] as PackedScene
+	elif ResourceLoader.exists(path):
+		packed = load(path) as PackedScene
+		_model_cache[path] = packed
+	if packed == null:
+		return null
+	var inst: Node3D = packed.instantiate() as Node3D
+	if inst == null:
+		return null
+	inst.name = file_name.get_basename().get_basename().to_pascal_case()
+	_strip_model_collisions(inst)
+	return inst
+
+
+func _strip_model_collisions(node: Node) -> void:
+	if node is CollisionObject3D:
+		(node as CollisionObject3D).collision_layer = 0
+		(node as CollisionObject3D).collision_mask = 0
+	if node is CollisionShape3D:
+		(node as CollisionShape3D).disabled = true
+	for child in node.get_children():
+		_strip_model_collisions(child)
+
+
+func _compute_local_aabb(root: Node3D) -> AABB:
+	var result := AABB()
+	var has_any: bool = false
+	var stack: Array = [[root, Transform3D.IDENTITY]]
+	while not stack.is_empty():
+		var item: Array = stack.pop_back()
+		var n: Node = item[0]
+		var xf: Transform3D = item[1]
+		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+			var box: AABB = xf * (n as MeshInstance3D).mesh.get_aabb()
+			result = box if not has_any else result.merge(box)
+			has_any = true
+		for child in n.get_children():
+			if child is Node3D:
+				stack.append([child, xf * (child as Node3D).transform])
+	return result
+
+
+func _make_ambient_particles(center: Vector3, extents: Vector3, mirror_style: bool) -> GPUParticles3D:
+	## Reality: warm dry dust motes drifting down. Mirror: cobalt glass flecks floating up and glinting.
+	var p := GPUParticles3D.new()
+	p.name = "GlassFlecks" if mirror_style else "DustMotes"
+	p.amount = clampi(int(extents.x * extents.z * 0.9), 40, 160)
+	p.lifetime = 9.0
+	p.preprocess = 9.0
+	p.randomness = 0.5
+	p.position = center
+	p.visibility_aabb = AABB(-extents - Vector3.ONE, (extents + Vector3.ONE) * 2.0)
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = extents
+	pm.direction = Vector3(0.2, 1.0, 0.1)
+	pm.spread = 70.0
+	pm.initial_velocity_min = 0.02
+	pm.initial_velocity_max = 0.12
+	pm.gravity = Vector3(0.0, 0.05, 0.0) if mirror_style else Vector3(0.0, -0.025, 0.0)
+	pm.turbulence_enabled = true
+	pm.turbulence_noise_strength = 0.4
+	pm.turbulence_noise_scale = 4.0
+	pm.turbulence_influence_min = 0.02
+	pm.turbulence_influence_max = 0.08
+	pm.scale_min = 0.5
+	pm.scale_max = 1.3
+	var base: Color = Color(0.55, 0.82, 1.0, 0.9) if mirror_style else Color(1.0, 0.86, 0.62, 0.35)
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.2, 0.8, 1.0])
+	grad.colors = PackedColorArray([
+		Color(base.r, base.g, base.b, 0.0), base, base, Color(base.r, base.g, base.b, 0.0)
+	])
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = grad
+	pm.color_ramp = ramp
+	p.process_material = pm
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.06, 0.06) if mirror_style else Vector2(0.035, 0.035)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD if mirror_style else BaseMaterial3D.BLEND_MODE_MIX
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.vertex_color_use_as_albedo = true
+	quad.material = mat
+	p.draw_pass_1 = quad
+	return p

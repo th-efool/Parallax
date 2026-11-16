@@ -70,6 +70,7 @@ var savegame_path: String = SAVEGAME_PATH
 var _entries: Array[Dictionary] = []
 var _settings: Dictionary = {}
 var _save_data: Dictionary = {}
+var _muted_by_focus: bool = false
 
 
 func _ready() -> void:
@@ -78,6 +79,30 @@ func _ready() -> void:
 	_load_settings_from_disk()
 	_load_savegame_from_disk()
 	apply_settings()
+
+
+func _notification(what: int) -> void:
+	## QA-A01: honour `mute_when_unfocused` on OS window focus changes.
+	match what:
+		NOTIFICATION_APPLICATION_FOCUS_OUT:
+			if bool(_settings.get("mute_when_unfocused", false)):
+				_muted_by_focus = true
+				_set_master_mute(true)
+		NOTIFICATION_APPLICATION_FOCUS_IN:
+			if _muted_by_focus:
+				_muted_by_focus = false
+				# Restore the user's Master level (re-mutes only if their volume is ~0).
+				_apply_bus_volume("Master", float(_settings.get("master_volume", 1.0)))
+
+
+func is_muted_by_focus() -> bool:
+	return _muted_by_focus
+
+
+func _set_master_mute(muted: bool) -> void:
+	var idx: int = AudioServer.get_bus_index("Master")
+	if idx >= 0:
+		AudioServer.set_bus_mute(idx, muted)
 
 
 # ============================================================================
@@ -301,6 +326,11 @@ func apply_settings() -> void:
 	_apply_bus_volume("Master", float(_settings.get("master_volume", 1.0)))
 	_apply_bus_volume("Music", float(_settings.get("music_volume", 0.85)))
 	_apply_bus_volume("SFX", float(_settings.get("sfx_volume", 0.90)))
+	if _muted_by_focus:
+		if bool(_settings.get("mute_when_unfocused", false)):
+			_set_master_mute(true)
+		else:
+			_muted_by_focus = false
 
 	# Apply input bindings to InputMap
 	_apply_keybindings_to_input_map()
@@ -374,6 +404,9 @@ func _apply_scene_graphics_and_camera() -> void:
 			we.environment.glow_enabled = bool(_settings.get("glow_enabled", true))
 			we.environment.fog_enabled = bool(_settings.get("fog_enabled", true))
 			we.environment.tonemap_exposure = clampf(float(_settings.get("brightness", 1.0)), 0.5, 1.5)
+			# Scale the expensive passes with the preset: volumetric light shafts only on High/Ultra, SSAO from Low up.
+			we.environment.volumetric_fog_enabled = we.environment.fog_enabled and shadow_q >= 2
+			we.environment.ssao_enabled = shadow_q >= 1
 
 	# Update Player Camera3D FOV & sensitivity
 	for p in get_tree().get_nodes_in_group("player"):
