@@ -329,6 +329,12 @@ func _ramp(parent: Node, n: String, from: Vector3, to: Vector3, width: float, ma
 	var basis := Basis.from_euler(Vector3(-pitch, yaw, 0.0))
 	var center: Vector3 = (from + to) * 0.5 - basis.y * (thick * 0.5)
 	var body := _solid(parent, n, center, Vector3(width, thick, length + 0.4), mat, LAYER_WORLD_SHARED, Vector3(-pitch, yaw, 0.0), show_mesh)
+	var mi: MeshInstance3D = body.get_node_or_null("Mesh") as MeshInstance3D
+	if mi != null:
+		# Visible ramps sink 3 cm and keep their exact length so their ends tuck under the floors they join
+		# instead of sharing a coplanar top (the collider keeps its overlap for seamless walking).
+		(mi.mesh as BoxMesh).size = Vector3(width, thick, length)
+		mi.position = Vector3(0, -0.03, 0)
 	return body
 
 
@@ -925,15 +931,18 @@ func _build_stage_02_hall() -> Node3D:
 	_parapet(root, "Rail_Stair_E", Vector3(4.2, 0, 7.6), Vector3(4.2, y, 22.0), _m_wall())
 	_parapet(root, "Rail_Landing_W", Vector3(-4.2, y, 22.0), Vector3(-4.2, y, 23.8), _m_wall())
 	_parapet(root, "Rail_Landing_E", Vector3(4.2, y, 22.0), Vector3(4.2, y, 23.8), _m_wall())
-	# Stepped cheek walls carrying a colonnade on each flank.
-	var cheek: ArrayMesh = ProcMesh.steps_mesh(2.6, y, 14.0, 8)
+	# Sloped plinth walls carrying a colonnade on each flank (bases sunk slightly so none float on the slope).
 	var col_mesh: ArrayMesh = ProcMesh.column_mesh(0.42, 7.5, 16)
 	var cols: Array = []
+	var cheek_pitch: float = atan2(y, 14.0)
+	var cheek := BoxMesh.new()
+	cheek.size = Vector3(2.6, 2.6, 14.6)
 	for sx in [-1.0, 1.0]:
-		_mesh(g[0], "StairCheek", cheek, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(sx * 5.75, 0.6, 8.0)))
+		var cb := Basis.from_euler(Vector3(-cheek_pitch, 0, 0))
+		_mesh(g[0], "StairCheek", cheek, _m_wall(), Transform3D(cb, Vector3(sx * 5.75, 0.6 + y * 0.5, 15.0) - cb.y * 1.3))
 		for i in range(5):
 			var z: float = 9.4 + float(i) * 3.0
-			var yy: float = 0.6 + (z - 8.0) / 14.0 * y
+			var yy: float = 0.6 + (z - 8.0) / 14.0 * y - 0.18
 			cols.append(Transform3D(Basis.IDENTITY, Vector3(sx * 5.75, yy, z)))
 	_multimesh(g[0], "StairColonnade", col_mesh, _m_marble(), cols)
 	var architrave := BoxMesh.new()
@@ -1044,18 +1053,29 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 			low_x.append(Transform3D(b, Vector3(sx * 10.7, y, z)))
 			up_x.append(Transform3D(b, Vector3(sx * 10.9, y + 8.0, z)))
 			grille_x.append(Transform3D(b, Vector3(sx * 10.7, y, z)))
-	# South/North sides: 2 side modules each side of a wider gate arch
+	# South/North sides: two 3.5 m bays each side of the 6 m gate arch tile the 20 m wall exactly
+	# (x 3..6.5 and 6.5..10), so no two modules overlap (the old 4 m bays overlapped by 0.6 m and z-fought).
+	var side_low: ArrayMesh = ProcMesh.arch_mesh(3.5, 8.0, 2.3, 3.6, 1.4)
+	var side_up: ArrayMesh = ProcMesh.arch_mesh(3.5, 5.0, 2.1, 2.4, 1.0)
+	var side_grille: ArrayMesh = ProcMesh.portcullis_mesh(2.3, 4.6, 0.08, 0.32)
+	var gate_arch: ArrayMesh = ProcMesh.arch_mesh(6.0, 8.0, 4.4, 3.4, 1.6)
+	var gate_up: ArrayMesh = ProcMesh.arch_mesh(6.0, 5.0, 3.4, 2.4, 1.0)
+	var side_low_x: Array = []
+	var side_up_x: Array = []
+	var side_grille_x: Array = []
 	for sz in [23.3, 44.7]:
-		for x in [-8.0, -4.6, 4.6, 8.0]:
-			low_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
-			up_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y + 8.0, sz)))
-			grille_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
-		var gate_arch: ArrayMesh = ProcMesh.arch_mesh(6.0, 8.0, 4.4, 3.4, 1.6)
+		for x in [-8.25, -4.75, 4.75, 8.25]:
+			side_low_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
+			side_up_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y + 8.0, sz)))
+			side_grille_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
 		_mesh(g[0], "GateArch", gate_arch, wall_m, Transform3D(Basis.IDENTITY, Vector3(0, y, sz)))
-		_mesh(g[0], "GateArchUpper", arch_up, wall_m, Transform3D(Basis.IDENTITY.scaled(Vector3(1.5, 1, 1)), Vector3(0, y + 8.0, sz)))
+		_mesh(g[0], "GateArchUpper", gate_up, wall_m, Transform3D(Basis.IDENTITY, Vector3(0, y + 8.0, sz)))
 	_multimesh(g[0], "HallArcadeLower", arch_low, wall_m, low_x)
 	_multimesh(g[0], "HallArcadeUpper", arch_up, wall_m, up_x)
 	_multimesh(g[0], "HallGrilles", grille, _m_iron(), grille_x)
+	_multimesh(g[0], "HallArcadeLowerNS", side_low, wall_m, side_low_x)
+	_multimesh(g[0], "HallArcadeUpperNS", side_up, wall_m, side_up_x)
+	_multimesh(g[0], "HallGrillesNS", side_grille, _m_iron(), side_grille_x)
 	# Corner towers
 	var tower := BoxMesh.new()
 	tower.size = Vector3(4.0, 24.0, 4.0)
@@ -1076,8 +1096,9 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 	cor.size = Vector3(1.6, 0.7, 24.0)
 	_mesh(g[0], "CorniceW", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-10.9, y + 13.35, 34.0)))
 	_mesh(g[0], "CorniceE", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(10.9, y + 13.35, 34.0)))
-	_mesh(g[0], "CorniceS", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.35, 23.0)))
-	_mesh(g[0], "CorniceN", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.35, 45.0)))
+	# N/S runs sit 4 cm higher so the overlapping corner blocks never share a top/bottom plane.
+	_mesh(g[0], "CorniceS", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, 23.0)))
+	_mesh(g[0], "CorniceN", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, 45.0)))
 
 
 # =====================================================================================================
@@ -1108,7 +1129,10 @@ func _build_stage_03_gallery() -> Node3D:
 	bridge.add_child(mirror_geo)
 	var repaired_geo := Node3D.new()
 	repaired_geo.name = "RepairedGeometry"
-	_solid(repaired_geo, "RepairedBridgeSpan", Vector3(0.0, -0.25, 0.0), Vector3(3.0, 0.5, 4.0), _m_marble(), LAYER_WORLD_SHARED | LAYER_WORLD_REALITY)
+	var repaired := _solid(repaired_geo, "RepairedBridgeSpan", Vector3(0.0, -0.25, 0.0), Vector3(3.0, 0.5, 4.0), _m_marble(), LAYER_WORLD_SHARED | LAYER_WORLD_REALITY)
+	# After repair both spans are visible in the Mirror: lift the stone span's mesh 1.5 cm so it cleanly
+	# covers the spectral slab instead of z-fighting with it (colliders untouched).
+	(repaired.get_node("Mesh") as Node3D).position = Vector3(0, 0.015, 0)
 	bridge.add_child(repaired_geo)
 	root.add_child(bridge)
 
@@ -1178,9 +1202,10 @@ func _build_stage_03_gallery() -> Node3D:
 	for z in [62.5, 67.5, 76.5, 81.5]:
 		aqx.append(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y - 0.5 - 46.0, z)))
 	_multimesh(g[0], "AqueductArches", aq, _m_wall(), aqx)
-	var broken_stub := ProcMesh.rock_mesh(Vector3(7.0, 4.0, 3.0), 77, 0.3, 8, 1.0)
-	_mesh(g[0], "BrokenSpanSouth", broken_stub, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y - 2.5, 70.6)))
-	_mesh(g[0], "BrokenSpanNorth", broken_stub, _m_wall(), Transform3D(Basis(Vector3.UP, PI), Vector3(0, y - 2.6, 73.4)))
+	# Broken masonry stubs hanging under the gap; tops clamped 0.6 m below the deck so nothing at walking
+	# height suggests a footing that isn't there.
+	_rock(g[0], "BrokenSpanSouth", Vector3(0, y - 0.6, 70.6), Vector3(7.0, 4.0, 3.0), 77, _m_wall(), 1.0, 0.3, 8)
+	_rock(g[0], "BrokenSpanNorth", Vector3(0, y - 0.7, 73.4), Vector3(7.0, 4.0, 3.0), 78, _m_wall(), 1.0, 0.3, 8)
 	# Ruined colonnade on the deck edges (collidable shafts), some snapped short.
 	var shafts: Array = [[61.5, 4.5], [65.5, 2.0], [69.0, 4.5], [75.5, 4.5], [79.5, 1.6], [83.0, 4.5]]
 	for sx in [-1.0, 1.0]:
@@ -1232,8 +1257,9 @@ func _build_stage_04_mechanism() -> Node3D:
 	_solid(root, "Wall_West", Vector3(-6.75, y + 9.0, cz), Vector3(1.5, 18.0, 13.5), _m_wall())
 	_solid(root, "Wall_East", Vector3(6.75, y + 9.0, cz), Vector3(1.5, 18.0, 13.5), _m_wall())
 	for sx in [-1.0, 1.0]:
-		_solid(root, "Wall_South_%d" % int(sx), Vector3(sx * 4.375, y + 9.0, cz - 6.6), Vector3(4.75, 18.0, 1.2), _m_wall())
-		_solid(root, "Wall_North_%d" % int(sx), Vector3(sx * 4.375, y + 9.0, cz + 6.6), Vector3(4.75, 18.0, 1.2), _m_wall())
+		# 4.0 m segments butt exactly against the side walls' inner faces (x = ±6) — no overlapping corners.
+		_solid(root, "Wall_South_%d" % int(sx), Vector3(sx * 4.0, y + 9.0, cz - 6.6), Vector3(4.0, 18.0, 1.2), _m_wall())
+		_solid(root, "Wall_North_%d" % int(sx), Vector3(sx * 4.0, y + 9.0, cz + 6.6), Vector3(4.0, 18.0, 1.2), _m_wall())
 	var lintel := BoxMesh.new()
 	lintel.size = Vector3(4.0, 14.0, 1.2)
 	_mesh(g[0], "LintelSouth", lintel, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 11.0, cz - 6.6)))
@@ -1364,8 +1390,9 @@ func _build_stage_05_arena() -> Node3D:
 	for p in [Vector3(-7.8, y, 117.5), Vector3(7.8, y, 117.5)]:
 		_brazier(g, p)
 	var esp_support := BoxMesh.new()
-	esp_support.size = Vector3(18.0, 5.0, 7.0)
-	_mesh(g[0], "EsplanadeSupport", esp_support, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y - 2.75, 119.5)))
+	# Slightly inset under the esplanade slab so no side face is coplanar with the floor's edges.
+	esp_support.size = Vector3(17.8, 5.0, 6.8)
+	_mesh(g[0], "EsplanadeSupport", esp_support, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y - 2.77, 119.6)))
 
 	# --- Arena: sand disc R 13 inside a podium wall; entrance/exit tunnels through the cavea ---
 	var arena_floor := _solid(root, "ArenaFloor", Vector3(c.x, y - 0.25, c.z), Vector3(28.0, 0.5, 28.0), null, LAYER_WORLD_SHARED, Vector3.ZERO, false)
@@ -1375,7 +1402,8 @@ func _build_stage_05_arena() -> Node3D:
 	sand.height = 0.5
 	sand.radial_segments = 64
 	sand.rings = 1
-	_mesh(arena_floor, "SandDisc", sand, _m_sand(), Transform3D.IDENTITY)
+	# 1.5 cm below the tunnel floors so the disc edge never z-fights where the tunnels meet the arena.
+	_mesh(arena_floor, "SandDisc", sand, _m_sand(), Transform3D(Basis.IDENTITY, Vector3(0, -0.015, 0)))
 	_mesh(arena_floor, "SandBorder", ProcMesh.ring_sector_mesh(12.4, 13.6, 0.25, 0.29, 0.0, TAU, 72), _m_marble(), Transform3D.IDENTITY, false)
 	_mesh(arena_floor, "Sigil", ProcMesh.ring_sector_mesh(3.6, 4.1, 0.25, 0.27, 0.0, TAU, 48), _m_marble(), Transform3D.IDENTITY, false)
 	# Podium ring wall (collision segments) with openings for the two tunnels.
@@ -1396,7 +1424,7 @@ func _build_stage_05_arena() -> Node3D:
 	var cav_gap: float = 0.215
 	for half in [[cav_gap, PI - cav_gap], [PI + cav_gap, TAU - cav_gap]]:
 		_mesh(g[0], "Cavea", ProcMesh.cavea_mesh(14.4, 1.6, 1.05, 10, 4.4, float(half[0]), float(half[1]), 40), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(c.x, y, c.z)))
-		_mesh(g[0], "CaveaWalk", ProcMesh.ring_sector_mesh(30.4, 31.2, 0.0, 14.9, float(half[0]), float(half[1]), 40), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(c.x, y, c.z)))
+		_mesh(g[0], "CaveaWalk", ProcMesh.ring_sector_mesh(30.4, 30.9, 0.0, 14.9, float(half[0]), float(half[1]), 40), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(c.x, y, c.z)))
 		_mesh(g[0], "FacadePodium", ProcMesh.ring_sector_mesh(31.0, 32.6, -26.0, 4.4, float(half[0]) - 0.02, float(half[1]) + 0.02, 32), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(c.x, y, c.z)))
 	var facade_r: float = 31.8
 	var bays: int = 44
@@ -1405,8 +1433,8 @@ func _build_stage_05_arena() -> Node3D:
 	var bay_x: Array = []
 	for i in range(bays):
 		var a: float = TAU * (float(i) + 0.5) / float(bays)
-		if absf(sin(a)) < 0.2:
-			continue
+		if absf(sin(a)) < 0.276:
+			continue # bays nearest the portals would cut into the 13 m portal towers
 		var dir := Vector3(sin(a), 0, cos(a))
 		for storey in range(3):
 			bay_x.append(Transform3D(Basis(Vector3.UP, a), c + dir * facade_r + Vector3(0, 4.4 + 7.2 * float(storey) - (y - c.y), 0)))
@@ -1415,10 +1443,10 @@ func _build_stage_05_arena() -> Node3D:
 	_mesh(g[0], "FacadeCornice", ProcMesh.ring_sector_mesh(30.8, 33.1, 29.5, 30.2, 0.0, TAU, 64), _m_marble(), Transform3D(Basis.IDENTITY, Vector3(c.x, y, c.z)))
 	# Monumental portal towers over both tunnels (inner + outer arches).
 	for dz in [-1.0, 1.0]:
-		var portal: ArrayMesh = ProcMesh.arch_mesh(12.0, 26.0, 6.0, 5.2, 18.0)
+		var portal: ArrayMesh = ProcMesh.arch_mesh(13.0, 26.0, 6.0, 5.2, 18.0)
 		_mesh(g[0], "PortalTower", portal, _m_wall(), Transform3D(Basis.IDENTITY, c + Vector3(0, 0, dz * 22.4) + Vector3(0, y - c.y, 0)))
 		var crown := BoxMesh.new()
-		crown.size = Vector3(13.0, 1.0, 18.6)
+		crown.size = Vector3(13.8, 1.0, 18.6)
 		_mesh(g[0], "PortalCrown", crown, _m_marble(), Transform3D(Basis.IDENTITY, c + Vector3(0, 26.5, dz * 22.4)))
 	# Velarium masts with alternating realm banners around the rim.
 	var mast := CylinderMesh.new()
