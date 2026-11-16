@@ -18,6 +18,7 @@ signal mechanism_solved()
 var is_solved: bool = false
 var is_plate_pressed: bool = false
 var _initial_weight_position: Vector3 = Vector3(0.0, 2.5, 0.0)
+var _drop_tween: Tween = null
 
 
 func _ready() -> void:
@@ -56,6 +57,8 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 func reset_puzzle() -> void:
 	is_solved = false
 	is_plate_pressed = false
+	if _drop_tween != null and _drop_tween.is_valid():
+		_drop_tween.kill()
 	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
 	if weight_node != null:
 		weight_node.position = _initial_weight_position
@@ -81,7 +84,12 @@ func on_landing_slam_impact(_damage: int = 60, source_type: String = "player_lan
 
 	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
 	if weight_node != null:
-		weight_node.position = dropped_local_position
+		if is_inside_tree():
+			# Cosmetic gravity drop onto the plate (logic already resolved above / below).
+			_drop_tween = create_tween()
+			_drop_tween.tween_property(weight_node, "position", dropped_local_position, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		else:
+			weight_node.position = dropped_local_position
 		for child in weight_node.get_children():
 			if child is RealmReactive:
 				(child as RealmReactive).repair_for_reality()
