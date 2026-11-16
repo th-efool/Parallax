@@ -370,6 +370,42 @@ func _box_shape(size: Vector3) -> BoxShape3D:
 	return s
 
 
+func _add_roamer(parent: Node3D, kind: String, node_name: String, pos: Vector3, section: int, face_toward: Vector3 = Vector3.ZERO) -> EnemyBase:
+	## Journey enemies outside the five locked encounters. Empty encounter_id => they never hold a gate shut;
+	## section_id => EncounterDirector wakes them only while the player is in that section and resets them on
+	## death-respawn like every other enemy.
+	if not spawn_enemies:
+		return null
+	var e: EnemyBase = null
+	var col := Color(0.82, 0.76, 0.65)
+	match kind:
+		"phantom":
+			e = PhantomTwin.new()
+			col = Color(0.25, 0.78, 1.0, 0.85)
+		"shield":
+			e = ShieldedGuard.new()
+			col = Color(0.75, 0.58, 0.25)
+		_:
+			e = SkeletonGuard.new()
+	_configure_enemy_actor(e, node_name, "journey_" + node_name.to_lower(), pos, col)
+	e.section_id = section
+	e.encounter_id = ""
+	if face_toward != Vector3.ZERO:
+		var d: Vector3 = face_toward - pos
+		e.rotation.y = atan2(-d.x, -d.z)
+	parent.add_child(e)
+	return e
+
+
+func _roamer_group(root: Node3D) -> Node3D:
+	var g: Node3D = root.get_node_or_null("Roamers") as Node3D
+	if g == null:
+		g = Node3D.new()
+		g.name = "Roamers"
+		root.add_child(g)
+	return g
+
+
 func _configure_enemy_actor(enemy: EnemyBase, node_name: String, unique_id: String, pos: Vector3, color: Color, body_size: Vector3 = Vector3(0.8, 1.8, 0.8)) -> void:
 	super._configure_enemy_actor(enemy, node_name, unique_id, pos, color, body_size)
 	# Enemies respect the same railings as the player (they must never be lured off a cliff edge).
@@ -922,6 +958,12 @@ func _build_stage_01_entry() -> Node3D:
 	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0), 1.0, 12, true)
 	g[1].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), false))
 	g[2].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), true))
+	# Journey enemies (ENTRY): a two-skeleton teaching ambush on the overlook, and a Mirror phantom haunting
+	# the gate forecourt that only reveals itself once the player first shifts to cross the stepping stones.
+	var rg: Node3D = _roamer_group(root)
+	_add_roamer(rg, "skeleton", "OverlookSkeleton_A", Vector3(-8.0, 0.0, -31.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
+	_add_roamer(rg, "skeleton", "OverlookSkeleton_B", Vector3(-5.0, 0.0, -30.5), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
+	_add_roamer(rg, "phantom", "ForecourtPhantom", Vector3(3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
 	return root
 
 
@@ -1041,6 +1083,8 @@ func _build_stage_02_hall() -> Node3D:
 	_multimesh(g[0], "Buttresses", buttress, _m_wall(), bts)
 	_banner(g[1], Vector3(2.85, y + 6.5, 53.0), -90.0, 1.6, 5.0, false)
 	_banner(g[2], Vector3(2.85, y + 6.5, 53.0), -90.0, 1.6, 5.0, true)
+	# Rampart sentry (HALL section stays current until the gallery trigger): holds the narrow ramp.
+	_add_roamer(_roamer_group(root), "skeleton", "RampartSentry", Vector3(0.0, Y_GALLERY, 58.6), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, 48))
 	return root
 
 
@@ -1368,6 +1412,12 @@ func _build_stage_04_mechanism() -> Node3D:
 	_crystal_cluster(g[2], Vector3(4.6, y, 89.4), 1.0, 41, true)
 	g[1].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), false))
 	g[2].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), true))
+	# Tower wardens (MECHANISM section): a Reality skeleton pair guarding the dais, and a phantom that
+	# harries the player in the Mirror while they line up the landing slam.
+	var rg: Node3D = _roamer_group(root)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_A", Vector3(3.5, y, 97.5), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y, 90))
+	_add_roamer(rg, "skeleton", "TowerSkeleton_B", Vector3(-4.2, y, 97.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y, 90))
+	_add_roamer(rg, "phantom", "TowerPhantom", Vector3(3.8, y, 91.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(-3, y, 93))
 	return root
 
 
@@ -1406,6 +1456,12 @@ func _build_stage_05_arena() -> Node3D:
 			_sword_monument(g[0], Vector3(sx * 8.6, top, z), 90.0, 13.0)
 	for p in [Vector3(-7.8, y, 117.5), Vector3(7.8, y, 117.5)]:
 		_brazier(g, p)
+	# Colosseum approach (still MECHANISM section until the arena trigger): an armoured gatekeeper on the
+	# esplanade flanked by a skeleton, and a phantom stalking the stair in the Mirror.
+	var rg: Node3D = _roamer_group(root)
+	_add_roamer(rg, "shield", "EsplanadeGatekeeper", Vector3(0.0, y, 118.4), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
+	_add_roamer(rg, "skeleton", "EsplanadeSkeleton", Vector3(-5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
+	_add_roamer(rg, "phantom", "StairPhantom", Vector3(3.0, 8.3, 110.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 102))
 	var esp_support := BoxMesh.new()
 	# Slightly inset under the esplanade slab so no side face is coplanar with the floor's edges.
 	esp_support.size = Vector3(17.8, 5.0, 6.8)
