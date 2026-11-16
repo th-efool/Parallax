@@ -20,6 +20,9 @@ const LAYER_WORLD_REALITY: int = 1 << 3
 const LAYER_WORLD_MIRROR: int = 1 << 4
 const LAYER_INTERACTABLE: int = 1 << 5
 const LAYER_HITBOX: int = 1 << 6
+## Layer 8: invisible movement blockers above low parapets/balustrades. Player + enemies collide with it;
+## the camera SpringArm (mask = layers 3/4/5) deliberately ignores it so it never snaps in at railings.
+const LAYER_PLAYER_BLOCKER: int = 1 << 7
 
 @export var shift_cooldown_duration: float = 0.60
 @export var floor_check_distance: float = 1.60

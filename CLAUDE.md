@@ -50,7 +50,7 @@ Before investigating code, editing scenes, or proposing changes:
    - Godot `--check-only -s <script.gd>` checks scripts in isolation where global `class_name` symbols from other files may not resolve unless explicitly preloaded.
    - Always preload sibling script dependencies (`const RealmReactiveScript := preload("res://scripts/core/realm_reactive.gd")`) or type exported node references cleanly (`CharacterBody3D`, `Node`, `CanvasLayer`) and give local variables explicit types (`var speed: float = 4.5`).
 2. **Physics Layer Discipline**:
-   - Use the named 3D physics layers in `project.godot` (`Player=1`, `Enemy=2`, `World_Shared=3`, `World_Reality=4`, `World_Mirror=5`, `Interactable=6`, `Hitbox=7`). Never scatter raw magic bitmasks without referencing helper constants in `RealmManager`.
+   - Use the named 3D physics layers in `project.godot` (`Player=1`, `Enemy=2`, `World_Shared=3`, `World_Reality=4`, `World_Mirror=5`, `Interactable=6`, `Hitbox=7`, `Player_Blocker=8` — invisible railing blockers the camera ignores). Never scatter raw magic bitmasks without referencing helper constants in `RealmManager`.
    - Inactive-realm actors/platforms MUST disable `CollisionShape3D` and pause AI/visibility—hiding meshes alone causes phantom hits.
 3. **3D Coordinate & Forward Orientation Trap**:
    - The GDD room sequence progresses **North along `+Z`** (`(0,0,-3)` up to `(0,0,102)`). Remember Godot's `look_at()` points `-Z` forward.
