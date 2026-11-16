@@ -16,6 +16,12 @@ uniform vec4 night_horizon : source_color = vec4(0.17, 0.27, 0.56, 1.0);
 uniform vec4 moon_color : source_color = vec4(0.75, 0.88, 1.0, 1.0);
 uniform vec4 aurora_color : source_color = vec4(0.15, 0.55, 1.0, 1.0);
 uniform float moon_size = 0.035;
+// Weather (driven per zone by WeatherDirector): storm overcast, blood-moon tint, lightning flash.
+uniform float overcast : hint_range(0.0, 1.0) = 0.0;
+uniform vec4 storm_color : source_color = vec4(0.32, 0.33, 0.38, 1.0);
+uniform float blood : hint_range(0.0, 1.0) = 0.0;
+uniform vec4 blood_color : source_color = vec4(0.75, 0.05, 0.03, 1.0);
+uniform float flash : hint_range(0.0, 4.0) = 0.0;
 
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -69,5 +75,20 @@ void sky() {
 	vec3 d = normalize(EYEDIR);
 	vec3 day = mirror_blend < 0.999 ? day_sky(d) : vec3(0.0);
 	vec3 night = mirror_blend > 0.001 ? night_sky(d, AT_CUBEMAP_PASS) : vec3(0.0);
-	COLOR = mix(day, night, mirror_blend);
+	vec3 col = mix(day, night, mirror_blend);
+	float luma = dot(col, vec3(0.299, 0.587, 0.114));
+	// Storm: desaturate + darken toward a heavy grey deck, with rolling cloud bands near the horizon.
+	float band = noise2(vec2(atan(d.x, d.z) * 4.0 + TIME * 0.02, d.y * 9.0));
+	vec3 storm = storm_color.rgb * (0.35 + 0.65 * smoothstep(-0.1, 0.5, d.y)) * (0.75 + 0.5 * band);
+	col = mix(col, storm * (0.6 + luma * 0.4), overcast);
+	// Blood moon: crimson wash, darker zenith, glowing red horizon and a bleeding moon/sun disc.
+	vec3 s = normalize(sun_dir);
+	float sd = max(dot(d, s), 0.0);
+	vec3 bloodsky = blood_color.rgb * (0.25 + 0.9 * (1.0 - smoothstep(-0.05, 0.6, d.y)));
+	bloodsky += vec3(1.0, 0.15, 0.08) * pow(sd, 400.0) * 18.0 + blood_color.rgb * pow(sd, 8.0) * 1.2;
+	bloodsky *= 0.75 + 0.5 * band;
+	col = mix(col, bloodsky + luma * blood_color.rgb * 0.3, blood);
+	// Lightning: brief sheet flash, brightest toward the horizon.
+	col += vec3(0.75, 0.82, 1.0) * flash * (0.4 + 0.6 * (1.0 - clamp(d.y, 0.0, 1.0)));
+	COLOR = col;
 }

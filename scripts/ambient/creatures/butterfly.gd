@@ -98,8 +98,11 @@ func _score_extra(s: Dictionary) -> void:
 	if behaviour in ["rest", "shoulder"] and t < _rest_until and fear < 0.3:
 		s[behaviour] = 0.9
 	elif behaviour != "land":
-		# The longer it has been flying, the more it wants to settle somewhere.
-		s["land"] = 0.15 + (1.0 - trait_value("energy")) * 0.3 + minf(_air_time * 0.03, 0.55)
+		# The longer it has been flying, the more it wants to settle somewhere — and rain grounds it.
+		var wet: float = _director.get_wetness() if _director != null else 0.0
+		s["land"] = 0.15 + (1.0 - trait_value("energy")) * 0.3 + minf(_air_time * 0.03, 0.55) + wet * 1.2
+	if behaviour == "rest" and _director != null and _director.get_wetness() > 0.3:
+		_rest_until = maxf(_rest_until, FaunaDirector.now() + 2.0)  # stay sheltered while it pours
 	if behaviour == "land":
 		s["land"] = 0.85
 	var p: Node3D = get_player()

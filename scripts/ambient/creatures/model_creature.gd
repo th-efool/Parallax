@@ -181,7 +181,8 @@ func _build_clip_map() -> void:
 	for loop_name in ["idle", "graze", "look", "walk", "run"]:
 		if _clip_map.has(loop_name):
 			var a: Animation = _ap.get_animation(_clip_map[loop_name])
-			if a != null:
+			# Only on change: setting loop_mode on a shared Animation makes every player of that rig rebuild.
+			if a != null and a.loop_mode != Animation.LOOP_LINEAR:
 				a.loop_mode = Animation.LOOP_LINEAR
 
 

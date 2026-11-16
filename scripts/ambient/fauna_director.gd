@@ -24,6 +24,7 @@ var _enemies: Array[Node3D] = []
 var _enemy_scan: float = 0.0
 var _footstep_cd: float = 0.0
 var _sweep_t: float = 0.0
+var _weather: Node = null
 var _disturbances: Array[Dictionary] = []  # {pos, radius, strength, kind, t}
 var _interest: Array[Dictionary] = []      # {pos, kind, t, ttl}
 var _lights_in_use: int = 0
@@ -307,6 +308,30 @@ func _bind_world() -> void:
 			e.connect("attack_started", _on_enemy_attack.bind(e))
 	if RealmManager.instance != null and not RealmManager.instance.realm_changed.is_connected(_on_realm_changed):
 		RealmManager.instance.realm_changed.connect(_on_realm_changed)
+	# Weather (WeatherDirector, if present): thunder startles everything; wetness drives shelter behaviour.
+	if not is_instance_valid(_weather):
+		_weather = get_tree().get_first_node_in_group("weather_director")
+		if _weather != null and _weather.has_signal("lightning_struck"):
+			_weather.connect("lightning_struck", _on_lightning)
+
+
+## 0 dry .. 1 downpour (from WeatherDirector). Butterflies settle and lizards take cover when wet.
+func get_wetness() -> float:
+	if is_instance_valid(_weather) and _weather.has_method("get_wetness"):
+		return float(_weather.call("get_wetness"))
+	return 0.0
+
+
+func _on_lightning(dist_m: float) -> void:
+	var p: Node3D = get_player()
+	if p == null:
+		return
+	# Thunder arrives later with distance; a near strike is a big scare, a far one a flinch.
+	var k: float = clampf(1.0 - (dist_m - 250.0) / 1150.0, 0.25, 1.0)
+	var t: SceneTreeTimer = get_tree().create_timer(dist_m / 343.0, false)
+	t.timeout.connect(func() -> void:
+		if is_instance_valid(p):
+			emit_disturbance(p.global_position, 45.0, 0.9 * k, "thunder"))
 
 
 func _on_player_attack(_n: String, _s: int, _d: int, heavy: bool, p: Node3D) -> void:

@@ -192,12 +192,14 @@ func _populate_rampart_and_gallery() -> void:
 		var yy: float = 4.0 + clampf((wz - 48.0) / 10.0, 0.0, 1.0) * 2.0
 		_ivy(z, Vector3(2.5, yy, wz), -PI * 0.5, 2.2, 6.5, wz > 55.0)
 		_veg(z, "RampartGrass", Vector3(-2.3, yy, wz - 1.5), Vegetation.Kind.WISPY_GRASS_TALL, [Vegetation.Kind.WISPY_GRASS], 4, 0.5, 0.25)
-	_habitat(z, "RampartLizards", Vector3(1.2, 5.0, 53.0), HABITAT.Species.SUN_LIZARD, 2, 2.0, HABITAT.GroupMode.ALL_LONERS, 2.0)
-	_habitat(z, "SunsetButterflies", Vector3(-1.0, 5.0, 52.0), HABITAT.Species.BUTTERFLY, 3, 2.0, HABITAT.GroupMode.MIXED, 2.0)
+	# Storm zone (WeatherDirector 'storm'): no butterflies or basking lizards here — crows ride the wind.
+	_marker(z, "fauna_perch", Vector3(3.6, 10.2, 49.0))
+	_marker(z, "fauna_perch", Vector3(3.6, 10.6, 56.5))
+	_habitat(z, "StormCrows", Vector3(0.5, 5.0, 53.0), HABITAT.Species.RUIN_CROW, 3, 2.0, HABITAT.GroupMode.ONE_GROUP, 2.0)
 	# Aqueduct Gallery: ferns and grass at the colonnade bases, doves on the deck, rats by the rubble.
 	for p in [Vector3(-3.0, 6, 62.5), Vector3(3.0, 6, 66.5), Vector3(-3.0, 6, 76.5), Vector3(3.0, 6, 81.0)]:
 		_veg(z, "ColonnadeGrowth", p, Vegetation.Kind.WISPY_GRASS, [Vegetation.Kind.FERN, Vegetation.Kind.GRASS_CLUMP], 5, 0.6, 0.28)
-	_habitat(z, "GalleryDoves", Vector3(0.0, 6, 64.0), HABITAT.Species.PIGEON, 4, 2.0, HABITAT.GroupMode.ONE_GROUP, 1.5)
+	_habitat(z, "GalleryDoves", Vector3(0.0, 6, 64.0), HABITAT.Species.PIGEON, 4, 2.0, HABITAT.GroupMode.ONE_GROUP, 1.5)  # huddle under the colonnade in the storm
 	_marker(z, "fauna_cover", Vector3(-2.6, 6, 78.0))
 	_habitat(z, "GalleryRats", Vector3(1.5, 6, 78.5), HABITAT.Species.RAT, 3, 1.5, HABITAT.GroupMode.ONE_GROUP, 1.5)
 	# Clock-tower chamber: wisps drifting under the oculus, rats in the corners.
@@ -214,7 +216,7 @@ func _populate_arena_and_summit() -> void:
 	# Processional esplanade: lizards on the warm flagstones, grass at the edges.
 	for p in [Vector3(-4.2, y, 117.0), Vector3(4.2, y, 119.0)]:
 		_veg(z, "EsplanadeGrass", p, Vegetation.Kind.WISPY_GRASS, [], 4, 0.5, 0.25)
-	_habitat(z, "EsplanadeLizards", Vector3(3.0, y, 118.0), HABITAT.Species.SUN_LIZARD, 2, 1.5, HABITAT.GroupMode.ALL_LONERS, 1.5)
+	_habitat(z, "EsplanadeRats", Vector3(3.0, y, 118.0), HABITAT.Species.RAT, 3, 1.5, HABITAT.GroupMode.ONE_GROUP, 1.5)  # tempest zone
 	# Mirror Colosseum: ivy on the podium wall, weeds at its foot, doves on the sand, crows in the stands.
 	var c := Vector3(0.0, y, 154.0)
 	for ang in [0.8, 2.35, 3.9, 5.5]:
@@ -222,7 +224,9 @@ func _populate_arena_and_summit() -> void:
 		var pos: Vector3 = c + dir * 12.9
 		_ivy(z, pos, atan2(dir.x, dir.z) + PI, 2.4, 3.0, false)
 		_veg(z, "PodiumWeeds", c + dir * 12.6, Vegetation.Kind.WISPY_GRASS, [Vegetation.Kind.GRASS_CLUMP], 4, 0.6, 0.25)
-	_habitat(z, "ArenaDoves", c + Vector3(-7.0, 0, -3.0), HABITAT.Species.PIGEON, 7, 2.5, HABITAT.GroupMode.ONE_GROUP, 1.6)
+	# Blood-rain arena: carrion crows on the sand and rats along the podium, not doves.
+	_habitat(z, "ArenaCarrionCrows", c + Vector3(-7.0, 0, -3.0), HABITAT.Species.RUIN_CROW, 5, 2.5, HABITAT.GroupMode.ONE_GROUP, 1.6)
+	_habitat(z, "ArenaRats", c + Vector3(-10.5, 0, 5.0), HABITAT.Species.RAT, 4, 1.5, HABITAT.GroupMode.ONE_GROUP, 1.5)
 	for ang in [1.2, 2.0, 4.4]:
 		_marker(z, "fauna_perch", c + Vector3(sin(ang), 0, cos(ang)) * 14.2 + Vector3.UP * 2.6)
 	_habitat(z, "ArenaCrows", c + Vector3(8.0, 0, 6.0), HABITAT.Species.RUIN_CROW, 4, 2.5, HABITAT.GroupMode.ONE_GROUP, 1.6)

@@ -82,6 +82,11 @@ func _disturbance_sensitivity(kind: String) -> float:
 func _score_extra(s: Dictionary) -> void:
 	s.erase("flock")
 	s["bask"] = 0.45 + (1.0 - trait_value("energy")) * 0.25
+	# No basking in the rain: shelter under cover until it clears.
+	var wet: float = _director.get_wetness() if _director != null else 0.0
+	if wet > 0.25:
+		s["hide"] = maxf(float(s.get("hide", 0.0)), 0.6 + wet)
+		s.erase("bask")
 	if fear > 0.3:
 		s["hide"] = fear * 1.4
 		s.erase("flee")

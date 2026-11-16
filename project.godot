@@ -115,6 +115,10 @@ realm_mirror_blend={
 "type": "float",
 "value": 0.0
 }
+realm_wetness={
+"type": "float",
+"value": 0.0
+}
 
 [rendering]
 
