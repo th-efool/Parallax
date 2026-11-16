@@ -39,77 +39,17 @@
 
 ---
 
-## 3. Production-Ready Godot 4 Shaders (`assets/shaders/`)
+## 3. Production Godot 4 Shaders (`assets/shaders/`) — live files are the source of truth
 
-Agents can save these directly into `assets/shaders/` when implementing visual polish (Day 3+ / Day 6):
+> Inline listings were removed in Claude Pass B (they had drifted). Read the `.gdshader` files directly.
 
-### 3.1 `mirror_spectral.gdshader` (Phantom Twins, Spectral Bridge, Mirror Echoes)
-Features cobalt Fresnel rim glow, subtle holographic scanlines, and animated dissolve (`dissolve_amount` `0.0 -> 1.0` on death/shift).
-```glsl
-shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back;
-
-uniform vec4 base_tint : source_color = vec4(0.06, 0.14, 0.30, 0.72);
-uniform vec4 rim_color : source_color = vec4(0.20, 0.75, 1.00, 1.00);
-uniform float rim_power : hint_range(0.5, 8.0) = 2.5;
-uniform float rim_strength : hint_range(0.0, 5.0) = 2.4;
-uniform float scanline_density : hint_range(10.0, 150.0) = 55.0;
-uniform float scanline_speed = 3.0;
-uniform sampler2D dissolve_noise : hint_default_white;
-uniform float dissolve_amount : hint_range(0.0, 1.0) = 0.0;
-
-void fragment() {
-    float n = texture(dissolve_noise, UV * 2.0).r;
-    if (n < dissolve_amount) {
-        discard;
-    }
-    float edge = smoothstep(dissolve_amount, dissolve_amount + 0.08, n);
-    float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), rim_power);
-    float scan = 0.9 + 0.1 * sin(UV.y * scanline_density + TIME * scanline_speed);
-
-    ALBEDO = base_tint.rgb * scan;
-    EMISSION = rim_color.rgb * (fresnel * rim_strength + (1.0 - edge) * 3.0);
-    ALPHA = clamp(base_tint.a + fresnel * 0.65, 0.0, 1.0);
-}
-```
-
-### 3.2 `sword_slash_trail.gdshader` (Amber Reality & Cobalt Mirror Swing Arcs)
-```glsl
-shader_type spatial;
-render_mode blend_add, depth_draw_never, cull_disabled, unshaded;
-
-uniform vec4 slash_color : source_color = vec4(1.0, 0.65, 0.2, 1.0); // Amber default; tween to Cyan in Mirror
-uniform sampler2D noise_tex : hint_default_white;
-uniform float progress : hint_range(0.0, 1.0) = 0.5;
-uniform float intensity : hint_range(0.5, 5.0) = 2.5;
-
-void fragment() {
-    float trail_mask = smoothstep(0.0, 0.25, UV.x) * (1.0 - smoothstep(progress - 0.15, progress + 0.05, UV.x));
-    float arc_fade = sin(UV.y * 3.14159);
-    float streaks = texture(noise_tex, vec2(UV.x * 2.0 - TIME * 4.0, UV.y * 3.0)).r;
-    float alpha = clamp(trail_mask * arc_fade * (0.4 + 0.6 * streaks), 0.0, 1.0);
-    ALBEDO = slash_color.rgb * intensity;
-    ALPHA = alpha * slash_color.a;
-}
-```
-
-### 3.3 `realm_shift_pulse.gdshader` (Fullscreen `ColorRect` 0.20s Q-Transition Ripple)
-```glsl
-shader_type canvas_item;
-
-uniform float shift_progress : hint_range(0.0, 1.0) = 0.0; // Animate 0 -> 1 on shift
-uniform vec4 pulse_color : source_color = vec4(0.2, 0.78, 1.0, 1.0);
-uniform float thickness = 0.12;
-
-void fragment() {
-    vec2 center = vec2(0.5, 0.5);
-    float dist = distance(UV, center);
-    float ring = smoothstep(shift_progress - thickness, shift_progress, dist)
-               * (1.0 - smoothstep(shift_progress, shift_progress + thickness, dist));
-    float fade = 1.0 - shift_progress;
-    COLOR = vec4(pulse_color.rgb, ring * fade * 0.55);
-}
-```
+| Shader | Used By | Key Uniforms / Features |
+| :--- | :--- | :--- |
+| `mirror_spectral.gdshader` | Phantom Twins (`CharacterAnimationBridge`), Mirror stepping stones, spectral bridge, suspended weight (builder `"spectral"` surface) | Fresnel rim (`rim_power`, `rim_strength`), world-space scanlines, **procedural animated spectral alpha noise** (`spectral_noise_strength/scale/speed`, `min_alpha`), dissolve (`dissolve_amount`; `use_noise_texture` to use `dissolve_noise`). |
+| `sword_slash_trail.gdshader` | `PlayerController._spawn_slash_arc_vfx()` on `CombatVFX.build_arc_ribbon_mesh()` ribbons | UV.x along swing / UV.y inner->outer. Tween `progress` `0 -> 1 + trail_length`, then `fade` -> 0. `slash_color`, `core_color`, `intensity`; procedural streaks unless `use_noise_tex`. |
+| `realm_shift_pulse.gdshader` | `Main/RealmShiftFX/PulseOverlay` (ColorRect, CanvasLayer 0) via `RealmEnvironmentController.pulse_overlay_rect_path` | `shift_progress` 0->1 over `0.20 s`. Chromatic aberration (`max_aberration`) + barrel lens distortion (`max_distortion`) + vignette scale with `sin(pi*t)` -> **peak at t = 0.5**. Samples `hint_screen_texture`; expanding ring tinted `pulse_color`. |
+| `realm_stone.gdshader` | All opaque greybox floors/walls/rubble + breakable pillars (builder `"stone"` surface; one cached `ShaderMaterial` per tint) | World-space triplanar running-bond masonry. `mirror_blend` 0 (warm limestone) -> 1 (cobalt slate with **emissive runic mortar seams**), tweened `0.20 s` by `ColosseumGreyboxBuilder` on realm change (`0.5` when merged). |
+| `mirror_obsidian.gdshader` | `Stage05_ExecutionArena/CentralMirrorPlane/IntactVisual/MirrorPlaneMesh` | Translucent obsidian glass (`surface_alpha` 0.5 — Warden spawns inside the plane), cobalt Fresnel, liquid ripple, Voronoi fracture lines driven by `crack_amount` (builder maps Warden HP 1000 -> 500 to 0 -> 1). |
 
 ---
 
@@ -137,7 +77,10 @@ void fragment() {
 | `KayKit Adventurers (Knight, Barbarian + textures)` | `assets/models/characters/Knight.glb`, `Barbarian.glb`, `knight_texture.png`, `barbarian_texture.png`, `assets/textures/` | `KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0` | `CC0 1.0` | `No` |
 | `KayKit Skeletons (Skeleton_Warrior, Skeleton_Rogue + texture)` | `assets/models/characters/Skeleton_Warrior.glb`, `Skeleton_Rogue.glb`, `skeleton_texture.png`, `assets/textures/` | `KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0` | `CC0 1.0` | `No` |
 | `KayKit Dungeon Remastered (20 .glb architecture/prop pieces + texture)` | `assets/models/dungeon/{floor_tile_*,wall*,pillar*,column,rubble_large,stairs_wide,torch_lit,banner_red,banner_blue,box_large,barrel_large}*.glb`, `dungeon_texture.png`, `assets/textures/dungeon_texture.png` | `KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0` | `CC0 1.0` | `No` |
-| `Production Shaders (Spectral, Slash Trail, Shift Pulse)` | `assets/shaders/mirror_spectral.gdshader`, `sword_slash_trail.gdshader`, `realm_shift_pulse.gdshader` | Authored for PARALLAX | `Project-Owned` | `No` |
+| `Poly Haven PBR texture sets (2k JPG: diff / nor_gl / arm)` — Large Sandstone Blocks, Stone Tiles 02, Cobblestone Floor 08, Rock Face, Coast Sand Rocks 02, Marble 01, Castle Brick 07 | `assets/textures/pbr/<id>/<id>_{diff,nor_gl,arm}_2k.jpg` (imported VRAM-compressed + mipmaps; normals flagged) | `polyhaven.com` (downloaded 2026-11-16) | `CC0 1.0` | `No` |
+| `Poly Haven HDRI — Kloppenheim 06 (Pure Sky), 4k` | `assets/sky/kloppenheim_06_puresky_4k.hdr` (BC6H). Baked sun at panorama `u = 0.6069`, elevation `8.26°` | `polyhaven.com` (downloaded 2026-11-16) | `CC0 1.0` | `No` |
+| `Grand Journey shaders` | `assets/shaders/realm_pbr.gdshader` (world triplanar PBR + Mirror rune cavities via global `realm_mirror_blend`), `journey_sky.gdshader` (HDRI <-> moonlit night), `cloud_sea.gdshader`, `banner_cloth.gdshader` | Authored for PARALLAX | `Project-Owned` | `No` |
+| `Production Shaders (Spectral, Slash Trail, Shift Pulse, Realm Stone, Mirror Obsidian)` | `assets/shaders/mirror_spectral.gdshader`, `sword_slash_trail.gdshader`, `realm_shift_pulse.gdshader`, `realm_stone.gdshader`, `mirror_obsidian.gdshader` | Authored for PARALLAX (Pass 4 + Claude Passes A/B) | `Project-Owned` | `No` |
 | `Runtime-synthesized gore/feel SFX (no files)` | Generated in memory by `scripts/core/game_feel.gd` (`slash_flesh`, `bone_crunch`, `splat`, `whoosh_light`, `whoosh_heavy`, `clang`, `thud`, `land_heavy`, `gib_burst`) | Authored for PARALLAX | `Project-Owned` | `No` |
 | `Procedural ambient fauna & flora (no files)` | Bodies, wing textures, glow sprites, grass tufts + wind shader generated by `scripts/ambient/fauna_mesh_kit.gd`; creature sounds (`caw`, `squeak`, `chirp`, `chime`, `flutter`, `spore_puff`) synthesized in `game_feel.gd` | Authored for PARALLAX | `Project-Owned` | `No` |
 | `Borrowed KayKit prop meshes (no new files)` | Skeleton rigs reuse `Barbarian.glb::1H_Axe`, `Knight.glb::{Round_Shield,1H_Sword,1H_Sword_Offhand}` at runtime via `CharacterLoadout`; splat decal texture is procedurally generated by `GoreFX` | KayKit (see rows above) | `CC0 1.0` | `No` |

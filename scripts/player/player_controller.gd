@@ -777,6 +777,19 @@ func _maybe_kill_cam() -> void:
 	GameFeelScript.slowmo(self, 0.22, 0.42)
 
 
+## Compatibility API (used by BreakableProp pillar collapse and older callers): routed into GameFeel.
+func add_camera_trauma(amount: float) -> void:
+	GameFeelScript.add_trauma(self, amount)
+
+
+func trigger_hit_stop(duration: float = -1.0) -> void:
+	GameFeelScript.hitstop(self, 0.06 if duration < 0.0 else duration)
+
+
+func is_hit_stop_active() -> bool:
+	return Engine.time_scale < 0.99
+
+
 ## Called by a shield (EnemyBase) that fully blocked this swing: bounce the blade off.
 func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> void:
 	if current_state != State.LIGHT_ATTACK and current_state != State.HEAVY_ATTACK:

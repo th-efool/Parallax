@@ -15,7 +15,29 @@
 
 ---
 
-## 2. Exact Master Blockout Coordinate Table
+## 2. LIVE LEVEL: "The Ascent" — Grand Journey Layout (2026-11-16, supersedes the 2.x greybox table below)
+
+`scenes/main/main.tscn` -> `LevelRoot` = `scenes/environment/grand_journey.tscn` (`GrandJourneyBuilder` extends `ColosseumGreyboxBuilder`, reusing its gate/switch/trigger/enemy/breakable factories). Player spawn `(0, 0, -56)` facing `+Z`. The route climbs north **and up**; all five GDD beats keep their proven internal dimensions. **Node names under each `StageNN_*` root are a hard contract** (save system in `LeaderboardStore.apply_saved_world_state()`, `MainController` -> `Stage05_ExecutionArena/Enemies/TheWarden`).
+
+| Segment | Y | Z span | Key gameplay positions | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| Prologue — Pilgrim's Causeway | 0 | -61 .. -15 | Spawn & `Trigger_Stage01_Entry` `(0,0,-56)`; overlook `(-7,0,-33)`; `Trigger_Stage01_Forecourt` checkpoint `(0,0,-7.5)` | Start terrace, two angled causeways, west overlook, gate forecourt. Parapets with 2.7 m invisible blockers (jump apex ≈ 1.94 m). |
+| 01 Gate of Reflections | 0 | -5 .. 8 | **Unchanged greybox core**: gap `Z -0.5..2.5` (+`PitKillZone_Stage01`), Mirror stones `(0,0,1)`, switch `(0,0,4)`, `Gate01_EntryToHall` `Z 5` | 22 x 15 m gatehouse arch, two 10 m sword monuments on plinths `(±4.3, 2.4, 3.6)`. Massif is split around the gap so the chasm is a real drop. |
+| Sunlit Stair | 0 -> 4 | 8 .. 24 | Ramp collider (16°), landing `Z 22..24` | 8 m stair, stepped cheek walls + colonnade. |
+| 02 Hall of Echoes | 4 | 24 .. 44 | Pillar `(0,4,34)` falls `+Z`; Skeletons `(-6,4,30)` `(6,4,38)`; Phantoms `(-6,4,40)` `(6,4,40)`; `Gate02a_HallSouthSeal` `Z 24` (new, starts open, sealed by `Trigger_Stage02_Hall` checkpoint `(0,4,25.6)`, reopened on clear); `Gate02_HallToGallery` `Z 44` | Two-storey arcades with grilles, corner towers, mosaic ring. Pillar visual topples during its 0.6 s warning. |
+| Windswept Rampart | 4 -> 6 | 44 .. 60 | Corridor `Z 44..48`, ramp `Z 48..58` | Open west (sunset) side, buttressed curtain wall east. |
+| 03 Aqueduct Gallery | 6 | 60 .. 88 | Floors `Z 60..70` & `74..84`; gap `Z 70..74` (bridge `(0,6,72)`, `PitKillZone_Stage03` threshold `Y 3`); support `(0,6,77)`; anchor `(0,6,79)`; Shielded Guard `(0,6,82)`; `Gate03` `Z 84`; trigger checkpoint `(0,6,61.5)` | Deck on 46 m aqueduct arches over a gorge; ruined colonnade with collidable shafts at `x ±3.45`. |
+| 04 Clock-Tower Chamber | 6 | 88 .. 100 | Centre `(0,6,94)`; dais `(-3, 7.35 top, 93)`; weight `(0,8.5,94)`; plate `(0,6,94)`; `Gate04_MechanismToArena` `Z 100`; trigger checkpoint `(0,6,89.5)` | 18 m walls, turning bronze gears, oculus at `Y 24.5`. |
+| Processional Stair | 6 -> 10 | 100 .. 120 | Corridor `Z 100..102`, stair `Z 102..116`, esplanade `Z 116..120` | Four 13 m sword monuments, braziers. |
+| 05 Mirror Colosseum | 10 | 120 .. 186 | Centre `(0,10,154)`, arena R 13.6; south tunnel `Z 120..140.5`; `Gate04b_ArenaSouthSeal` `Z 140.5` (new, sealed by `Trigger_Stage05_Arena` checkpoint `(0,10,142.5)`); Warden `(0,10,153)`; Mirror Plane along `X 0`, `Z 143..165`; `Gate05_ArenaExit` `Z 167.5`; north tunnel `Z 167.5..186` | Podium wall (32 collider segments), 10 seating tiers, 3-storey 44-bay facade, portal towers, 16 velarium masts. |
+| Sunset Summit | 10 | 186 .. 202 | `SunlitExitFloor`; `Trigger_RunComplete` `(0,10,189)` | Overlooks the setting sun. |
+
+- **Kill planes**: `PitKillZone_Stage01`, `PitKillZone_Stage03`, plus `Scenery/PitKillZone_World` (half-extents 700 x 19 x 700, threshold `Y -6`) catching any fall off the cliffs.
+- **Route contract**: `GrandJourneyBuilder.get_route_waypoints()` lists the critical-path feet positions + required realm; keep it in sync when moving geometry (it drives the route verification test).
+- **Scenery** (`LevelRoot/Scenery`, cosmetic): clamped-top rock massifs under every walkable region, gorge walls, ~40 tapered crag spires (MultiMesh, kept off the west/sunset side), 18 ridged distant ranges at 1.2–2.3 km, `cloud_sea.gdshader` plane at `Y -32`, Mirror-only floating crystal isles.
+- **Decor** (`LevelRoot/Decor/Zone*/{Shared,RealityDressing,MirrorDressing}`): braziers (fire in Reality, cobalt spirit-flame in Mirror, `RealmTorchLight`), cloth banners (`banner_cloth.gdshader`, sun / moon emblems), crystal clusters (Mirror). No colliders.
+
+## 2.x Legacy Greybox Coordinate Table (kept for `colosseum_greybox.tscn` / reference only)
 
 | Stage | X Extent | Z Extent | Key Anchors `(X, Y, Z)` | Connector to Next Stage |
 | :--- | :--- | :--- | :--- | :--- |
@@ -63,6 +85,22 @@
 - **Geometry**: `26 m` diameter grand colosseum floor centered at `(0, 0, 89)`. Bisected visually/thematically by a tall translucent vertical **Mirror Plane** along `X = 0`.
 - **Boss**: **The Warden** at `(0, 0, 88)` (`1,000` shared HP). See `03_COMBAT_PLAYER_AND_ENEMIES.md` for full Phase 1 (Split) -> `500 HP` Shatter -> Phase 2 (Merged) behavior.
 - **Resolution**: Warden defeated -> Mirror objects dissolve, North exit gate (`Z = 102`) lifts revealing bright sunlit exterior -> Results screen + leaderboard submission.
+
+### 3.6 Environmental Dressing Layer (Claude Pass B — legacy greybox only; the live level uses the Grand Journey decor in §2)
+Built by `ColosseumGreyboxBuilder._dress_environment()` (toggle `dress_environment`) under `LevelRoot/EnvironmentDressing/StageNN_Dressing/{Shared, RealityDressing, MirrorDressing}`. **Adds no colliders** (`_strip_model_collisions()` zeroes every imported `CollisionObject3D`); all gameplay bodies, anchors and coordinates above are unchanged. Reality/Mirror groups are gated by a child `RealmReactive` (`manage_collisions = false`). Models are AABB-fitted at runtime (`_place_model()`), so KayKit scale/pivot differences don't matter.
+
+| Stage | Shared (both realms) | Reality only | Mirror only |
+| :--- | :--- | :--- | :--- |
+| 01 Entry | KayKit wall run on S/W/E walls (`h 3.5`), barrel + crate in south corners, 2 torch lights | 2 `torch_lit`, 2 `banner_red`, dust motes | 2 crystal sconces, 2 `banner_blue`, glass flecks |
+| 02 Hall | W/E wall runs, 4 `pillar_decorated` at `(±8.6, 0, 11.4/28.6)`, barrels/crate/rubble at hall corners, 4 lights | 4 torches, 2 red banners, dust | 4 sconces, 2 blue banners, flecks |
+| 03 Gallery | 8 `pillar` columns on floor edges `x = ±3.5` (some broken-short), edge rubble; no walls | dust | flecks |
+| 04 Mechanism | W/E wall runs (incl. `wall_gated`), barrel + crates in corners, 2 lights | 2 torches, 2 red banners, dust | 2 sconces, 2 blue banners, flecks |
+| 05 Arena | W/E wall runs (`h 4.5`), 6 `pillar_decorated` at `x = ±11.6`, `z = 80/88/96`, corner rubble/crate, 6 lights | 6 torches, 4 red banners, dust | 6 sconces, 4 blue banners, flecks |
+
+- **Surfaces**: opaque greybox boxes use `realm_stone.gdshader` (limestone ↔ cobalt slate + glowing rune seams, `mirror_blend` tweened `0.20 s`); translucent Mirror boxes use `mirror_spectral.gdshader`; gates/switch plinths/pressure plate keep plain `StandardMaterial3D`.
+- **Breakables**: Cracked Pillar & Weak Stone Support get stone material + an emissive amber `FractureSeam` on the south (approach) face.
+- **Torch lights**: `RealmTorchLight` (`scripts/environment/realm_torch_light.gd`) — ember flicker in Reality, steady cobalt in Mirror, violet when merged.
+- **Central Mirror Plane**: `mirror_obsidian.gdshader`; cracks grow with Warden damage; on shatter `BreakableProp` spawns 28 cosmetic `RigidBody3D` glass shards (layer `0`, mask `World_Shared`) that fall, shrink and free after `4 s`, plus a cobalt burst. Shards are cleared on `reset_prop()`.
 
 ---
 

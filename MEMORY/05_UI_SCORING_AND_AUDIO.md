@@ -96,6 +96,8 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
 | **Emissives** | Restrained warm ember / pillar fracture glow only | Reserve bright Cyan-Cobalt emissive (`#33B5FF`) strictly for Mirror-only platforms, Phantom Twins, Weak Points & Spectral Bridge |
 | **UI Accent** | Warm Gold/Amber `#E69938` | Electric Spectral Cyan `#33B5FF` |
 
+> **Grand Journey lighting (2026-11-16)**: Reality = golden-hour HDRI sky (Kloppenheim 06), warm sun `(1.0, 0.78, 0.56)` @ 1.6 from heading `(-0.65, 0, 0.76)` at 20°, sunlit haze fog `(0.82, 0.66, 0.50)`. Mirror = procedural indigo night (stars, aurora, moon where the sun was), moonlight `(0.52, 0.70, 1.0)` @ 0.95, fog `(0.09, 0.15, 0.32)`, every stone surface turns cobalt slate with glowing rune cavities. Merged = violet midpoint. Graphics presets: volumetric fog only at shadow quality ≥ 2 (High/Ultra), SSAO at ≥ 1.
+
 ### 3.2 Protagonist Visual Identity
 - Dark-haired female warrior (high ponytail), ragged deep-red cape (primary color anchor in BOTH realms), dark leather & iron armor, steel broadsword. Never alter silhouette/costume across realms.
 
@@ -110,3 +112,12 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
 - **Music**: 1 continuous dark orchestral/ambient track + subtle high-intensity stem/layer during Execution Arena boss fight.
 - **SFX**: Distinct 2-part Reality/Mirror glass-harmonic shift cue, wind/arena drone, sword whooshes, flesh/bone/metal shield clangs, pillar crack warning + collapse boom, Warden telegraph stings, mirror shatter sting.
 - **Accessibility**: Color-blind safety (text labels + distinct sun/moon icons everywhere), readable 1920x1080 & 1280x720 scaling, visible visual telegraphs paired with audio cues, sensitivity + Invert-Y + audio mix sliders.
+
+### 3.5 Dynamic Audio Mix, Focus & Cursor (Claude Pass C)
+| Behaviour | Owner | Rule |
+| :--- | :--- | :--- |
+| **Bus balance** | `LeaderboardStore.apply_settings()` | User sliders: `Master 1.0`, `Music 0.85`, `SFX 0.90` (linear). Drone `MusicPlayer.volume_db` base `-3 dB` so SFX cut through. |
+| **Combat ducking** | `AudioManager._update_dynamic_mix()` | While `EncounterDirector.current_encounter_id` is non-empty (Hall, Gallery guard, Warden), drone ducks a further **`-4 dB`** at `10 dB/s`; restores when the encounter clears or resets. Applied on the player's `volume_db`, never on the user's bus volume. |
+| **Master low-pass** | `AudioManager` (`AudioEffectLowPassFilter` named `ParallaxDynamicLowPass` appended to `Master`) | Cutoff glides in log-space: **`700 Hz` while paused**, **`1400 Hz` at `0 < HP < 25`**, otherwise `20.5 kHz` with the effect **bypassed**. Runs on real time (unaffected by hit-stop); released on `_exit_tree`. |
+| **Unfocused mute** (QA-A01) | `LeaderboardStore._notification()` | `NOTIFICATION_APPLICATION_FOCUS_OUT` + `mute_when_unfocused` -> mute `Master`; `FOCUS_IN` restores the saved `master_volume`. `apply_settings()` keeps the mute while still unfocused. `is_muted_by_focus()` for tests. |
+| **Cursor capture** (QA-D01) | `MainController._update_mouse_mode()` via `SceneTree.process_frame` (works while paused; `Main` is the scene root so it must not use `PROCESS_MODE_ALWAYS`) | `MOUSE_MODE_CAPTURED` during active gameplay (window focused, tree not paused, no visible `title/pause/options/leaderboard/results` screen, player alive); `MOUSE_MODE_VISIBLE` otherwise. `PlayerController` also releases on menus and re-captures on click. Toggle with `manage_mouse_capture`. |

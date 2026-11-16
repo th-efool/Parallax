@@ -5,7 +5,7 @@
 [ext_resource type="Script" path="res://scripts/core/encounter_director.gd" id="3_ed"]
 [ext_resource type="Script" path="res://scripts/environment/realm_environment_controller.gd" id="4_env"]
 [ext_resource type="Script" path="res://scripts/core/audio_manager.gd" id="5_audio"]
-[ext_resource type="PackedScene" path="res://scenes/environment/colosseum_greybox.tscn" id="6_level"]
+[ext_resource type="PackedScene" path="res://scenes/environment/grand_journey.tscn" id="6_level"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="7_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="8_hud"]
 [ext_resource type="Script" path="res://scripts/ui/title_screen_controller.gd" id="9_title"]
@@ -48,6 +48,19 @@ shadow_enabled = true
 script = ExtResource("4_env")
 world_environment_path = NodePath("../WorldEnvironment")
 directional_light_path = NodePath("../SunLight")
+pulse_overlay_rect_path = NodePath("../RealmShiftFX/PulseOverlay")
+
+[node name="RealmShiftFX" type="CanvasLayer" parent="."]
+layer = 0
+
+[node name="PulseOverlay" type="ColorRect" parent="RealmShiftFX"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 
 [node name="AudioManager" type="Node" parent="."]
 script = ExtResource("5_audio")
@@ -55,7 +68,7 @@ script = ExtResource("5_audio")
 [node name="LevelRoot" parent="." instance=ExtResource("6_level")]
 
 [node name="Player" parent="." instance=ExtResource("7_player")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -3)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -56)
 
 [node name="HUD" parent="." instance=ExtResource("8_hud")]
 

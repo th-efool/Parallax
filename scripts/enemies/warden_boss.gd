@@ -35,10 +35,23 @@ signal boss_defeated()
 @export var phase2_transition_duration: float = 1.60
 @export var phase2_windup_duration: float = 0.65
 @export var phase2_recovery_window: float = 0.85
+## Phase 2 chain: a Cleave flows straight into a Lunge with this (still red-telegraphed) wind-up, skipping recovery.
+@export var phase2_chain_windup: float = 0.45
+@export var phase2_chain_enabled: bool = true
 @export var mirror_plane_prop_path: NodePath
 @export var auto_finalize_run_on_death: bool = true
 
+@export_group("Chest Rune Glow")
+@export var rune_glow_color: Color = Color(0.22, 0.55, 1.0, 1.0)
+@export var rune_glow_offset: Vector3 = Vector3(0.0, 1.55, -0.42)
+@export var rune_glow_energy_mirror: float = 3.2
+@export var rune_glow_energy_reality: float = 0.6
+
 var current_phase: Phase = Phase.PHASE_1_SPLIT
+var _rune_glow_root: Node3D = null
+var _rune_glow_mat: StandardMaterial3D = null
+var _rune_glow_light: OmniLight3D = null
+var _rune_glow_tween: Tween = null
 var current_move: BossMove = BossMove.CLEAVE
 var is_chest_rune_exposed: bool = false
 var _transition_timer: float = 0.0
@@ -147,19 +160,102 @@ func _begin_attack_strike() -> void:
 
 
 func _enter_recover(custom_recover: float = -1.0) -> void:
+	if phase2_chain_enabled and custom_recover < 0.0 and current_phase == Phase.PHASE_2_MERGED and current_move == BossMove.CLEAVE and not is_dead:
+		var hb: Hitbox3D = get_attack_hitbox()
+		if hb != null:
+			hb.end_swing()
+		velocity = Vector3.ZERO
+		start_windup(phase2_chain_windup) # _move_counter alternation guarantees the follow-up is a Lunge
+		return
 	var r_dur: float = phase1_recovery_window if current_phase == Phase.PHASE_1_SPLIT else phase2_recovery_window
 	if custom_recover >= 0.0:
 		r_dur = custom_recover
 	super._enter_recover(r_dur)
 	if current_phase == Phase.PHASE_1_SPLIT:
 		is_chest_rune_exposed = true
+		_update_rune_glow()
 		chest_rune_exposed_changed.emit(true, r_dur)
 
 
 func _on_recover_finished() -> void:
 	if is_chest_rune_exposed:
 		is_chest_rune_exposed = false
+		_update_rune_glow()
 		chest_rune_exposed_changed.emit(false, 0.0)
+
+
+func on_realm_changed(_active_realm: int) -> void:
+	_update_rune_glow()
+
+
+# --- Chest rune cobalt glow (Claude Pass A): bright in Mirror (vulnerable), faint hint in Reality ---
+
+func _ensure_rune_glow() -> void:
+	if _rune_glow_root != null and is_instance_valid(_rune_glow_root):
+		return
+	var vis_root: Node3D = get_node_or_null(visual_root_path) as Node3D
+	if vis_root == null:
+		return
+	_rune_glow_root = Node3D.new()
+	_rune_glow_root.name = "ChestRuneGlow"
+	_rune_glow_root.position = rune_glow_offset
+	_rune_glow_root.visible = false
+
+	var core := MeshInstance3D.new()
+	core.name = "ChestRuneCore"
+	var sm := SphereMesh.new()
+	sm.radius = 0.16
+	sm.height = 0.32
+	sm.radial_segments = 16
+	sm.rings = 8
+	core.mesh = sm
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rune_glow_mat = StandardMaterial3D.new()
+	_rune_glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_rune_glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_rune_glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_rune_glow_mat.albedo_color = Color(rune_glow_color.r, rune_glow_color.g, rune_glow_color.b, 0.0)
+	core.material_override = _rune_glow_mat
+	_rune_glow_root.add_child(core)
+
+	_rune_glow_light = OmniLight3D.new()
+	_rune_glow_light.name = "ChestRuneLight"
+	_rune_glow_light.light_color = rune_glow_color
+	_rune_glow_light.omni_range = 3.6
+	_rune_glow_light.light_energy = 0.0
+	_rune_glow_light.shadow_enabled = false
+	_rune_glow_root.add_child(_rune_glow_light)
+	vis_root.add_child(_rune_glow_root)
+
+
+func _update_rune_glow() -> void:
+	if not is_inside_tree():
+		return
+	_ensure_rune_glow()
+	if _rune_glow_root == null:
+		return
+	if _rune_glow_tween != null and _rune_glow_tween.is_valid():
+		_rune_glow_tween.kill()
+	var show_glow: bool = is_chest_rune_exposed and not is_dead
+	if not show_glow:
+		_rune_glow_root.visible = false
+		_rune_glow_mat.albedo_color.a = 0.0
+		_rune_glow_light.light_energy = 0.0
+		return
+	var in_mirror: bool = RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR
+	var energy: float = rune_glow_energy_mirror if in_mirror else rune_glow_energy_reality
+	var alpha: float = 0.95 if in_mirror else 0.30
+	_rune_glow_root.visible = true
+	_rune_glow_root.scale = Vector3.ONE * (1.25 if in_mirror else 0.8)
+	_rune_glow_tween = create_tween()
+	_rune_glow_tween.set_parallel(true)
+	_rune_glow_tween.tween_property(_rune_glow_mat, "albedo_color:a", alpha, 0.10)
+	_rune_glow_tween.tween_property(_rune_glow_light, "light_energy", energy, 0.10)
+	if in_mirror:
+		# Heartbeat pulses across the 1.4s window.
+		for _i in range(3):
+			_rune_glow_tween.chain().tween_property(_rune_glow_root, "scale", Vector3.ONE * 1.05, 0.22).set_trans(Tween.TRANS_SINE)
+			_rune_glow_tween.chain().tween_property(_rune_glow_root, "scale", Vector3.ONE * 1.3, 0.22).set_trans(Tween.TRANS_SINE)
 
 
 func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) -> int:
@@ -192,6 +288,7 @@ func _trigger_phase2_transition() -> void:
 
 	if is_chest_rune_exposed:
 		is_chest_rune_exposed = false
+		_update_rune_glow()
 		chest_rune_exposed_changed.emit(false, 0.0)
 
 	if not mirror_plane_prop_path.is_empty():
@@ -225,6 +322,7 @@ func _on_enemy_reset() -> void:
 	if RealmManager.instance != null and (RealmManager.instance.is_merged or RealmManager.instance.shift_locked):
 		RealmManager.instance.force_realm(RealmManager.Realm.REALITY, false)
 
+	_update_rune_glow()
 	if was_exposed:
 		chest_rune_exposed_changed.emit(false, 0.0)
 	if not was_phase1:
@@ -237,6 +335,7 @@ func _die(source_type: String) -> void:
 	if is_chest_rune_exposed:
 		is_chest_rune_exposed = false
 		chest_rune_exposed_changed.emit(false, 0.0)
+	_update_rune_glow()
 	super._die(source_type)
 	if auto_finalize_run_on_death:
 		var run_state: Node = _get_run_state()
