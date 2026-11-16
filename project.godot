@@ -107,6 +107,7 @@ pause={
 3d_physics/layer_5="World_Mirror"
 3d_physics/layer_6="Interactable"
 3d_physics/layer_7="Hitbox"
+3d_physics/layer_8="Player_Blocker"
 
 [shader_globals]
 
@@ -116,6 +117,8 @@ realm_mirror_blend={
 }
 
 [rendering]
+
+occlusion_culling/use_occlusion_culling=true
 
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 anti_aliasing/quality/msaa_3d=2

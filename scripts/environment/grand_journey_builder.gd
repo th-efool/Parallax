@@ -32,6 +32,8 @@ const SUN_LIGHT_ELEVATION_DEG: float = 20.0
 const HDRI_SUN_U: float = 0.6069
 
 @export var configure_atmosphere: bool = true
+## Merge static decor meshes (draw-call reduction). Disable only for geometry audits / debugging.
+@export var enable_static_batching: bool = true
 
 var _pbr_cache: Dictionary = {}
 var _std_cache: Dictionary = {}
@@ -73,8 +75,10 @@ func build_greybox() -> void:
 	add_child(_decor)
 	add_child(_scenery)
 	_build_world_scenery()
-	var merged: int = _static_batch(self)
-	print_verbose("[GrandJourney] static-batched %d meshes" % merged)
+	_build_occluders()
+	if enable_static_batching:
+		var merged: int = _static_batch(self)
+		print_verbose("[GrandJourney] static-batched %d meshes" % merged)
 
 
 func get_key_anchors() -> Dictionary:
@@ -414,12 +418,24 @@ func _static_art(parent: Node) -> Node3D:
 	return art
 
 
-func _rock(parent: Node, n: String, center_top: Vector3, size: Vector3, seed_val: int, mat: Material, boxy: float = 1.0, roughness: float = 0.16, subdiv: int = 12, shadows: bool = true) -> MeshInstance3D:
+func _rock(parent: Node, n: String, center_top: Vector3, size: Vector3, seed_val: int, mat: Material, boxy: float = 1.0, roughness: float = 0.16, subdiv: int = 12, shadows: bool = true, lods: bool = false) -> MeshInstance3D:
 	## Rock massif whose top sits just under `center_top.y` (vertices clamped so it never pokes through floors).
 	var mesh: ArrayMesh = ProcMesh.rock_mesh(size, seed_val, roughness, subdiv, boxy)
 	_clamp_mesh_top(mesh, size.y * 0.5)
+	if lods:
+		mesh = _with_lods(mesh)
 	var xf := Transform3D(Basis.IDENTITY, Vector3(center_top.x, center_top.y - size.y * 0.5, center_top.z))
 	return _mesh(parent, n, mesh, mat, xf, shadows)
+
+
+func _with_lods(mesh: ArrayMesh) -> ArrayMesh:
+	## Auto-generates mesh LODs (meshoptimizer) for procedural meshes so Godot's per-instance LOD selection
+	## drops triangles with screen size. Only for unbatched meshes (SurfaceTool merging discards LODs).
+	var im := ImporterMesh.new()
+	for s in range(mesh.get_surface_count()):
+		im.add_surface(mesh.surface_get_primitive_type(s), mesh.surface_get_arrays(s))
+	im.generate_lods(60.0, 25.0, [])
+	return im.get_mesh()
 
 
 func _clamp_mesh_top(mesh: ArrayMesh, max_y: float) -> void:
@@ -1590,15 +1606,20 @@ func _build_world_scenery() -> void:
 		[Vector3(0, 9.4, 157), Vector3(76, 96, 70), 11],
 		[Vector3(0, 9.4, 194), Vector3(26, 90, 20), 12],
 	]
+	var mi_idx: int = 0
 	for mdef in massifs:
-		_rock(_scenery, "Massif", mdef[0], mdef[1], int(mdef[2]), rock_m, 1.0, 0.14, 14)
+		# Each massif top sits a few cm lower than its neighbour so overlapping clamped tops never z-fight.
+		var top: Vector3 = (mdef[0] as Vector3) + Vector3(0, -0.035 * float(mi_idx % 5), 0)
+		var rk: MeshInstance3D = _rock(_scenery, "Massif", top, mdef[1], int(mdef[2]), rock_m, 1.0, 0.14, 14, false, true)
+		rk.remove_meta("gj_batch")
+		mi_idx += 1
 
 	# Crags and spires around the route for parallax depth (4 shared meshes, MultiMesh batched).
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2026
 	var variants: Array = []
 	for v in range(4):
-		variants.append(ProcMesh.rock_mesh(Vector3(1, 1, 1), 900 + v, 0.24, 12, 1.0, 0.55))
+		variants.append(_with_lods(ProcMesh.rock_mesh(Vector3(1, 1, 1), 900 + v, 0.24, 12, 1.0, 0.55)))
 	var buckets: Array = [[], [], [], []]
 	var placed: int = 0
 	var guard: int = 0
@@ -1629,8 +1650,8 @@ func _build_world_scenery() -> void:
 	for i in range(18):
 		var ang: float = TAU * float(i) / 18.0 + rng.randf_range(-0.1, 0.1)
 		var dist: float = rng.randf_range(1200.0, 2300.0)
-		var mesh: ArrayMesh = ProcMesh.mountain_mesh(rng.randf_range(420.0, 700.0), rng.randf_range(260.0, 520.0), 700 + i)
-		_mesh(_scenery, "Mountain", mesh, far_m, Transform3D(Basis(Vector3.UP, rng.randf_range(0, TAU)), Vector3(sin(ang) * dist, -70.0, 60.0 + cos(ang) * dist)), false)
+		var mesh: ArrayMesh = _with_lods(ProcMesh.mountain_mesh(rng.randf_range(420.0, 700.0), rng.randf_range(260.0, 520.0), 700 + i))
+		_mesh(_scenery, "Mountain", mesh, far_m, Transform3D(Basis(Vector3.UP, rng.randf_range(0, TAU)), Vector3(sin(ang) * dist, -70.0, 60.0 + cos(ang) * dist)), false, 0.0, false)
 
 	# Sea of clouds
 	var cloud := PlaneMesh.new()
@@ -1658,6 +1679,60 @@ func _build_world_scenery() -> void:
 	var kz := _make_pit_kill_zone("PitKillZone_World", Vector3(0.0, -25.0, 70.0), Vector3(700.0, 19.0, 700.0))
 	kz.kill_y_threshold = -6.0
 	_scenery.add_child(kz)
+
+
+# =====================================================================================================
+# Occlusion culling: conservative box occluders strictly INSIDE solid geometry
+# (requires rendering/occlusion_culling/use_occlusion_culling = true in project.godot)
+# =====================================================================================================
+
+func _occluder(parent: Node3D, n: String, pos: Vector3, size: Vector3, yaw: float = 0.0) -> void:
+	var oi := OccluderInstance3D.new()
+	oi.name = n
+	var box := BoxOccluder3D.new()
+	box.size = size
+	oi.occluder = box
+	oi.transform = Transform3D(Basis(Vector3.UP, yaw), pos)
+	parent.add_child(oi)
+
+
+func _build_occluders() -> void:
+	var occ := Node3D.new()
+	occ.name = "Occluders"
+	add_child(occ)
+	# Gatehouse piers (facade x ±2.3..±11, z 4.5..7.5, y 0..15).
+	for sx in [-1.0, 1.0]:
+		_occluder(occ, "GatehousePier", Vector3(sx * 6.65, 7.3, 6.0), Vector3(8.3, 14.2, 2.6))
+	# Rampart curtain wall.
+	_occluder(occ, "CurtainWall", Vector3(3.6, Y_HALL + 3.0, 53.0), Vector3(1.0, 11.4, 12.4))
+	# Hall corner towers.
+	for cx in [-12.0, 12.0]:
+		for cz in [22.0, 46.0]:
+			_occluder(occ, "HallTower", Vector3(cx, Y_HALL + 6.0, cz), Vector3(3.6, 23.4, 3.6))
+	# Clock tower: four walls + upper block.
+	var ty: float = Y_GALLERY
+	_occluder(occ, "TowerWallW", Vector3(-6.75, ty + 9.0, 94.0), Vector3(1.2, 17.4, 13.0))
+	_occluder(occ, "TowerWallE", Vector3(6.75, ty + 9.0, 94.0), Vector3(1.2, 17.4, 13.0))
+	for sx in [-1.0, 1.0]:
+		_occluder(occ, "TowerWallS", Vector3(sx * 4.0, ty + 9.0, 87.4), Vector3(3.6, 17.4, 0.9))
+		_occluder(occ, "TowerWallN", Vector3(sx * 4.0, ty + 9.0, 100.6), Vector3(3.6, 17.4, 0.9))
+	_occluder(occ, "TowerUpper", Vector3(0, ty + 26.0, 94.0), Vector3(14.4, 13.4, 14.4))
+	# Colosseum: portal-tower piers beside both tunnels, and the solid facade podium ring (as chords).
+	var c: Vector3 = ARENA_CENTER
+	for dz in [-1.0, 1.0]:
+		for sx in [-1.0, 1.0]:
+			_occluder(occ, "PortalPier", c + Vector3(sx * 4.75, 12.5, dz * 22.4), Vector3(3.1, 24.6, 17.4))
+	for i in range(24):
+		var a: float = TAU * (float(i) + 0.5) / 24.0
+		if absf(sin(a)) < 0.3:
+			continue
+		var dir := Vector3(sin(a), 0, cos(a))
+		var chord: float = 2.0 * 31.2 * sin(PI / 24.0) * 0.92
+		_occluder(occ, "FacadePodium", c + dir * 31.85 + Vector3(0, -6.0, 0), Vector3(chord, 19.0, 0.9), a)
+	# Rock massif cores (well inside the noisy hulls).
+	for mdef in [[Vector3(0, -12, -10.5), Vector3(16, 20, 10)], [Vector3(0, -8, 35), Vector3(18, 20, 16)], [Vector3(0, -6, 92), Vector3(14, 20, 16)],
+			[Vector3(0, -6, 112), Vector3(18, 20, 14)], [Vector3(0, -6, 157), Vector3(50, 24, 46)], [Vector3(0, -6, 194), Vector3(16, 20, 12)]]:
+		_occluder(occ, "MassifCore", mdef[0], mdef[1])
 
 
 # =====================================================================================================
@@ -1706,7 +1781,8 @@ func _configure_atmosphere() -> void:
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
-	sky.process_mode = Sky.PROCESS_MODE_AUTOMATIC
+	# Incremental: radiance updates after a realm shift are spread over several frames (no frame spike).
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
