@@ -131,9 +131,29 @@ const ATTACK_DEFS: Dictionary = {
 		"hitstop": 0.15, "trauma": 0.55, "twist": 0.0, "fov_kick": 8.0, "trail": 1.6,
 		"finisher_move": true, "damage": 95, "blink": 1.5, "display": "PHANTOM STEP",
 	},
+	# Q in the window: the blade shatters the realm seam around you — 3 spinning AoE ticks that knock everyone down.
+	"fin_mirror_break": {
+		"clip": "2H_Melee_Attack_Spin", "clip_start": 0.30, "clip_contact": 0.90, "clip_end": 1.80,
+		"windup": 0.10, "active": 0.42, "recovery": 0.36, "cancel": 0.7,
+		"lunge": 0.4, "reach": 3.4, "arc": 360.0, "knockback": 10.0, "multi": 3,
+		"hitstop": 0.06, "trauma": 0.55, "twist": 0.0, "fov_kick": 6.0, "trail": 2.0,
+		"finisher_move": true, "damage": 40, "ring": 4.0, "staggers": true, "display": "MIRROR BREAK",
+	},
+	# F in the window: leap and drive the blade down. Executes anything at or below `execute_threshold` HP.
+	"fin_execution": {
+		"clip": "1H_Melee_Attack_Jump_Chop", "clip_start": 0.10, "clip_contact": 0.80, "clip_end": 1.40,
+		"windup": 0.30, "active": 0.10, "recovery": 0.50, "cancel": 0.75,
+		"lunge": 2.4, "reach": 3.0, "arc": 120.0, "knockback": 6.0,
+		"hitstop": 0.22, "trauma": 1.0, "twist": 0.0, "fov_kick": -9.0, "trail": 2.0,
+		"finisher_move": true, "damage": 150, "crack": 5.5, "ring": 3.2, "execute": 0.35, "display": "EXECUTION",
+	},
 }
 ## Window options: input buffer key -> finisher attack.
-const FINISHER_BY_INPUT: Dictionary = {"light": "fin_rend", "heavy": "fin_sunder", "dodge": "fin_phantom"}
+## LMB Rend · RMB Sunder · Space Phantom Step · Q Mirror Break · F Execution.
+const FINISHER_BY_INPUT: Dictionary = {
+	"light": "fin_rend", "heavy": "fin_sunder", "dodge": "fin_phantom",
+	"mirror": "fin_mirror_break", "plunge": "fin_execution",
+}
 
 @export_group("Health & Survival")
 @export var max_health: int = 100
@@ -190,7 +210,9 @@ const FINISHER_BY_INPUT: Dictionary = {"light": "fin_rend", "heavy": "fin_sunder
 @export_group("Finishers")
 @export var finisher_window_sec: float = 1.1
 @export var finisher_slowmo_scale: float = 0.35
-@export var crit_chance_light: float = 0.12
+@export var crit_chance_light: float = 0.20
+## FLOW (on-rhythm) light hits crit more often — rewards playing the chain well.
+@export var crit_chance_flow: float = 0.35
 @export var finisher_cooldown_sec: float = 2.5
 
 @export_group("Node References")
@@ -512,6 +534,9 @@ func _poll_action_inputs(delta: float) -> void:
 			_buffer("jump")
 	if Input.is_action_just_pressed("landing_attack"):
 		_buffer("plunge")
+	# Q only means "Mirror Break" inside the crit window (RealmManager skips its shift while it is open).
+	if is_finisher_window_open() and InputMap.has_action("dimension_shift") and Input.is_action_just_pressed("dimension_shift"):
+		_buffer("mirror")
 	if not Input.is_action_pressed("jump"):
 		_jump_held = false
 
@@ -732,7 +757,10 @@ func _process_attack_state(delta: float) -> void:
 				if hbm != null:
 					hbm.end_swing()
 					hbm.begin_swing(_attack_damage, true, "player_heavy")
-				FinisherFXScript.rend_slash(self, tick)
+				if current_attack_name == "fin_mirror_break":
+					FinisherFXScript.mirror_shards(self, tick)
+				else:
+					FinisherFXScript.rend_slash(self, tick)
 		_sweep_strike_targets()
 	else:
 		if attack_phase == AttackPhase.ACTIVE or attack_phase == AttackPhase.WINDUP:
@@ -911,6 +939,14 @@ func _on_sword_hit_landed(target: Node, _damage_dealt: int, _is_heavy_hit: bool,
 		GameFeelScript.hitstop(self, stop)
 	if trauma > 0.0:
 		GameFeelScript.add_trauma(self, trauma)
+	# Execution: anything left at or below the threshold after the plunge is finished outright.
+	if not killed and current_attack.has("execute") and target is EnemyBase:
+		var eb: EnemyBase = target as EnemyBase
+		if float(eb.health) <= float(eb.max_health) * float(current_attack["execute"]):
+			eb.apply_damage(eb.health + 999, true, "player_execution", self)
+			killed = eb.is_dead
+			if killed:
+				FinisherFXScript.execution_kill(self, eb)
 	if killed:
 		_maybe_kill_cam()
 	hit_confirmed.emit(target, current_attack_name if source_type != "player_landing" else "landing_plunge", killed)
@@ -924,16 +960,36 @@ func is_finisher_window_open() -> bool:
 	return _finisher_window_end_ms > Time.get_ticks_msec()
 
 
+## The enemy the crit window is locked onto (null when none / dead). Used by the HUD reticle.
+func get_finisher_target() -> Node3D:
+	if not is_finisher_window_open() or not is_instance_valid(_finisher_target):
+		return null
+	if _finisher_target is EnemyBase and (_finisher_target as EnemyBase).is_dead:
+		return null
+	return _finisher_target
+
+
 ## A critical hit: the chain enders (light_5 / heavy / heavy_spin) always crit; other light hits crit at `crit_chance_light`.
 func _try_open_finisher_window(target: Node3D) -> void:
 	if is_finisher_window_open() or Time.get_ticks_msec() < _finisher_cooldown_end_ms:
 		return
 	if bool(current_attack.get("finisher_move", false)):
 		return
-	var crit: bool = bool(current_attack.get("finisher", false)) or randf() < crit_chance_light
+	if not finisher_window_enabled():
+		return
+	var chance: float = crit_chance_flow if bool(current_attack.get("flow", false)) else crit_chance_light
+	var crit: bool = bool(current_attack.get("finisher", false)) or randf() < chance
 	if not crit:
 		return
 	open_finisher_window(target)
+
+
+## Options > Gameplay "Critical Finisher Window" (on by default).
+func finisher_window_enabled() -> bool:
+	var store: Node = get_node_or_null("/root/LeaderboardStore")
+	if store == null or not store.has_method("get_settings"):
+		return true
+	return bool((store.call("get_settings") as Dictionary).get("finisher_window_enabled", true))
 
 
 func open_finisher_window(target: Node3D) -> void:
@@ -946,6 +1002,8 @@ func open_finisher_window(target: Node3D) -> void:
 		{"input": "light_attack", "name": "REND", "kind": "rend"},
 		{"input": "heavy_attack", "name": "SUNDER", "kind": "sunder"},
 		{"input": "dodge", "name": "PHANTOM STEP", "kind": "phantom"},
+		{"input": "dimension_shift", "name": "MIRROR BREAK", "kind": "mirror"},
+		{"input": "landing_attack", "name": "EXECUTION", "kind": "execution"},
 	])
 
 

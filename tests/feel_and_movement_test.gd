@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 ## Windowed test for (1) the "character spins in place" bug under frame hitches + attack spam,
 ## (2) the LMB chain (rhythm FLOW, 5 steps, mash chaining, pause branch, reset), (3) ally spatial awareness
 ## (spacing from each other / the player, wall grinding) while following and fighting.
@@ -68,6 +68,9 @@ func _run() -> void:
 	_mgr = AllySquadManager.instance
 	_player.max_health = 100000
 	_player.health = 100000
+	# Deterministic chain: random light crits would open the finisher window and turn the next LMB into REND.
+	_player.crit_chance_light = 0.0
+	_player.crit_chance_flow = 0.0
 	_player.attack_started.connect(func(n: String, t: Dictionary) -> void: _attacks.append([n, int(t.get("chain_step", 0)), bool(t.get("flow", false)), String(t.get("branch", ""))]))
 	_player.global_position = Vector3(0, 0, -14)
 	_player.set_facing_direction(Vector3(0, 0, 1))
@@ -91,6 +94,10 @@ func _run() -> void:
 
 	# ---- 2) LMB chain.
 	await create_timer(1.2).timeout
+	# Section 1's chain enders always crit; a leftover slow-mo finisher window would skew the rhythm timing.
+	_player._finisher_cooldown_end_ms = Time.get_ticks_msec() + 60000
+	if _player.is_finisher_window_open():
+		_player._close_finisher_window("")
 	_attacks.clear()
 	# Rhythm taps: wait until the swing's flow window opens, then tap.
 	await _tap()
@@ -144,6 +151,17 @@ func _run() -> void:
 	_player.global_position = Vector3(0, 0, -58)
 	_mgr.regroup(false)
 	await create_timer(0.5).timeout
+	# Measure following, not the 40 m run-in from the previous section: wait until the squad has arrived.
+	var t_arrive: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t_arrive < 6000:
+		var far: bool = false
+		for a0 in _mgr.get_living():
+			if a0.global_position.distance_to(_player.global_position) > 4.5:
+				far = true
+		if not far:
+			break
+		await process_frame
+	await create_timer(0.4).timeout
 	var path: Array[Vector2] = [Vector2(0, -1), Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0), Vector2(0, -1)]
 	for leg in path:
 		Input.action_release("move_forward")
@@ -208,7 +226,52 @@ func _run() -> void:
 					crowd += 1
 	_check("fight_no_ally_stacking", float(crowd) / float(maxi(1, samples * 3)) < 0.06, "ally pairs <0.85 m in %.1f%% of frames, min %.2f m" % [100.0 * float(crowd) / float(maxi(1, samples * 3)), min_pair])
 	await _shot("22_fight_spacing")
+
+	# ---- 4) New finishers: Q (Mirror Break) and F (Execution) inside the crit window; Q must not shift realms.
+	var victims: Array = level.get_tree().get_nodes_in_group("enemy").filter(func(n: Node) -> bool: return n is EnemyBase and not (n as EnemyBase).is_dead and (n as Node3D).global_position.distance_to(_player.global_position) < 12.0)
+	var victim: EnemyBase = victims[0] as EnemyBase if not victims.is_empty() else null
+	if victim != null:
+		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
+		_player.set_facing_direction(Vector3(0, 0, 1))
+		_player._finisher_cooldown_end_ms = 0
+		var rm: Node = root.find_child("RealmManager", true, false)
+		var realm_before: int = int(rm.get("current_realm")) if rm != null else -1
+		_player.open_finisher_window(victim)
+		await create_timer(0.1).timeout
+		await _shot("23_finisher_prompt")
+		_attacks.clear()
+		await _tap_action("dimension_shift")
+		await create_timer(0.3).timeout
+		var realm_after: int = int(rm.get("current_realm")) if rm != null else -1
+		_check("q_in_window_is_mirror_break", not _attacks.is_empty() and String(_attacks[0][0]) == "fin_mirror_break" and realm_before == realm_after, "%s realm %d->%d" % [str(_attacks), realm_before, realm_after])
+		await create_timer(1.6).timeout
+		victim.health = int(victim.max_health * 0.3)
+		_player._finisher_cooldown_end_ms = 0
+		_player.open_finisher_window(victim)
+		await create_timer(0.1).timeout
+		_attacks.clear()
+		await _tap_action("landing_attack")
+		await create_timer(1.6).timeout
+		_check("f_in_window_executes", not _attacks.is_empty() and String(_attacks[0][0]) == "fin_execution" and victim.is_dead, "%s dead=%s hp=%d" % [str(_attacks), str(victim.is_dead), victim.health])
+		await _shot("24_execution")
+	else:
+		_check("finisher_victim_found", false, "no enemy near the player")
 	_finish()
+
+
+## Real input events (so RealmManager._unhandled_input sees Q too), held across physics frames.
+func _tap_action(action: String) -> void:
+	var down := InputEventAction.new()
+	down.action = action
+	down.pressed = true
+	Input.parse_input_event(down)
+	await physics_frame
+	await physics_frame
+	var up := InputEventAction.new()
+	up.action = action
+	up.pressed = false
+	Input.parse_input_event(up)
+	await physics_frame
 
 
 func _finish() -> void:

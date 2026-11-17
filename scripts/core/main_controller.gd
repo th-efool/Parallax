@@ -31,6 +31,10 @@ func _ready() -> void:
 	if get_tree() != null and not get_tree().process_frame.is_connected(_on_tree_process_frame):
 		get_tree().process_frame.connect(_on_tree_process_frame)
 	call_deferred("_wire_all_subsystems")
+	if get_node_or_null("PerformanceGovernor") == null:
+		var gov: Node = (load("res://scripts/core/performance_governor.gd") as GDScript).new()
+		gov.name = "PerformanceGovernor"
+		add_child(gov)
 
 
 func _exit_tree() -> void:

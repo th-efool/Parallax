@@ -376,7 +376,13 @@ func _update_tag(e: EnemyAI, en: Dictionary) -> void:
 		tag.modulate = Color(1.0, 0.86, 0.5, 0.95)
 		e.add_child(tag)
 		tag.position = Vector3(0, 2.45, 0)
-	tag.text = String(en["id"])
+	# Mirror insight reveals more: exact health and the exposed weak point.
+	if e.mirror_insight:
+		tag.text = "%s · %d%% · WEAK" % [String(en["id"]), int(en["hp_pct"])]
+		tag.modulate = Color(0.55, 0.9, 1.0, 0.95)
+	else:
+		tag.text = String(en["id"])
+		tag.modulate = Color(1.0, 0.86, 0.5, 0.95)
 	tag.visible = show_tags and not bool(tag.get_meta("cinematic_hidden", false)) and float(en["dist"]) < 28.0
 
 

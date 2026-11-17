@@ -363,10 +363,15 @@ func _draw_subtitles(s: Vector2) -> void:
 	var body: Font = UITheme.body_font()
 	var disp: Font = UITheme.display_font()
 	var base_y: float = s.y - 286.0
+	# The critical-hit finisher prompt owns the lower-centre of the screen while it is open: fade barks out.
+	var dim: float = 1.0
+	var pl: Node = get_tree().get_first_node_in_group("player") if is_inside_tree() else null
+	if pl != null and pl.has_method("is_finisher_window_open") and bool(pl.call("is_finisher_window_open")):
+		dim = 0.0
 	var i: int = 0
 	for k in range(_subs.size() - 1, -1, -1):
 		var sub: Dictionary = _subs[k]
-		var a: float = clampf((6.5 - float(sub["t"])) / 0.8, 0.0, 1.0) if bool(sub["final"]) else 1.0
+		var a: float = (clampf((6.5 - float(sub["t"])) / 0.8, 0.0, 1.0) if bool(sub["final"]) else 1.0) * dim
 		var col: Color = sub["color"] as Color
 		var name_s: String = String(sub["speaker"]).to_upper() + "  "
 		var text_s: String = String(sub["text"])
@@ -384,7 +389,7 @@ func _draw_subtitles(s: Vector2) -> void:
 
 func _draw_notes(s: Vector2) -> void:
 	var body: Font = UITheme.body_font()
-	var y: float = 158.0
+	var y: float = 196.0   # below the objective title + hint
 	for n in _notes:
 		var lv: String = String(n["level"])
 		var col: Color = Color(1.0, 0.92, 0.7) if lv == "info" else (Color(1.0, 0.75, 0.3) if lv == "warn" else Color(1.0, 0.42, 0.36))

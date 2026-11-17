@@ -1,4 +1,4 @@
-# PARALLAX — Controls, Player Combat, Breakables, Enemies & Tuning
+﻿# PARALLAX — Controls, Player Combat, Breakables, Enemies & Tuning
 
 > Encapsulates GDD Sections 3, 5, 6, Appendix A (Tuning Sheet), and Appendix B (Terminology).
 
@@ -91,15 +91,17 @@
 - Resets to `x1` on timeout (`4.0 s`) OR when player takes enemy/hazard damage. **Realm shift (`Q`) preserves combo.**
 
 ### 2.2b Critical Hits & Finishers (2026-11-17)
-- **Critical hit** (`PlayerController._try_open_finisher_window`): a non-killing sword hit by a chain ender (`light_5`, `heavy`, `heavy_spin` = defs with `finisher: true`) always crits; other light hits crit at `crit_chance_light = 0.12`. Deflected hits never crit. Cooldown `finisher_cooldown_sec = 2.5` after a finisher.
-- **Window**: `finisher_window_sec = 1.1` real seconds at `finisher_slowmo_scale = 0.35`; frame hitches > 50 ms are credited back. Press one of three inputs (read from the input buffer, so it works mid-attack):
+- **Critical hit** (`PlayerController._try_open_finisher_window`): a non-killing sword hit by a chain ender (`light_5`, `heavy`, `heavy_spin` = defs with `finisher: true`) always crits; other light hits crit at `crit_chance_light = 0.20`, FLOW (on-rhythm) light hits at `crit_chance_flow = 0.35`. Deflected hits never crit. Cooldown `finisher_cooldown_sec = 2.5` after a finisher. Disabled entirely when the `finisher_window_enabled` setting is off (Options → Gameplay → "Critical Finisher Window").
+- **Window**: `finisher_window_sec = 1.1` real seconds at `finisher_slowmo_scale = 0.35`; frame hitches > 50 ms are credited back. Press one of five inputs (read from the input buffer, so it works mid-attack):
   | Input | Finisher (`ATTACK_DEFS`) | Damage | Shape / effect |
   | :--- | :--- | :--- | :--- |
   | `light_attack` (LMB) | `fin_rend` "REND" | 4 × 28 (blade re-armed 4× across a 0.48 s active phase, `multi: 4`) | 170° arc, reach 2.9 |
   | `heavy_attack` (RMB) | `fin_sunder` "SUNDER" | 120 | 360° reach 3.6, knockback 13, 8 radial ground cracks, light pillar, double shockwave |
   | `dodge` (Shift) | `fin_phantom` "PHANTOM STEP" | 95 | Blinks 1.5 m behind the target (wall-safe ray, only if target < 6 m), cyan afterimage + streak, camera swings round |
+  | `dimension_shift` (Q, buffer `"mirror"`) | `fin_mirror_break` "MIRROR BREAK" | 3 × 40 (`multi: 3`) | 360° reach 3.4 AoE, knockback 10, staggers; cyan/amber glass-shard bursts each tick. **Does not shift realm** inside the window |
+  | `landing_attack` (F, buffer `"plunge"`) | `fin_execution` "EXECUTION" | 150 | Leap-chop 120° reach 3.0, crack 5.5; any target left at ≤ 35 % HP (`execute: 0.35`) dies outright (crimson starburst) |
 - Finishers run as `State.HEAVY_ATTACK`, grant i-frames for 80% of their duration, score `+150 finisher` (combo-multiplied, `ScoreManager.POINTS_FINISHER`).
-- Signals: `finisher_window_opened(duration, options)`, `finisher_window_closed(chosen)`, `finisher_executed(name)`. VFX in `scripts/player/finisher_fx.gd`; HUD prompt `scripts/ui/finisher_prompt.gd` (`FinisherPrompt`, auto-added under `HUD/RootControl`).
+- Signals: `finisher_window_opened(duration, options)`, `finisher_window_closed(chosen)`, `finisher_executed(name)`. VFX in `scripts/player/finisher_fx.gd`; HUD prompt `scripts/ui/finisher_prompt.gd` (`FinisherPrompt`, auto-added under `HUD/RootControl`): 5 diamond plates with keycaps, a draining timer bar, a rotating gold lock-on reticle on `PlayerController.get_finisher_target()` (shows "EXECUTABLE" at ≤ 35 % HP), and a plain-language tutorial line for the first 2 windows of a session. Squad subtitles hide while the window is open.
 
 ### 2.3 Authored Breakables (One-Week Deterministic Pattern)
 Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `AnimationPlayer` animations + explicit single-tick `Area3D` / `ShapeCast` volumes + optional non-colliding `RigidBody3D` cosmetic rubble afterward. Each break event fires **at most once** (idempotent until section reset).
@@ -117,12 +119,12 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 ### 3.1 Enemy Roster Overview
 | Enemy | Count | Realm Affinity | HP | Damage | Core Counterplay |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Skeleton Guard** | 2 | `REALITY_ONLY` | `100` | `15` (melee) | Standard combat in Reality or bait into Cracked Pillar fall zone. |
-| **Phantom Twin** | 2 | `MIRROR_ONLY` | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
+| **Skeleton Guard** | 2 | `BOTH_STATEFUL` (was REALITY_ONLY) | `100` | `15` (melee) | Standard combat in Reality or bait into Cracked Pillar fall zone. |
+| **Phantom Twin** | 2 | `BOTH_STATEFUL` (was MIRROR_ONLY; still spectral blood) | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
 | **Shielded Guard** | 1 | `BOTH_STATEFUL` | `250` | `20` (shield bash) | Frontal shield blocks light hits & absorbs heavy in Reality. Shift to Mirror: reflection is shieldless -> Heavy staggers & kills. |
 | **The Warden (Boss)** | 1 | `BOTH_STATEFUL` -> Merged | `1,000` (shared) | `20` Cleave / `25` Lunge | Phase 1: Dodge in Reality, shift to Mirror during `1.4 s` recovery chest-rune opening. Phase 2 (`<=500 HP`): Realms merge, dodge faster chain & kill in Reality. |
-| **Hollow Hexcaster** *(archetype)* | 1 | `REALITY_ONLY` | `70` | `12` (hex bolt, `11 m/s`) | Ranged caster on Skeleton_Warrior (purple tint, hand orb). Holds `7 m`, strafes, fires a dodgeable bolt (`0.8 s` wind-up, `Spellcast_Shoot`). Close the gap; flees at `30%` HP. |
-| **Grave Brute** *(archetype)* | 1 | `REALITY_ONLY` | `260` | `24` (ground slam, `3.2 m` AoE) | Barbarian ×1.18, 2H axe. `1.05 s` wind-up with a growing red floor ring; slam hits player **and allies**, cracks the ground, broadcasts noise. No flinch on lights, knock-back `0.3`, never flees. Dodge out of the ring, punish the `1.3 s` recovery. |
+| **Hollow Hexcaster** *(archetype)* | 1 | `both` | `70` | `12` (hex bolt, `11 m/s`) | Ranged caster on Skeleton_Warrior (purple tint, hand orb). Holds `7 m`, strafes, fires a dodgeable bolt (`0.8 s` wind-up, `Spellcast_Shoot`). Close the gap; flees at `30%` HP. |
+| **Grave Brute** *(archetype)* | 1 | `both` | `260` | `24` (ground slam, `3.2 m` AoE) | Barbarian ×1.18, 2H axe. `1.05 s` wind-up with a growing red floor ring; slam hits player **and allies**, cracks the ground, broadcasts noise. No flinch on lights, knock-back `0.3`, never flees. Dodge out of the ring, punish the `1.3 s` recovery. |
 | **Shade Stalker** *(archetype)* | 1 | `BOTH_STATEFUL` | `90` | `14` (dual stab; `×1.6` from behind) | Fast Skeleton_Rogue (blue tint). Blinks behind its target (`6 s` cooldown) before a token swing, evade `0.75`, flees at `35%`. Exists in both realms. |
 
 ### 3.2 Behavioral Details

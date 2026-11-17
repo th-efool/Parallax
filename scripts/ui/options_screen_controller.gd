@@ -49,6 +49,9 @@ var _shadow_option: OptionButton = null
 var _glow_toggle: CheckButton = null
 var _fog_toggle: CheckButton = null
 var _brightness_slider: HSlider = null
+var _render_scale_slider: HSlider = null
+var _adaptive_toggle: CheckButton = null
+var _finisher_toggle: CheckButton = null
 var _master_slider: HSlider = null
 var _music_slider: HSlider = null
 var _sfx_slider: HSlider = null
@@ -214,24 +217,28 @@ func set_graphics_preset(preset_name: String) -> void:
 				working_settings["shadow_quality"] = 0
 				working_settings["glow_enabled"] = false
 				working_settings["fog_enabled"] = false
+				working_settings["render_scale"] = 0.7
 			"medium":
 				working_settings["msaa_3d"] = Viewport.MSAA_2X
 				working_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_DISABLED
 				working_settings["shadow_quality"] = 1
 				working_settings["glow_enabled"] = true
 				working_settings["fog_enabled"] = true
+				working_settings["render_scale"] = 0.85
 			"high":
 				working_settings["msaa_3d"] = Viewport.MSAA_2X
 				working_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_FXAA
 				working_settings["shadow_quality"] = 2
 				working_settings["glow_enabled"] = true
 				working_settings["fog_enabled"] = true
+				working_settings["render_scale"] = 1.0
 			"ultra":
 				working_settings["msaa_3d"] = Viewport.MSAA_4X
 				working_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_FXAA
 				working_settings["shadow_quality"] = 3
 				working_settings["glow_enabled"] = true
 				working_settings["fog_enabled"] = true
+				working_settings["render_scale"] = 1.0
 		_sync_ui_from_working_settings()
 
 
@@ -485,6 +492,12 @@ func _build_default_ui() -> void:
 	_glow_toggle = _make_toggle_row(gfx_rows, "Bloom / Glow", true, set_glow_enabled)
 	_fog_toggle = _make_toggle_row(gfx_rows, "Atmospheric Fog", true, set_fog_enabled)
 	_brightness_slider = _make_slider_row(gfx_rows, "Brightness / Exposure", 0.5, 1.5, 0.05, 1.0, set_brightness)
+	# Low-end PCs (integrated graphics): render the 3D scene at a lower resolution, upscaled with FSR.
+	_render_scale_slider = _make_slider_row(gfx_rows, "3D Render Scale (lower = faster)", 0.5, 1.0, 0.05, 1.0, func(v: float) -> void:
+		working_settings["render_scale"] = v
+		working_settings["graphics_preset"] = "custom")
+	_adaptive_toggle = _make_toggle_row(gfx_rows, "Adaptive Resolution (keeps FPS up)", true, func(on: bool) -> void:
+		working_settings["adaptive_resolution"] = on)
 
 	# TAB 2: SOUND / AUDIO
 	var audio_tab := VBoxContainer.new()
@@ -564,6 +577,8 @@ func _build_default_ui() -> void:
 	_fov_slider = _make_slider_row(gp_rows, "Camera FOV", 55.0, 95.0, 1.0, 65.0, set_camera_fov)
 	_shake_slider = _make_slider_row(gp_rows, "Camera Shake Intensity", 0.0, 1.0, 0.05, 1.0, set_camera_shake_intensity)
 	_hitstop_toggle = _make_toggle_row(gp_rows, "Combat Hit-Stop", true, set_hit_stop_enabled)
+	_finisher_toggle = _make_toggle_row(gp_rows, "Critical Finisher Window (slow-mo combo moves)", true, func(on: bool) -> void:
+		working_settings["finisher_window_enabled"] = on)
 
 	var clear_save_btn := Button.new()
 	clear_save_btn.name = "ClearSaveButton"
@@ -756,6 +771,12 @@ func _sync_ui_from_working_settings() -> void:
 		_shake_slider.set_value_no_signal(float(working_settings.get("camera_shake_intensity", 1.0)))
 	if _hitstop_toggle != null:
 		_hitstop_toggle.set_pressed_no_signal(bool(working_settings.get("hit_stop_enabled", true)))
+	if _render_scale_slider != null:
+		_render_scale_slider.set_value_no_signal(float(working_settings.get("render_scale", 1.0)))
+	if _adaptive_toggle != null:
+		_adaptive_toggle.set_pressed_no_signal(bool(working_settings.get("adaptive_resolution", true)))
+	if _finisher_toggle != null:
+		_finisher_toggle.set_pressed_no_signal(bool(working_settings.get("finisher_window_enabled", true)))
 	if _glow_toggle != null:
 		_glow_toggle.set_pressed_no_signal(bool(working_settings.get("glow_enabled", true)))
 	if _fog_toggle != null:

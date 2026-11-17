@@ -8,12 +8,23 @@ const KIND_COLORS: Dictionary = {
 	"rend": Color(1.0, 0.74, 0.32),
 	"sunder": Color(1.0, 0.42, 0.20),
 	"phantom": Color(0.38, 0.86, 1.0),
+	"mirror": Color(0.55, 0.95, 1.0),
+	"execution": Color(0.95, 0.18, 0.22),
 }
 const KIND_HINTS: Dictionary = {
 	"rend": "flurry",
 	"sunder": "shockwave",
 	"phantom": "blink strike",
+	"mirror": "shatter all around",
+	"execution": "kills weakened foes",
 }
+## Finisher attack name -> prompt kind (for the "chosen" title card).
+const FIN_KIND: Dictionary = {
+	"fin_rend": "rend", "fin_sunder": "sunder", "fin_phantom": "phantom",
+	"fin_mirror_break": "mirror", "fin_execution": "execution",
+}
+## First windows of a session also show a plain-language tutorial line.
+static var _windows_seen: int = 0
 
 var _player: Node = null
 var _options: Array = []
@@ -62,6 +73,7 @@ func _on_opened(duration: float, options: Array) -> void:
 	_dur_ms = maxi(1, int(duration * 1000.0))
 	_end_ms = _open_ms + _dur_ms
 	_state = "open"
+	_windows_seen += 1
 	queue_redraw()
 
 
@@ -71,7 +83,7 @@ func _on_closed(chosen: String) -> void:
 		_state = "closing"
 		return
 	_state = "chosen"
-	_chosen_kind = chosen.trim_prefix("fin_")
+	_chosen_kind = String(FIN_KIND.get(chosen, chosen.trim_prefix("fin_")))
 	_chosen_name = _chosen_kind.to_upper()
 	for o: Variant in _options:
 		var od: Dictionary = o as Dictionary
@@ -132,14 +144,17 @@ func _draw() -> void:
 		return
 
 	var appear: float = _ease_out(t_open)
+	_draw_target_reticle(now, remain, Color(gold.r, gold.g, gold.b, fade * appear))
 	# Header: ◆── CRITICAL ──◆
 	var hy: float = cy - 92.0 + (1.0 - appear) * 14.0
 	_text_centered(disp, Vector2(s.x * 0.5, hy), "CRITICAL", 40, Color(gold.r, gold.g, gold.b, fade * appear), 8)
 	_rule(Vector2(s.x * 0.5, hy + 18.0), 220.0, Color(gold.r, gold.g, gold.b, 0.85 * fade * appear))
+	if _windows_seen <= 2:
+		_text_centered(body, Vector2(s.x * 0.5, hy - 44.0), "Time slowed — press one key below for a finisher", 20, Color(1, 0.97, 0.9, 0.95 * fade * appear), 6)
 
 	# Options row.
 	var n: int = _options.size()
-	var spacing: float = 190.0
+	var spacing: float = 190.0 if n <= 3 else minf(176.0, (s.x - 80.0) / float(n))
 	for i in n:
 		var od: Dictionary = _options[i] as Dictionary
 		var kind: String = String(od.get("kind", ""))
@@ -174,6 +189,29 @@ func _draw() -> void:
 	draw_rect(Rect2(s.x * 0.5 - bw * 0.5 * remain, by, bw * remain, 4.0), Color(urgent.r, urgent.g, urgent.b, fade))
 	_diamond(Vector2(s.x * 0.5 - bw * 0.5 * remain, by + 2.0), 5.0, Color(1, 1, 1, fade))
 	_diamond(Vector2(s.x * 0.5 + bw * 0.5 * remain, by + 2.0), 5.0, Color(1, 1, 1, fade))
+
+
+## Rotating gold lock-on brackets around the crit target (projected each frame), shrinking as time runs out.
+func _draw_target_reticle(now: int, remain: float, col: Color) -> void:
+	if _player == null or not is_instance_valid(_player) or not _player.has_method("get_finisher_target"):
+		return
+	var tgt: Node3D = _player.call("get_finisher_target") as Node3D
+	var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
+	if tgt == null or cam == null:
+		return
+	var wp: Vector3 = tgt.global_position + Vector3.UP * 1.1
+	if cam.is_position_behind(wp):
+		return
+	var sp: Vector2 = cam.unproject_position(wp)
+	var r: float = 34.0 + 26.0 * remain
+	var spin: float = float(now) * 0.004
+	for i in 4:
+		var a0: float = spin + TAU * float(i) / 4.0
+		draw_arc(sp, r, a0, a0 + 0.9, 10, col, 3.0, true)
+	_diamond(sp, 4.0, col)
+	var exec_col: Color = KIND_COLORS["execution"]
+	if tgt is EnemyBase and float((tgt as EnemyBase).health) <= float((tgt as EnemyBase).max_health) * 0.35:
+		_text_centered(UITheme.body_font(), sp + Vector2(0, -r - 10.0), "EXECUTABLE", 16, Color(exec_col.r, exec_col.g, exec_col.b, col.a), 4)
 
 
 func _ease_out(t: float) -> float:
@@ -226,5 +264,16 @@ func _glyph(kind: String, c: Vector2, r: float, col: Color) -> void:
 			draw_arc(c + Vector2(r * 0.15, 0), r * 0.8, PI * 0.6, PI * 1.4, 18, col, 2.5, true)
 			draw_line(c + Vector2(-r * 0.2, 0), c + Vector2(r, 0), col, 2.0, true)
 			draw_colored_polygon(PackedVector2Array([c + Vector2(r, -r * 0.3), c + Vector2(r * 1.35, 0), c + Vector2(r, r * 0.3)]), col)
+		"mirror":
+			# Cracked pane: diamond with fracture lines radiating from an off-center point.
+			_diamond_outline(c, r, col, 2.0)
+			var o: Vector2 = c + Vector2(r * 0.15, -r * 0.1)
+			for ang: float in [0.3, 1.5, 2.6, 3.9, 5.1]:
+				draw_line(o, o + Vector2(cos(ang), sin(ang)) * r * 0.85, col, 1.8, true)
+		"execution":
+			# Downward blade over a skull-ish bar.
+			draw_line(c + Vector2(0, -r), c + Vector2(0, r * 0.6), col, 3.0, true)
+			draw_line(c + Vector2(-r * 0.5, -r * 0.55), c + Vector2(r * 0.5, -r * 0.55), col, 2.5, true)
+			draw_circle(c + Vector2(0, r * 0.8), r * 0.22, col)
 		_:
 			_diamond(c, r * 0.5, col)

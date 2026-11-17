@@ -156,6 +156,8 @@ func _apply_readability_pass() -> void:
 		_root_ctrl.add_child(SquadCommsHUD.new())
 	if _root_ctrl.get_node_or_null("ChainCounter") == null:
 		_root_ctrl.add_child(ChainCounter.new())
+	if _root_ctrl.get_node_or_null("ObjectiveTracker") == null:
+		_root_ctrl.add_child(ObjectiveTracker.new())
 	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
 	if brand != null:
 		brand.visible = false

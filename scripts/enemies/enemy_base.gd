@@ -101,6 +101,13 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 
 	_refresh_active_state()
 	on_realm_changed(active_realm)
+	# Mirror = insight: in the (unmerged) Mirror every enemy shows its weak point.
+	_on_mirror_insight(active_realm == 1 and not realms_merged)
+
+
+## Virtual: the Mirror "insight" view turned on/off for this enemy (weak-point glow, damage bonus).
+func _on_mirror_insight(_on: bool) -> void:
+	pass
 
 
 func set_realm_active(active: bool) -> void:

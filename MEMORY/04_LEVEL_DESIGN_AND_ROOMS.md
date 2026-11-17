@@ -195,7 +195,7 @@ Instanced in `scenes/main/main.tscn` as `Main/AmbientLife` (delete the node to r
 
 | Zone | What lives there (Reality) | Mirror |
 | :--- | :--- | :--- |
-| **Cliff Garden** — new sunken terrace (floor Y `-1.5`, X `1..12`, Z `-45..-21` + wedge X `-1.5..1`) cradled between Causeway A and B; `realm_pbr` rock massif, sand-soil floor (layer 3 collider for creatures only), broken castle-brick kerb, marble fountain. Seen from both causeways + overlook; parapets keep the player out. | Olive grove (3), cypresses (3), grass carpet, wildflower meadow, hedges, fern corner, rocks, glow-blooms, spore pods; deer (3), fox, butterflies, fountain doves, rock lizards | Spirit grove (ferns, crystal mushrooms, ghost pine), ghost stags, moths, wisps |
+| **Cliff Garden** — **DISABLED 2026-11-17** (`AmbientLifeLayout.build_garden = false`; user: "feels weird and out of place"). Kept for reference: sunken terrace (floor Y `-1.5`, X `1..12`, Z `-45..-21` + wedge X `-1.5..1`) cradled between Causeway A and B; `realm_pbr` rock massif, sand-soil floor (layer 3 collider for creatures only), broken castle-brick kerb, marble fountain. Seen from both causeways + overlook; parapets keep the player out. | Olive grove (3), cypresses (3), grass carpet, wildflower meadow, hedges, fern corner, rocks, glow-blooms, spore pods; deer (3), fox, butterflies, fountain doves, rock lizards | Spirit grove (ferns, crystal mushrooms, ghost pine), ghost stags, moths, wisps |
 | Start terrace / overlook / forecourt | Wispy grass at parapet feet & corners, crows on braziers + obelisk, doves on the forecourt flagstones, lizards by braziers | Spirit fox guide on the overlook, wisps, spirit ferns |
 | Hall of Echoes | Ivy on arcade piers (corners only), weeds/ferns in corners, rats by braziers (cover), doves | Moths |
 | Rampart / Aqueduct / Clock tower | Ivy on the curtain wall (clear of the Z 53 banner), wispy grass at the balustrade, lizards, sunset butterflies; colonnade-base growth, doves, rats | Wisps under the oculus |
@@ -210,14 +210,14 @@ Use this to place flora, fauna, props, lights or sounds **without loading `grand
 | Floor node (under `StageNN_*`) | Top Y | Centre (x,z) | Size x × z (m) | Zone |
 | :--- | :--- | :--- | :--- | :--- |
 | `Prologue_StartTerrace` | 0 | (0, -56) | 12 × 10 | Spawn terrace (spawn `(0,0,-56)`) |
-| `Prologue_CausewayA` | 0 | (-3.5, -43.8) | 5 × 17 | Narrow causeway, parapets both sides |
-| `Prologue_Overlook` | 0 | (-7, -33) | 9 × 7 | West balcony over the cliffs |
-| `Prologue_CausewayB` | 0 | (-3.5, -22.3) | 5 × 17 | Causeway |
+| `Prologue_CausewayA` | 0 | (-3.5, -43.8) | **7.5** × 17 (`CW`, 2026-11-17; was 5) | Causeway, parapets both sides (rails placed with `_line_at_z`; waystones at x + 4.9) |
+| `Prologue_Overlook` | 0 | (-7, -33) | **12** (x −13 … −1) × 7 | West balcony over the cliffs (openings computed from causeway rail endpoints) |
+| `Prologue_CausewayB` | 0 | (-3.5, -22.3) | **7.5** × 17 | Causeway |
 | `Gate_Forecourt` | 0 | (0, -10) | 14 × 10 | Plaza before the gatehouse |
 | `EntryFloorSouth/North`, `EntrySteppingStones` | 0 | z -5..8 | ~8 wide | Gatehouse. **Gap z -0.5..2.5 is a pit** (Mirror stones only) |
 | `SunlitStair_Ramp` + `_Landing` | 0 -> 4 | (0, 14.7) | 8 × 15 | 16° stair, landing z 22–24 |
 | `HallFloor` | 4 | (0, 34) | 20 × 20 | Hall of Echoes (combat arena) |
-| `Corridor02_Floor`, `Rampart_Ramp`, `Rampart_Landing` | 4 -> 6 | z 44..60 | ~6 wide | Windswept rampart, open to the west |
+| `Corridor02_Floor`, `Rampart_Ramp`, `Rampart_Landing` | 4 -> 6 | z 44..60 | ramp centre x −0.6, **6.2** wide; landing centre x −0.5, **7.0** wide (2026-11-17) | Windswept rampart, open to the west; west rails at x −3.9 (ramp) / −4.2 (landing) + `Rail_Rampart_Join` |
 | `GalleryFloorSouth` / `GalleryFloorNorth` | 6 | (0, 65) / (0, 79) | 8 × 10 each | Aqueduct deck. **Gap z 70..74 is a pit** (spectral bridge `(0,6,72)` is Mirror-only until repaired) |
 | `ChamberFloor` | 6 | (0, 94) | 12 × 12 | Clock-tower chamber, enclosed, roof oculus at Y 24.5 |
 | `Processional_Ramp` | 6 -> 8 -> 10 | (0, 108.8) | 12 × 15 | Grand stair |

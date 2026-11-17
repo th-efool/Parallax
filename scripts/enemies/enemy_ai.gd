@@ -98,6 +98,11 @@ signal returning_home()
 @export var patrol_radius: float = 0.0
 @export var show_state_icon: bool = true
 
+@export_group("Mirror Insight")
+## Damage taken while the player sees this enemy through the Mirror (its cracks are exposed).
+@export var mirror_damage_mult: float = 1.25
+@export var weak_point_color: Color = Color(0.45, 0.85, 1.0)
+
 var current_state: State = State.IDLE
 var _state_timer: float = 0.0
 var _state_duration: float = 0.0
@@ -319,6 +324,49 @@ func apply_taunt(source: Node3D, bonus: float = -1.0, lock_sec: float = -1.0) ->
 	taunted.emit(source, lock)
 
 
+var mirror_insight: bool = false
+var _weak_point: Node3D = null
+
+
+## Mirror insight: a pulsing cyan crack-glow on the chest (the "weak point") while viewed through the Mirror.
+func _on_mirror_insight(on: bool) -> void:
+	mirror_insight = on and mirror_damage_mult > 1.0
+	if not is_inside_tree():
+		return
+	if mirror_insight and (_weak_point == null or not is_instance_valid(_weak_point)):
+		var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
+		if vis == null:
+			return
+		_weak_point = Node3D.new()
+		_weak_point.name = "MirrorWeakPoint"
+		var core := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.13
+		sm.height = 0.26
+		core.mesh = sm
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mat.albedo_color = Color(weak_point_color.r, weak_point_color.g, weak_point_color.b, 0.85)
+		mat.no_depth_test = true
+		core.material_override = mat
+		core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_weak_point.add_child(core)
+		var l := OmniLight3D.new()
+		l.light_color = weak_point_color
+		l.light_energy = 0.8
+		l.omni_range = 1.6
+		_weak_point.add_child(l)
+		vis.add_child(_weak_point)
+		_weak_point.position = Vector3(0, 1.15, -0.25)
+		var tw := _weak_point.create_tween().set_loops()
+		tw.tween_property(_weak_point, "scale", Vector3.ONE * 1.35, 0.45).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(_weak_point, "scale", Vector3.ONE * 0.85, 0.45).set_trans(Tween.TRANS_SINE)
+	if _weak_point != null and is_instance_valid(_weak_point):
+		_weak_point.visible = mirror_insight and not is_dead
+
+
 ## Drops all threat on `source` (smoke bombs, stealth); if it was the target, the table is re-evaluated.
 func forget(source: Node) -> void:
 	if source == null:
@@ -455,6 +503,8 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 		return false
 	var backstab: bool = _is_backstab(attacker, source_type)
 	var amt: float = float(amount)
+	if mirror_insight and source_type != "environmental":
+		amt *= mirror_damage_mult
 	if current_state == State.STUNNED and source_type != "environmental":
 		amt *= stunned_damage_mult
 	if backstab:

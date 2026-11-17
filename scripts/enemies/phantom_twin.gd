@@ -10,7 +10,9 @@ var _lunge_direction: Vector3 = Vector3.FORWARD
 
 
 func _init() -> void:
-	realm_affinity = RealmReactive.Affinity.MIRROR_ONLY
+	# Realm redesign (2026-11-17): visible and fightable in both realms (still a spectral ghost to look at);
+	# killing it in the Mirror still earns the Mirror Kill bonus.
+	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	max_health = 80
 	health = 80
 	detection_range = 9.0
@@ -29,6 +31,11 @@ func _init() -> void:
 	ring_margin = 1.2
 	flee_health_ratio = 0.25
 	flee_duration = 2.2
+
+
+## Still a ghost: cyan ichor and spectral gibs even though it now exists in both realms.
+func is_spectral() -> bool:
+	return true
 
 
 func start_windup(custom_windup: float = -1.0) -> void:

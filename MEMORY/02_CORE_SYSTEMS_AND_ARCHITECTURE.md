@@ -113,7 +113,7 @@ Configured in `project.godot` under `[layer_names/3d_physics]`:
 | Aspect | **Reality** | **Mirror** |
 | :--- | :--- | :--- |
 | **World Geometry** | Missing Entry gap; broken Gallery bridge span; solid Reality-only barriers; stone anchor housing. | Spectral stepping stones across Entry gap; complete spectral Gallery bridge; suspended Mechanism weight. |
-| **Enemies** | Skeleton Guards active; Shielded Guard frontal shield blocks; Warden armored (Phase 1). | Phantom Twins active; Shielded Guard loses shield; Warden exposes chest rune during recovery (Phase 1). |
+| **Enemies** | All enemies present (2026-11-17: every archetype is `BOTH_STATEFUL`). Shielded Guard frontal shield blocks; Warden armored (Phase 1). | Same enemies, plus **insight**: `EnemyBase.evaluate_for_realm` calls `EnemyAI._on_mirror_insight(true)` → weak-point glow, `WorldIntel` tag shows `E# · HP% · WEAK`, damage `× mirror_damage_mult` (1.25; Warden 1.0). Shielded Guard loses shield; Warden exposes chest rune during recovery (Phase 1). `ObjectiveTracker` shows a Mirror-only `MirrorInscription` hint at the current objective. |
 | **Visuals & Audio** | Warm limestone, ember amber key light, sun banners, dry stone ambience. | Cold blue-black stone, cobalt rim lighting, emissive seams, moon banners, glass harmonics & filtered ambience. |
 
 ### 3.2 Exact `Q` Shift Transition Sequence (`RealmManager.request_shift()`)
@@ -123,6 +123,7 @@ Configured in `project.godot` under `[layer_names/3d_physics]`:
    - **Floor Support Check**: Raycast / shape-cast straight down (`~1.5 m`) below player's feet against `World_Shared` + destination realm's layer (`World_Reality` if shifting to Reality, `World_Mirror` if shifting to Mirror). If no valid floor exists beneath the player (except during intentional mid-air jump? -> GDD 4.3/4.5: *"Never remove the floor beneath the player during a successful shift. The destination floor-support test must reject an unsafe toggle"*), **REJECT**.
    - **Penetration / Overlap Check**: Perform `PhysicsDirectSpaceState3D.intersect_shape()` using the player's capsule shape at `player.global_transform` against destination realm layer (`World_Reality` or `World_Mirror`). If overlapping solid geometry, **REJECT**.
 4. **If Rejected**: Emit `shift_rejected()`, play low rejection sound, pulse HUD realm indicator amber/red briefly. Do NOT teleport player.
+   - **Finisher exception**: while `PlayerController.is_finisher_window_open()`, `RealmManager._unhandled_input` ignores `Q` — it is the Mirror Break finisher input instead.
 5. **If Safe**:
    - Update `current_realm = target_realm`.
    - Start `0.60 s` cooldown.
@@ -152,6 +153,11 @@ Configured in `project.godot` under `[layer_names/3d_physics]`:
 - Target **stable 60 FPS @ 1920x1080** on mid-range Windows PC.
 - **Avoid**: Planar real-time mirror reflections (`Viewport` mirror cameras), SDFGI/VoxelGI heavy spikes, systemic physics fracturing of level geometry. Use fake specular/Fresnel shaders + environment glow instead.
 - Only enemies belonging to `EncounterDirector.current_section` should be active at any time.
+- **Low-end / no-dGPU support (2026-11-17)**:
+  - `project.godot` `rendering_device/fallback_to_d3d12` + `fallback_to_opengl3` = true (boots on machines without working Vulkan).
+  - Settings `render_scale` (0.5–1.0; FSR 1 below 1.0, applied to the root viewport in `LeaderboardStore._apply_scene_graphics_and_camera`), `adaptive_resolution` (default on), `hw_autodetected`.
+  - First windowed launch: `LeaderboardStore.is_low_end_gpu()` (adapter type integrated/virtual/CPU, or name matches Intel UHD/Iris, Radeon Graphics, Vega 6/8, llvmpipe, SwiftShader, Basic Render) → Low preset. Presets set render scale: low 0.7 · medium 0.85 · high/ultra 1.0. Low also uses `mesh_lod_threshold = 4` and caps ambient creature `lod_distance` at 22 m.
+  - `PerformanceGovernor` (`scripts/core/performance_governor.gd`, child of `MainController`): samples FPS every 1.5 s after a 3 s warm-up; < 45 FPS → `scaling_3d_scale −0.08` (floor 0.55); > 75 FPS → `+0.04` back up to the user's `render_scale`. Off in headless.
 
 ---
 

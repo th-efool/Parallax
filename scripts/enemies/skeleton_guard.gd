@@ -9,7 +9,8 @@ var _first_hall_skeleton_hint_emitted: bool = false
 
 
 func _init() -> void:
-	realm_affinity = RealmReactive.Affinity.REALITY_ONLY
+	# Realm redesign (2026-11-17): every enemy exists in BOTH realms; the Mirror reveals their weak points.
+	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	max_health = 100
 	health = 100
 	detection_range = 9.0

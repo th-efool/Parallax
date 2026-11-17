@@ -231,6 +231,10 @@ func get_default_settings() -> Dictionary:
 		"glow_enabled": true,
 		"fog_enabled": true,
 		"brightness": 1.0, # 0.5 .. 1.5 tonemap_exposure
+		"render_scale": 1.0, # 0.5 .. 1.0 3D resolution (FSR 1 upscale below 1.0)
+		"adaptive_resolution": true, # PerformanceGovernor lowers the 3D scale when FPS drops
+		"hw_autodetected": false, # first launch on integrated / software GPUs picks the Low preset
+		"finisher_window_enabled": true, # critical-hit slow-mo finisher window
 		# Gameplay & Camera
 		"mouse_sensitivity": 0.0025,
 		"invert_y": false,
@@ -291,24 +295,28 @@ func apply_graphics_preset(preset_name: String) -> Dictionary:
 			_settings["shadow_quality"] = 0
 			_settings["glow_enabled"] = false
 			_settings["fog_enabled"] = false
+			_settings["render_scale"] = 0.7
 		"medium":
 			_settings["msaa_3d"] = Viewport.MSAA_2X
 			_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_DISABLED
 			_settings["shadow_quality"] = 1
 			_settings["glow_enabled"] = true
 			_settings["fog_enabled"] = true
+			_settings["render_scale"] = 0.85
 		"high":
 			_settings["msaa_3d"] = Viewport.MSAA_2X
 			_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_FXAA
 			_settings["shadow_quality"] = 2
 			_settings["glow_enabled"] = true
 			_settings["fog_enabled"] = true
+			_settings["render_scale"] = 1.0
 		"ultra":
 			_settings["msaa_3d"] = Viewport.MSAA_4X
 			_settings["screen_space_aa"] = Viewport.SCREEN_SPACE_AA_FXAA
 			_settings["shadow_quality"] = 3
 			_settings["glow_enabled"] = true
 			_settings["fog_enabled"] = true
+			_settings["render_scale"] = 1.0
 	return get_settings()
 
 
@@ -321,7 +329,28 @@ func restore_default_settings() -> Dictionary:
 	return get_settings()
 
 
+## True on integrated / virtual / software GPUs (laptops and PCs without a graphics card).
+static func is_low_end_gpu() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return false
+	var t: int = int(RenderingServer.get_video_adapter_type())
+	if t == RenderingDevice.DEVICE_TYPE_INTEGRATED_GPU or t == RenderingDevice.DEVICE_TYPE_VIRTUAL_GPU or t == RenderingDevice.DEVICE_TYPE_CPU:
+		return true
+	var nm: String = RenderingServer.get_video_adapter_name().to_lower()
+	for k in ["intel", "uhd", "iris", "basic render", "llvmpipe", "swiftshader", "radeon(tm) graphics", "radeon graphics", "vega 8", "vega 6"]:
+		if nm.contains(k):
+			return true
+	return false
+
+
 func apply_settings() -> void:
+	# First launch on a weak GPU: pick the Low preset (70% 3D scale) before anything renders heavily.
+	if not bool(_settings.get("hw_autodetected", false)) and DisplayServer.get_name() != "headless":
+		_settings["hw_autodetected"] = true
+		if is_low_end_gpu():
+			apply_graphics_preset("low")
+			print("[Parallax] Integrated/low-end GPU detected (%s): Low preset applied." % RenderingServer.get_video_adapter_name())
+		_save_settings_to_disk()
 	_ensure_audio_buses()
 	_apply_bus_volume("Master", float(_settings.get("master_volume", 1.0)))
 	_apply_bus_volume("Music", float(_settings.get("music_volume", 0.85)))
@@ -380,6 +409,18 @@ func _apply_scene_graphics_and_camera() -> void:
 	var root_vp: Viewport = get_tree().root
 	root_vp.msaa_3d = clampi(int(_settings.get("msaa_3d", Viewport.MSAA_2X)), 0, 3) as Viewport.MSAA
 	root_vp.screen_space_aa = clampi(int(_settings.get("screen_space_aa", Viewport.SCREEN_SPACE_AA_FXAA)), 0, 1) as Viewport.ScreenSpaceAA
+	# 3D render scale (FSR 1 upscaling below 100%); the PerformanceGovernor may lower it further at runtime.
+	var rscale: float = clampf(float(_settings.get("render_scale", 1.0)), 0.5, 1.0)
+	root_vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if rscale < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
+	root_vp.scaling_3d_scale = rscale
+	# Low preset: more aggressive mesh LOD and shorter ambient-creature simulation range.
+	var low: bool = String(_settings.get("graphics_preset", "high")) == "low"
+	root_vp.mesh_lod_threshold = 4.0 if low else 1.0
+	if low:
+		for c in get_tree().get_nodes_in_group("ambient_creature"):
+			var ld: Variant = c.get("lod_distance")
+			if ld != null:
+				c.set("lod_distance", minf(float(ld), 22.0))
 
 	var shadow_q: int = clampi(int(_settings.get("shadow_quality", 2)), 0, 3)
 	if DisplayServer.get_name() != "headless":

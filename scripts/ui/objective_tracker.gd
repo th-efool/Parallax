@@ -1,0 +1,294 @@
+class_name ObjectiveTracker
+extends Control
+## "What am I supposed to do?" — part of the shared HUD. Derives the current objective from live world state
+## (gates, switches, bridge, mechanism, enemies, the Warden's phase), shows it under the realm chips with a
+## one-line how-to hint, draws an on-screen waypoint marker (clamped to the screen edge with distance), labels
+## the confusing glowing props in the world, and — Mirror only — floats an "echo inscription" over the
+## objective (the Mirror reveals secrets). Objective changes pop with a chime.
+
+const GOLD := Color(1.0, 0.86, 0.5)
+const CYAN := Color(0.55, 0.9, 1.0)
+
+var _level: Node = null
+var _obj: Dictionary = {}
+var _last_title: String = ""
+var _pop: float = 0.0
+var _timer: float = 0.0
+var _labels_done: bool = false
+var _inscription: Label3D = null
+
+
+func _ready() -> void:
+	name = "ObjectiveTracker"
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+func get_objective() -> Dictionary:
+	return _obj
+
+
+func _process(delta: float) -> void:
+	var real_dt: float = delta / maxf(0.05, Engine.time_scale)
+	_pop = maxf(0.0, _pop - real_dt * 1.6)
+	_timer -= real_dt
+	if _timer <= 0.0:
+		_timer = 0.25
+		_refresh()
+	queue_redraw()
+
+
+func _find_level() -> Node:
+	if _level != null and is_instance_valid(_level):
+		return _level
+	var main: Node = get_tree().get_first_node_in_group("main_controller")
+	_level = main.get_node_or_null("LevelRoot") if main != null else null
+	return _level
+
+
+func _n(path: String) -> Node:
+	var lv: Node = _find_level()
+	return lv.get_node_or_null(path) if lv != null else null
+
+
+func _alive_in(path: String) -> Array[EnemyBase]:
+	var out: Array[EnemyBase] = []
+	var g: Node = _n(path)
+	if g == null:
+		return out
+	for c in g.get_children():
+		if c is EnemyBase and not (c as EnemyBase).is_dead:
+			out.append(c as EnemyBase)
+	return out
+
+
+func _refresh() -> void:
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null or _find_level() == null:
+		_obj = {}
+		return
+	if not _labels_done:
+		_labels_done = true
+		_label_props()
+	_obj = _compute(player)
+	var title: String = String(_obj.get("title", ""))
+	if title != _last_title and not title.is_empty():
+		if not _last_title.is_empty():
+			_pop = 1.0
+			if AudioManager.instance != null:
+				AudioManager.instance.play_sfx("ui_confirm", -6.0)
+		_last_title = title
+	_update_inscription()
+
+
+func _compute(player: Node3D) -> Dictionary:
+	var pz: float = player.global_position.z
+	var py: float = player.global_position.y
+	var gate1: Node = _n("Stage01_EntryVestibule/Gate01_EntryToHall")
+	var sw1: Node3D = _n("Stage01_EntryVestibule/EntryMirrorSwitch") as Node3D
+	if gate1 != null and not bool(gate1.get("is_open")):
+		if pz < -16.0:
+			return {"title": "Follow the Pilgrim's Causeway to the gate", "hint": "Head north along the stone causeway.", "target": Vector3(0, 0, -9)}
+		return {"title": "Open the Gate of Reflections",
+			"hint": "Press Q to see the Mirror: the glowing stones over the gap turn solid. Cross, then press E at the glowing Mirror Switch.",
+			"target": sw1.global_position if sw1 != null else Vector3(0, 0, 4)}
+	var hall_left: Array[EnemyBase] = _alive_in("Stage02_HallOfEchoes/Enemies")
+	var gate2: Node = _n("Stage02_HallOfEchoes/Gate02_HallToGallery")
+	if gate2 != null and not bool(gate2.get("is_open")):
+		if pz < 24.0:
+			return {"title": "Climb the Sunlit Stair to the Hall of Echoes", "hint": "Go up the wide stair north of the gate.", "target": Vector3(0, 4, 26)}
+		if not hall_left.is_empty():
+			return {"title": "Clear the Hall of Echoes — %d left" % hall_left.size(),
+				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) the cracked pillar to crush them.",
+				"target": _nearest(hall_left, player).global_position}
+	if pz < 64.0 and py < 5.5:
+		return {"title": "Climb the Windswept Rampart", "hint": "Through the opened gate and up the ramp to the gallery.", "target": Vector3(0, 6, 62)}
+	var brg: Node = _n("Stage03_CollapsedGallery/GallerySpectralBridge")
+	var sup: Node3D = _n("Stage03_CollapsedGallery/WeakStoneSupport") as Node3D
+	var sw3: Node3D = _n("Stage03_CollapsedGallery/BridgeAnchorSwitch") as Node3D
+	if brg != null and not bool(brg.get("is_permanently_repaired")):
+		var sup_intact: bool = sup != null and int(sup.get("current_state")) == 0
+		if sup_intact:
+			return {"title": "Cross the broken bridge",
+				"hint": "The bridge only exists in the Mirror — press Q and cross, then smash the cracked stone support with a Heavy (RMB).",
+				"target": sup.global_position}
+		return {"title": "Pull the Bridge Anchor", "hint": "Press E at the anchor switch to rebuild the bridge in Reality.",
+			"target": sw3.global_position if sw3 != null else Vector3(0, 6, 79)}
+	var guard: Array[EnemyBase] = _alive_in("Stage03_CollapsedGallery/Enemies")
+	if not guard.is_empty():
+		return {"title": "Defeat the Shielded Guard", "hint": "Its shield only exists in Reality — fight it in the Mirror (Q).", "target": guard[0].global_position}
+	var puz: Node3D = _n("Stage04_MechanismChamber/ChamberMechanismPuzzle") as Node3D
+	if puz != null and not bool(puz.get("is_solved")):
+		if pz < 87.0:
+			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": Vector3(0, 6, 90)}
+		return {"title": "Drop the Mirror weight onto the plate",
+			"hint": "In the Mirror, jump off the raised dais and press F in mid-air above the hanging weight to slam it down.",
+			"target": puz.global_position}
+	var warden: WardenBoss = _n("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
+	if warden != null and not warden.is_dead:
+		if pz < 139.0:
+			return {"title": "Climb the Processional Stair to the Colosseum", "hint": "The Warden waits at the top.", "target": Vector3(0, 10, 140.5)}
+		if warden.current_phase == WardenBoss.Phase.PHASE_1_SPLIT:
+			return {"title": "Defeat The Warden", "hint": "Dodge his strike, then press Q during his recovery and hit the glowing chest rune.", "target": warden.global_position}
+		return {"title": "Finish The Warden", "hint": "The realms have merged — no more shifting. Hit him with everything.", "target": warden.global_position}
+	return {"title": "Walk into the light", "hint": "Leave through the north gate to the summit.", "target": Vector3(0, 10, 194)}
+
+
+func _nearest(list: Array[EnemyBase], player: Node3D) -> EnemyBase:
+	var best: EnemyBase = list[0]
+	for e in list:
+		if e.global_position.distance_to(player.global_position) < best.global_position.distance_to(player.global_position):
+			best = e
+	return best
+
+
+## Name the glowing props once so they stop being mystery cubes.
+func _label_props() -> void:
+	var specs: Array = [
+		["Stage01_EntryVestibule/EntryMirrorSwitch", "MIRROR SWITCH\nuse in the Mirror (E)", 1.8],
+		["Stage01_EntryVestibule/EntrySteppingStones", "MIRROR STONES\nsolid only in the Mirror (Q)", 1.2],
+		["Stage03_CollapsedGallery/BridgeAnchorSwitch", "BRIDGE ANCHOR\n(E)", 1.8],
+		["Stage03_CollapsedGallery/WeakStoneSupport", "CRACKED SUPPORT\nHeavy attack (RMB)", 3.2],
+		["Stage02_HallOfEchoes/CrackedCentralPillar", "CRACKED PILLAR\nHeavy (RMB) to topple", 5.0],
+	]
+	for s in specs:
+		var n: Node3D = _n(String(s[0])) as Node3D
+		if n == null or n.get_node_or_null("WorldHint") != null:
+			continue
+		var l := Label3D.new()
+		l.name = "WorldHint"
+		l.text = String(s[1])
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.fixed_size = true
+		l.pixel_size = 0.0009
+		l.font_size = 22
+		l.outline_size = 6
+		l.outline_modulate = Color(0, 0, 0, 0.85)
+		l.modulate = Color(1.0, 0.92, 0.75, 0.9)
+		l.font = UITheme.body_font()
+		l.position = Vector3(0, float(s[2]), 0)
+		l.visibility_range_end = 22.0
+		n.add_child(l)
+
+
+## Mirror only: the objective written in light over its target ("the reflection remembers the way").
+func _update_inscription() -> void:
+	var in_mirror: bool = RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR and not RealmManager.instance.is_merged
+	if _obj.is_empty():
+		return
+	if _inscription == null or not is_instance_valid(_inscription):
+		_inscription = Label3D.new()
+		_inscription.name = "MirrorInscription"
+		_inscription.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_inscription.fixed_size = true
+		_inscription.pixel_size = 0.0010
+		_inscription.font_size = 26
+		_inscription.outline_size = 8
+		_inscription.outline_modulate = Color(0.0, 0.05, 0.12, 0.9)
+		_inscription.modulate = Color(CYAN.r, CYAN.g, CYAN.b, 0.95)
+		_inscription.font = UITheme.flavor_font()
+		_inscription.no_depth_test = true
+		var lv: Node = _find_level()
+		if lv == null:
+			return
+		lv.add_child(_inscription)
+	_inscription.visible = in_mirror
+	_inscription.global_position = (_obj.get("target", Vector3.ZERO) as Vector3) + Vector3.UP * 2.6
+	_inscription.text = "◇ " + String(_obj.get("title", "")) + " ◇"
+
+
+func _draw() -> void:
+	if _obj.is_empty():
+		return
+	var s: Vector2 = size
+	var disp: Font = UITheme.display_font()
+	var body: Font = UITheme.body_font()
+	var title: String = String(_obj.get("title", "")).to_upper()
+	var hint: String = String(_obj.get("hint", ""))
+	var k: float = 1.0 + 0.25 * _pop
+	var tsz: int = int(19.0 * k)
+	var tw: float = disp.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tsz).x
+	var y: float = 156.0   # below the Reality/Mirror chip + shift cooldown readout
+	var glow: Color = GOLD.lerp(Color(1, 1, 1), _pop * 0.6)
+	# Diamond + title.
+	var cx: float = s.x * 0.5
+	_diamond(Vector2(cx - tw * 0.5 - 16.0, y - 7.0), 5.0, glow)
+	_text(disp, Vector2(cx - tw * 0.5, y), title, tsz, glow, 6)
+	# Hint (wrapped to two lines max).
+	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
+	for i in range(mini(2, lines.size())):
+		var lw: float = body.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(0.95, 0.93, 0.88, 0.92), 4)
+	_draw_marker(s)
+
+
+func _draw_marker(s: Vector2) -> void:
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if cam == null or player == null or not _obj.has("target"):
+		return
+	var target: Vector3 = (_obj["target"] as Vector3) + Vector3.UP * 1.2
+	var dist: float = player.global_position.distance_to(target)
+	if dist < 2.2:
+		return
+	var behind: bool = cam.is_position_behind(target)
+	var p: Vector2 = cam.unproject_position(target)
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	# Viewport pixels -> this control's (stretched) coordinates.
+	p *= s / vp
+	var margin: float = 60.0
+	var on_screen: bool = not behind and p.x > margin and p.x < s.x - margin and p.y > margin + 120.0 and p.y < s.y - margin
+	var col: Color = CYAN if RealmManager.instance != null and RealmManager.instance.current_realm == RealmManager.Realm.MIRROR else GOLD
+	var pulse: float = 0.75 + 0.25 * sin(float(Time.get_ticks_msec()) * 0.006)
+	if on_screen:
+		_diamond(p, 9.0 * pulse + 3.0, Color(col.r, col.g, col.b, 0.35))
+		_diamond_outline(p, 11.0, Color(col.r, col.g, col.b, 0.95))
+		var dt: String = "%dm" % int(round(dist))
+		var dw: float = UITheme.body_font().get_string_size(dt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		_text(UITheme.body_font(), p + Vector2(-dw * 0.5, 30.0), dt, 15, Color(1, 1, 1, 0.9), 4)
+		return
+	# Off-screen: arrow on the screen edge pointing toward the target.
+	var c: Vector2 = s * 0.5
+	var d: Vector2 = p - c
+	if behind:
+		d = -d
+	if d.length_squared() < 1.0:
+		d = Vector2(0, -1)
+	d = d.normalized()
+	var ex: float = (s.x * 0.5 - margin) / maxf(0.001, absf(d.x))
+	var ey: float = (s.y * 0.5 - margin) / maxf(0.001, absf(d.y))
+	var edge: Vector2 = c + d * minf(ex, ey)
+	var perp := Vector2(-d.y, d.x)
+	draw_colored_polygon(PackedVector2Array([edge + d * 14.0, edge - d * 6.0 + perp * 10.0, edge - d * 6.0 - perp * 10.0]), Color(col.r, col.g, col.b, 0.9 * pulse))
+	var dt2: String = "%dm" % int(round(dist))
+	_text(UITheme.body_font(), edge - d * 30.0 + Vector2(-12.0, 5.0), dt2, 14, Color(1, 1, 1, 0.85), 4)
+
+
+func _wrap(font: Font, t: String, fsize: int, max_w: float) -> PackedStringArray:
+	var out: PackedStringArray = []
+	var cur: String = ""
+	for w in t.split(" ", false):
+		var trial: String = w if cur.is_empty() else cur + " " + w
+		if font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x > max_w and not cur.is_empty():
+			out.append(cur)
+			cur = w
+		else:
+			cur = trial
+	if not cur.is_empty():
+		out.append(cur)
+	return out
+
+
+func _diamond(c: Vector2, r: float, col: Color) -> void:
+	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r, 0), c + Vector2(0, r), c + Vector2(-r, 0)]), col)
+
+
+func _diamond_outline(c: Vector2, r: float, col: Color) -> void:
+	draw_polyline(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r, 0), c + Vector2(0, r), c + Vector2(-r, 0), c + Vector2(0, -r)]), col, 2.0, true)
+
+
+func _text(font: Font, pos: Vector2, t: String, fsize: int, col: Color, outline: int) -> void:
+	if outline > 0:
+		draw_string_outline(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, outline, Color(0, 0, 0, 0.8 * col.a))
+	draw_string(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, col)

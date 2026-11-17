@@ -1,5 +1,6 @@
 extends RefCounted
-## VFX + audio for the critical-hit window and the three finishers (Rend / Sunder / Phantom Step).
+## VFX + audio for the critical-hit window and the five finishers
+## (Rend / Sunder / Phantom Step / Mirror Break / Execution).
 ## Everything is spawned under GoreFX's host and frees itself; no per-frame cost when idle.
 
 const GoreFXScript := preload("res://scripts/core/gore_fx.gd")
@@ -9,6 +10,9 @@ const GOLD := Color(1.0, 0.82, 0.38)
 const REND_COL := Color(1.0, 0.72, 0.30)
 const SUNDER_COL := Color(1.0, 0.38, 0.16)
 const PHANTOM_COL := Color(0.35, 0.85, 1.0)
+const MIRROR_COL := Color(0.55, 0.95, 1.0)
+const AMBER := Color(1.0, 0.7, 0.3)
+const EXEC_COL := Color(0.95, 0.15, 0.2)
 
 
 static func _add_mat(color: Color) -> StandardMaterial3D:
@@ -125,6 +129,69 @@ static func on_strike(pc: Node3D, fin_name: String) -> void:
 			GameFeelScript.play_sound(pc, "slash_flesh", at2, 3.0, 0.8)
 		"fin_rend":
 			GoreFXScript.flash_light(pc, pc.global_position + Vector3.UP + fwd, REND_COL, 6.0, 0.6, 6.0)
+		"fin_mirror_break":
+			var c: Vector3 = pc.global_position
+			GoreFXScript.shockwave_ring(pc, c, 4.5, Color(MIRROR_COL.r, MIRROR_COL.g, MIRROR_COL.b, 0.9), 0.45, 0.3)
+			GoreFXScript.shockwave_ring(pc, c, 3.0, Color(AMBER.r, AMBER.g, AMBER.b, 0.85), 0.35, 0.2)
+			GoreFXScript.flash_light(pc, c + Vector3.UP * 1.2, MIRROR_COL, 9.0, 0.5, 9.0)
+			_shard_burst(pc, c + Vector3.UP * 1.1, 22, 5.5)
+			_play("glass_shatter", 0.0)
+			_play("mirror_whisper", -4.0)
+		"fin_execution":
+			var at3: Vector3 = pc.global_position + fwd * 1.3
+			_light_pillar(pc, at3, EXEC_COL, 9.0, 0.6)
+			GoreFXScript.shockwave_ring(pc, at3, 3.6, Color(EXEC_COL.r, EXEC_COL.g, EXEC_COL.b, 0.95), 0.4, 0.35)
+			GoreFXScript.dust_puff(pc, at3, 1.8, 30, Color(0.4, 0.32, 0.3, 0.7), 4.5)
+			GoreFXScript.flash_light(pc, at3 + Vector3.UP, EXEC_COL, 9.0, 0.45, 9.0)
+			for i in 6:
+				var ang2: float = TAU * float(i) / 6.0 + 0.3
+				GoreFXScript.ground_crack(pc, at3, Vector3(cos(ang2), 0.0, sin(ang2)), 3.0, EXEC_COL)
+			GameFeelScript.play_sound(pc, "land_heavy", at3, 5.0, 0.6)
+			GameFeelScript.play_sound(pc, "slash_flesh", at3, 4.0, 0.7)
+
+
+## Mirror Break tick: a ring of glass shards bursting outward, alternating cyan (Mirror) / amber (Reality).
+static func mirror_shards(pc: Node3D, tick: int) -> void:
+	var c: Vector3 = pc.global_position + Vector3.UP * (0.8 + 0.25 * float(tick))
+	_shard_burst(pc, c, 12, 4.0 + float(tick))
+	GoreFXScript.shockwave_ring(pc, pc.global_position, 3.2 + 0.4 * float(tick), Color(MIRROR_COL.r, MIRROR_COL.g, MIRROR_COL.b, 0.7), 0.3, 0.12)
+	GameFeelScript.play_sound(pc, "whoosh_heavy", c, -3.0, 1.0 + 0.12 * float(tick))
+
+
+## Execution kill: crimson starburst + blood-red light on the executed enemy.
+static func execution_kill(pc: Node3D, target: Node3D) -> void:
+	var at: Vector3 = target.global_position + Vector3.UP * 1.0
+	_starburst(pc, at, EXEC_COL, 2.6, 0.5)
+	GoreFXScript.sparks(pc, at, Vector3.UP, EXEC_COL, 40)
+	GoreFXScript.flash_light(pc, at, EXEC_COL, 12.0, 0.5, 8.0)
+	_play("glass_shatter", -2.0)
+
+
+## Thin additive glass shards flung outward and spinning, fading out. Cheap: plain quads + tweens.
+static func _shard_burst(ctx: Node3D, at: Vector3, count: int, dist: float) -> void:
+	var host: Node = GoreFXScript.host_for(ctx)
+	if host == null:
+		return
+	for i in count:
+		var col: Color = MIRROR_COL if i % 2 == 0 else AMBER
+		var mi := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(randf_range(0.08, 0.18), randf_range(0.3, 0.6))
+		mi.mesh = q
+		var mat := _add_mat(Color(col.r, col.g, col.b, 0.9))
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		host.add_child(mi)
+		mi.global_position = at
+		var ang: float = TAU * float(i) / float(count) + randf_range(-0.15, 0.15)
+		var dir := Vector3(cos(ang), randf_range(-0.15, 0.45), sin(ang)).normalized()
+		mi.rotation = Vector3(randf() * TAU, randf() * TAU, randf() * TAU)
+		var dur: float = randf_range(0.35, 0.6)
+		var tw := mi.create_tween().set_parallel(true)
+		tw.tween_property(mi, "global_position", at + dir * dist * randf_range(0.7, 1.0), dur).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		tw.tween_property(mi, "rotation", mi.rotation + Vector3(randf_range(3, 8), randf_range(3, 8), 0), dur)
+		tw.tween_property(mat, "albedo_color:a", 0.0, dur).set_ease(Tween.EASE_IN)
+		tw.chain().tween_callback(mi.queue_free)
 
 
 ## Phantom Step: a cyan streak + shard burst from where the player was to where they reappear.

@@ -353,6 +353,17 @@ func _ramp(parent: Node, n: String, from: Vector3, to: Vector3, width: float, ma
 	return body
 
 
+## Point on the line parallel to segment a->b (XZ), offset `lateral` metres to its right (+) / left (-),
+## at world z = `z` (used to lay causeway parapets exactly along the ramp edges).
+func _line_at_z(a: Vector3, b: Vector3, lateral: float, z: float) -> Vector3:
+	var d := Vector3(b.x - a.x, 0.0, b.z - a.z)
+	var u: Vector3 = d.normalized()
+	var n := Vector3(u.z, 0.0, -u.x)   # right of travel
+	var base: Vector3 = a + n * lateral
+	var t: float = (z - base.z) / maxf(0.0001, d.z)
+	return Vector3(base.x + d.x * t, a.y, z)
+
+
 func _prop_collider(parent: Node, n: String, pos: Vector3, shape: Shape3D, rot: Vector3 = Vector3.ZERO, layer: int = LAYER_WORLD_SHARED) -> StaticBody3D:
 	## Collision-only body for decor props standing on walkable floors (braziers, obelisks, crystals...).
 	var body := StaticBody3D.new()
@@ -856,32 +867,49 @@ func _build_stage_01_entry() -> Node3D:
 	var path_m: ShaderMaterial = _m_path()
 
 	# --- Prologue: Pilgrim's Causeway (start terrace -> two causeway spans -> overlook -> forecourt) ---
+	# Widened 2026-11-17 (playtest: "pathways too narrow"): causeways 5 -> 7.5 m, overlook 9 -> 12 m.
+	# Causeway rails are computed from each span's centre line, so rails, ramp edges and the openings in the
+	# terrace / overlook / forecourt parapets always line up.
+	const CW: float = 7.5
+	var ca_a := Vector3(0, 0, -51.5)
+	var ca_b := Vector3(-7, 0, -36)
+	var cb_a := Vector3(-7, 0, -30)
+	var cb_b := Vector3(0, 0, -14.5)
 	_solid(root, "Prologue_StartTerrace", Vector3(0, -0.25, -56), Vector3(12, 0.5, 10), path_m)
-	_ramp(root, "Prologue_CausewayA", Vector3(0, 0, -51.5), Vector3(-7, 0, -36), 5.0, path_m)
-	_solid(root, "Prologue_Overlook", Vector3(-7, -0.25, -33), Vector3(9, 0.5, 7), path_m)
-	_ramp(root, "Prologue_CausewayB", Vector3(-7, 0, -30), Vector3(0, 0, -14.5), 5.0, path_m)
+	_ramp(root, "Prologue_CausewayA", ca_a, ca_b, CW, path_m)
+	_solid(root, "Prologue_Overlook", Vector3(-7, -0.25, -33), Vector3(12, 0.5, 7), path_m)
+	_ramp(root, "Prologue_CausewayB", cb_a, cb_b, CW, path_m)
 	_solid(root, "Gate_Forecourt", Vector3(0, -0.25, -10), Vector3(14, 0.5, 10), floor_m)
 
 	# Parapets along the whole prologue (gaps only where segments join).
+	var off: float = CW * 0.5 + 0.2
+	var ca_w0: Vector3 = _line_at_z(ca_a, ca_b, -off, -51.0)
+	var ca_w1: Vector3 = _line_at_z(ca_a, ca_b, -off, -36.5)
+	var ca_e0: Vector3 = _line_at_z(ca_a, ca_b, off, -51.0)
+	var ca_e1: Vector3 = _line_at_z(ca_a, ca_b, off, -36.5)
+	var cb_w0: Vector3 = _line_at_z(cb_a, cb_b, -off, -29.5)
+	var cb_w1: Vector3 = _line_at_z(cb_a, cb_b, -off, -15.0)
+	var cb_e0: Vector3 = _line_at_z(cb_a, cb_b, off, -29.5)
+	var cb_e1: Vector3 = _line_at_z(cb_a, cb_b, off, -15.0)
 	_parapet(root, "Rail_T0_S", Vector3(-6, 0, -61), Vector3(6, 0, -61), _m_wall())
 	_parapet(root, "Rail_T0_W", Vector3(-6, 0, -61), Vector3(-6, 0, -51), _m_wall())
 	_parapet(root, "Rail_T0_E", Vector3(6, 0, -61), Vector3(6, 0, -51), _m_wall())
-	_parapet(root, "Rail_T0_NE", Vector3(6, 0, -51), Vector3(2.6, 0, -51), _m_wall())
-	_parapet(root, "Rail_T0_NW", Vector3(-6, 0, -51), Vector3(-2.3, 0, -51), _m_wall())
-	_parapet(root, "Rail_CA_W", Vector3(-2.2, 0, -52.5), Vector3(-9.2, 0, -37.0), _m_wall())
-	_parapet(root, "Rail_CA_E", Vector3(2.2, 0, -50.5), Vector3(-4.8, 0, -35.0), _m_wall())
-	_parapet(root, "Rail_OL_W", Vector3(-11.5, 0, -36.5), Vector3(-11.5, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_S", Vector3(-11.5, 0, -36.5), Vector3(-9.4, 0, -36.5), _m_wall())
-	_parapet(root, "Rail_OL_SE", Vector3(-4.6, 0, -36.5), Vector3(-2.5, 0, -36.5), _m_wall())
-	_parapet(root, "Rail_OL_N", Vector3(-11.5, 0, -29.5), Vector3(-9.4, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_NE", Vector3(-4.6, 0, -29.5), Vector3(-2.5, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_E", Vector3(-2.5, 0, -36.5), Vector3(-2.5, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_CB_W", Vector3(-9.2, 0, -29.0), Vector3(-2.2, 0, -13.5), _m_wall())
-	_parapet(root, "Rail_CB_E", Vector3(-4.8, 0, -31.0), Vector3(2.2, 0, -15.5), _m_wall())
+	_parapet(root, "Rail_T0_NE", Vector3(6, 0, -51), Vector3(maxf(ca_e0.x, ca_w0.x), 0, -51), _m_wall())
+	_parapet(root, "Rail_T0_NW", Vector3(-6, 0, -51), Vector3(minf(ca_e0.x, ca_w0.x), 0, -51), _m_wall())
+	_parapet(root, "Rail_CA_W", ca_w0, ca_w1, _m_wall())
+	_parapet(root, "Rail_CA_E", ca_e0, ca_e1, _m_wall())
+	_parapet(root, "Rail_OL_W", Vector3(-13, 0, -36.5), Vector3(-13, 0, -29.5), _m_wall())
+	_parapet(root, "Rail_OL_S", Vector3(-13, 0, -36.5), Vector3(minf(ca_w1.x, ca_e1.x), 0, -36.5), _m_wall())
+	_parapet(root, "Rail_OL_SE", Vector3(maxf(ca_w1.x, ca_e1.x), 0, -36.5), Vector3(-1, 0, -36.5), _m_wall())
+	_parapet(root, "Rail_OL_N", Vector3(-13, 0, -29.5), Vector3(minf(cb_w0.x, cb_e0.x), 0, -29.5), _m_wall())
+	_parapet(root, "Rail_OL_NE", Vector3(maxf(cb_w0.x, cb_e0.x), 0, -29.5), Vector3(-1, 0, -29.5), _m_wall())
+	_parapet(root, "Rail_OL_E", Vector3(-1, 0, -36.5), Vector3(-1, 0, -29.5), _m_wall())
+	_parapet(root, "Rail_CB_W", cb_w0, cb_w1, _m_wall())
+	_parapet(root, "Rail_CB_E", cb_e0, cb_e1, _m_wall())
 	_parapet(root, "Rail_FC_W", Vector3(-7, 0, -15), Vector3(-7, 0, -5), _m_wall())
 	_parapet(root, "Rail_FC_E", Vector3(7, 0, -15), Vector3(7, 0, -5), _m_wall())
-	_parapet(root, "Rail_FC_SW", Vector3(-7, 0, -15), Vector3(-2.6, 0, -15), _m_wall())
-	_parapet(root, "Rail_FC_SE", Vector3(7, 0, -15), Vector3(2.8, 0, -15), _m_wall())
+	_parapet(root, "Rail_FC_SW", Vector3(-7, 0, -15), Vector3(minf(cb_w1.x, cb_e1.x), 0, -15), _m_wall())
+	_parapet(root, "Rail_FC_SE", Vector3(7, 0, -15), Vector3(maxf(cb_w1.x, cb_e1.x), 0, -15), _m_wall())
 
 	# --- Gameplay core (unchanged greybox coordinates) ---
 	_solid(root, "EntryFloorSouth", Vector3(0.0, -0.25, -2.75), Vector3(12.0, 0.5, 4.5), floor_m)
@@ -971,7 +999,8 @@ func _build_stage_01_entry() -> Node3D:
 	_prop_collider(g[0], "OverlookObeliskCollider", Vector3(-10.5, 3.25, -35.5), _cyl_shape(0.75, 6.5))
 	for z in [-48.0, -40.0, -26.0, -19.0]:
 		var x: float = lerpf(0.0, -7.0, clampf((z + 51.5) / 15.5, 0.0, 1.0)) if z < -30.0 else lerpf(-7.0, 0.0, clampf((z + 30.0) / 15.5, 0.0, 1.0))
-		_mesh(g[0], "Waystone", ProcMesh.column_mesh(0.25, 2.2, 8), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(x + 3.2, 0, z)), true, 120.0)
+		# Just outside the widened causeway's east rail (walkway half-width ~4.1 m on the x axis).
+		_mesh(g[0], "Waystone", ProcMesh.column_mesh(0.25, 2.2, 8), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(x + 4.9, 0, z)), true, 120.0)
 	_crystal_cluster(g[2], Vector3(-3.5, 0.0, -35.4), 1.2, 11, true)
 	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0), 1.0, 12, true)
 	g[1].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), false))
@@ -1085,13 +1114,16 @@ func _build_stage_02_hall() -> Node3D:
 
 	# --- Windswept Rampart: Z 44 -> 60, Y 4 -> 6, open to the sunset on the west ---
 	_solid(root, "Corridor02_Floor", Vector3(0.0, y - 0.25, 46.0), Vector3(4.0, 0.5, 4.0), _m_floor())
-	_ramp(root, "Rampart_Ramp", Vector3(0, y, 48.0), Vector3(0, Y_GALLERY, 58.0), 5.0, _m_path())
-	_solid(root, "Rampart_Landing", Vector3(0, Y_GALLERY - 0.25, 59.0), Vector3(6.0, 0.5, 2.0), _m_path())
+	# Widened 2026-11-17 toward the open west side (the east side is the curtain wall): ramp 5 -> 6.2 m,
+	# landing 6 -> 7 m, its west edge flush with the gallery floor (x = -4) so no gap opens at the join.
+	_ramp(root, "Rampart_Ramp", Vector3(-0.6, y, 48.0), Vector3(-0.6, Y_GALLERY, 58.0), 6.2, _m_path())
+	_solid(root, "Rampart_Landing", Vector3(-0.5, Y_GALLERY - 0.25, 59.0), Vector3(7.0, 0.5, 2.0), _m_path())
+	_parapet(root, "Rail_Rampart_Join", Vector3(-2.2, y, 48.0), Vector3(-3.9, y, 48.0), _m_wall())
 	# Visible balustrades instead of invisible walls on the open-air corridor.
 	_parapet(root, "Corridor02_W", Vector3(-2.2, y, 44.4), Vector3(-2.2, y, 48.0), _m_wall())
 	_parapet(root, "Corridor02_E", Vector3(2.2, y, 44.4), Vector3(2.2, y, 48.0), _m_wall())
-	_parapet(root, "Rail_Rampart_W", Vector3(-2.7, y, 47.8), Vector3(-2.7, Y_GALLERY, 58.0), _m_wall())
-	_parapet(root, "Rail_Rampart_LW", Vector3(-3.0, Y_GALLERY, 58.0), Vector3(-3.0, Y_GALLERY, 60.0), _m_wall())
+	_parapet(root, "Rail_Rampart_W", Vector3(-3.9, y, 47.8), Vector3(-3.9, Y_GALLERY, 58.0), _m_wall())
+	_parapet(root, "Rail_Rampart_LW", Vector3(-4.2, Y_GALLERY, 58.0), Vector3(-4.2, Y_GALLERY, 60.0), _m_wall())
 	_parapet(root, "Rail_Rampart_LE", Vector3(3.0, Y_GALLERY, 58.0), Vector3(3.0, Y_GALLERY, 60.0), _m_wall())
 	# East: a tall buttressed curtain wall.
 	_solid(root, "Rampart_CurtainWall", Vector3(3.6, y + 3.0, 53.0), Vector3(1.4, 12.0, 13.0), _m_wall())

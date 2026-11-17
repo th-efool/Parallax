@@ -589,6 +589,18 @@ func _formation_point(player: Node3D) -> Vector3:
 	# Flanking wedge kept out of the over-the-right-shoulder camera's centre line (x = side, y = behind).
 	var offsets: Array[Vector2] = [Vector2(-2.5, 0.3), Vector2(2.7, 0.8), Vector2(-2.2, 2.4), Vector2(3.4, 2.6), Vector2(-4.0, 1.2), Vector2(4.6, 1.0)]
 	var o: Vector2 = offsets[slot_index % offsets.size()]
+	# Side hysteresis: an ally trailing on the other side of the camera line keeps the mirrored slot on its own
+	# side instead of cutting straight across the lens to reach its nominal one.
+	var rel: Vector3 = global_position - player.global_position
+	var side_now: float = rel.dot(r)
+	if rel.dot(f) < 0.5 and absf(side_now) > 0.6 and signf(side_now) != signf(o.x):
+		var flipped: Vector3 = player.global_position - f * o.y - r * o.x
+		var taken: bool = false
+		for a in get_tree().get_nodes_in_group("squad_ally"):
+			if a != self and a is SquadAlly and not (a as SquadAlly).is_downed and (a as SquadAlly).global_position.distance_to(flipped) < 2.0:
+				taken = true
+		if not taken:
+			o.x = -o.x
 	var want: Vector3 = player.global_position - f * o.y + r * o.x
 	var now_ms: int = Time.get_ticks_msec()
 	if now_ms - _form_cache_ms < 200 and _form_cache_from.distance_to(player.global_position) < 0.4:
@@ -607,11 +619,20 @@ var _form_cache_pos: Vector3 = Vector3.ZERO
 func _formation_resolve(player: Node3D, want: Vector3, f: Vector3, r: Vector3) -> Vector3:
 	# Spatial check: a slot inside a wall / over a ledge / on top of a squad-mate is pulled in toward the
 	# player until it is free (keeps formation sane on narrow causeways and in corridors).
-	for k in range(5):
+	for k in range(4):
 		var cand: Vector3 = player.global_position.lerp(want, 1.0 - 0.2 * float(k))
 		if _slot_free(cand, player):
 			return cand
-	return player.global_position - f * 1.6 + r * (0.9 if slot_index % 2 == 0 else -0.9)
+	# Blocked side (railing, waystone, ledge): try the mirrored slot on the other side of the player.
+	var mirrored: Vector3 = want - 2.0 * r * (want - player.global_position).dot(r)
+	for k in range(4):
+		var cand2: Vector3 = player.global_position.lerp(mirrored, 1.0 - 0.2 * float(k))
+		if _slot_free(cand2, player):
+			return cand2
+	# Last resort: a per-slot spot level with the player and well off the camera line (never two allies on
+	# the same point, never straight behind the player where the lens is).
+	var lat: Array[float] = [1.7, -1.7, 2.6, -2.6, 3.4, -3.4]
+	return player.global_position - f * 0.4 + r * lat[slot_index % lat.size()]
 
 
 func _slot_free(p: Vector3, player: Node3D) -> bool:
@@ -658,6 +679,14 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 	var goal: Vector3 = _formation_point(player)
 	if global_position.distance_to(goal) > 0.9:
 		var spd: float = profile.move_speed * clampf(global_position.distance_to(goal) / 4.0, 0.45, 1.25)
+		# Keep pace with a running player: trailing allies otherwise settle a few metres behind their slot,
+		# which is exactly where the over-the-shoulder camera looks.
+		if player is CharacterBody3D and global_position.distance_to(goal) > 1.5:
+			var pv: Vector3 = (player as CharacterBody3D).velocity
+			spd = maxf(spd, Vector2(pv.x, pv.z).length() * 1.15)
+		# In the lens: hurry out of it (straight to the flank slot) rather than drifting through.
+		if _camera_blocking_at(global_position, player):
+			spd = maxf(spd, profile.move_speed * 1.3)
 		_move_to(goal, spd, delta)
 	else:
 		_halt(delta)
@@ -2730,7 +2759,10 @@ func _camera_blocking_at(p: Vector3, player: Node3D) -> bool:
 	var flat_p := Vector3(p.x, 0.0, p.z)
 	var flat_c := Vector3(c.x, 0.0, c.z)
 	if flat_p.distance_to(flat_c) < 2.0:
-		return true
+		# Close to the lens only matters if we're actually in frame (beside / behind the camera is off-screen).
+		var local: Vector3 = cam.global_transform.affine_inverse() * (p + Vector3.UP * 1.0)
+		if local.z < -0.05 and atan2(absf(local.x), -local.z) < 0.8:
+			return true
 	var a: Vector3 = flat_c
 	var b := Vector3(player.global_position.x, 0.0, player.global_position.z)
 	var ab: Vector3 = b - a
@@ -2752,10 +2784,18 @@ func _personal_space_push() -> Vector3:
 		var rel: Vector3 = me - pl.global_position
 		var first: Vector3 = side * (1.0 if rel.dot(side) >= 0.0 else -1.0)
 		# Only step aside into open floor; on a narrow causeway with railings both sides, accept the line.
+		# Stronger the closer we are to the lens (an ally filling the screen is the worst case).
+		var cam_d: float = Vector2(me.x - cam.global_position.x, me.z - cam.global_position.z).length()
+		var k: float = 1.5 if cam_d < 2.2 else 1.0
+		var stepped: bool = false
 		for cand in [first, -first]:
 			if _side_open(cand as Vector3):
-				push += (cand as Vector3) * 0.9
+				push += (cand as Vector3) * k
+				stepped = true
 				break
+		if not stepped and cam_d < 2.2:
+			# Railings both sides: move up the line past the player instead of sitting in the lens.
+			push += line.normalized() * 0.8
 	var p: Node3D = _player()
 	if p != null:
 		var d: Vector3 = me - p.global_position

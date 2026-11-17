@@ -25,7 +25,8 @@ const LAYER_WORLD_SHARED: int = 4
 const GARDEN_Y: float = -1.5
 const GARDEN_CENTER: Vector3 = Vector3(6.5, -1.5, -33.0)
 
-@export var build_garden: bool = true
+## Off since 2026-11-17: playtest feedback — the sunken garden between the causeways read as out of place.
+@export var build_garden: bool = false
 @export var populate_route: bool = true
 
 var _mats: Dictionary = {}

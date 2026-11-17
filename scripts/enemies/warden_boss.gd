@@ -86,6 +86,8 @@ func _init() -> void:
 	max_chase_distance = 80.0
 	flee_health_ratio = 0.0
 	show_state_icon = false
+	# The Warden has its own Mirror mechanic (chest rune) — no generic insight bonus.
+	mirror_damage_mult = 1.0
 
 
 func step_ai(delta: float) -> void:
