@@ -1,0 +1,54 @@
+[gd_resource type="Resource" script_class="AllyProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/allies/ally_profile.gd" id="1_prof"]
+
+[resource]
+script = ExtResource("1_prof")
+order = 2
+ally_name = "Sera"
+role = "skirmisher"
+personality = "A quick, sardonic duelist echo who loves being chased. Cocky, playful, fast-talking, never wants to look scared."
+color = Color(0.4, 0.88, 1, 1)
+model_path = "res://assets/models/characters/Skeleton_Rogue.glb"
+model_scale = 1.0
+keep_props = Array[String]([])
+borrow_props = Array[String](["res://assets/models/characters/Knight.glb", "1H_Sword", "handslot.r", "res://assets/models/characters/Knight.glb", "1H_Sword_Offhand", "handslot.l"])
+tint = Color(0.78, 0.95, 1, 1)
+max_health = 120
+move_speed = 6.6
+aggro_radius = 9.0
+attack_damage = 16
+attack_range = 1.8
+attack_cooldown = 0.75
+retreat_threshold = 0.35
+regen_per_sec = 3.0
+abilities = Array[String](["taunt", "kite", "lure", "finisher", "revive"])
+taunt_cooldown = 4.0
+nuke_damage = 22
+nuke_radius = 2.4
+nuke_channel_sec = 1.2
+tts_voice = "nova"
+tts_instructions = "Quick, cocky, playful duelist. Light and teasing."
+voice_lines = {
+"ack": ["You got it.", "Easy.", "On my way!", "Say less."],
+"refuse": ["Busy being chased right now!", "After this, promise."],
+"confused": ["Was that an order or a riddle?", "Try that again in words I know."],
+"engage": ["Sera in!", "Catch me if you can!"],
+"taunt": ["Hey, bone-bag! Over here!", "Too slow!"],
+"retreat": ["Okay, okay, backing off!", "Need a second!"],
+"low_hp": ["That one stung!", "I'm hurt, cover me!"],
+"downed": ["Ugh... a little help?"],
+"revived": ["Told you I'd be fine.", "Round two!"],
+"kill": ["Gotcha.", "Too easy."],
+"combo_ready": ["They're bunched up, light 'em!", "Ready, ready, ready!"],
+"combo_go": ["Clear! Do it now!", "Finishing!"],
+"massacre": ["Ha! Finally!", "All of them? With pleasure."],
+"ceasefire": ["Fine, fine. Blades away.", "Holding."],
+"scatter": ["Scattering!"],
+"dance": ["Watch and learn!", "Rhythm's in the bones."],
+"jump": ["Wheee!", "Hup!"],
+"idle": ["Anyone else hear whispering?", "I'm bored."],
+"revive_other": ["Up you get, big guy."],
+"mission_lock": ["Mid-job! Queueing that."],
+"kite": ["Come on, follow me!", "Running laps!"]
+}

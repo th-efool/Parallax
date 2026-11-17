@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/core/main_controller.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/core/realm_manager.gd" id="2_rm"]
@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/ui/leaderboard_screen_controller.gd" id="12_lb"]
 [ext_resource type="Script" path="res://scripts/ui/options_screen_controller.gd" id="13_opts"]
 [ext_resource type="Script" path="res://scripts/ui/death_overlay_controller.gd" id="14_death"]
+[ext_resource type="Script" path="res://scripts/allies/ally_squad_manager.gd" id="15_squad"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -72,6 +73,9 @@ script = ExtResource("5_audio")
 
 [node name="Player" parent="." instance=ExtResource("7_player")]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -56)
+
+[node name="AllySquad" type="Node" parent="."]
+script = ExtResource("15_squad")
 
 [node name="HUD" parent="." instance=ExtResource("8_hud")]
 

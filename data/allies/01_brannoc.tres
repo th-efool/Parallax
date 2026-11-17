@@ -1,0 +1,54 @@
+[gd_resource type="Resource" script_class="AllyProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/allies/ally_profile.gd" id="1_prof"]
+
+[resource]
+script = ExtResource("1_prof")
+order = 1
+ally_name = "Brannoc"
+role = "vanguard"
+personality = "A towering shield-captain who died holding a gate. Calm, protective, gravel-voiced, speaks in short soldierly sentences, secretly sentimental."
+color = Color(1, 0.72, 0.32, 1)
+model_path = "res://assets/models/characters/Barbarian.glb"
+model_scale = 1.04
+keep_props = Array[String](["1H_Axe", "Barbarian_Round_Shield"])
+borrow_props = Array[String]([])
+tint = Color(1, 0.94, 0.86, 1)
+max_health = 190
+move_speed = 5.4
+aggro_radius = 8.0
+attack_damage = 20
+attack_range = 2.0
+attack_cooldown = 1.1
+retreat_threshold = 0.25
+regen_per_sec = 4.0
+abilities = Array[String](["taunt", "charge", "bodyguard", "revive"])
+taunt_cooldown = 5.0
+nuke_damage = 25
+nuke_radius = 2.6
+nuke_channel_sec = 1.6
+tts_voice = "onyx"
+tts_instructions = "Deep, gravelly, calm veteran shield-captain. Short sentences."
+voice_lines = {
+"ack": ["On it.", "Understood.", "Aye.", "Consider it done."],
+"refuse": ["Not while I'm holding this line.", "Finish the job first."],
+"confused": ["Say again? I didn't catch that order.", "Speak plainly, friend."],
+"engage": ["Brannoc engaging!", "To me, filth!", "Shield up!"],
+"taunt": ["Over here, you rattling coward!", "Face ME!"],
+"retreat": ["Falling back to mend.", "I need a breath."],
+"low_hp": ["I'm bleeding badly.", "Can't take much more."],
+"downed": ["Down... get me up..."],
+"revived": ["Back on my feet. Thank you.", "Not done yet."],
+"kill": ["One less.", "Stay down."],
+"combo_ready": ["Charge ready!"],
+"combo_go": ["Charging!", "Out of my way!"],
+"massacre": ["No mercy. No retreat.", "Then we end them all!"],
+"ceasefire": ["Weapons down.", "Holding fire."],
+"scatter": ["Break! Spread out!"],
+"dance": ["...I'm told this counts as dancing."],
+"jump": ["Hup!"],
+"idle": ["Quiet. Too quiet.", "Keep your eyes on the mirrors."],
+"revive_other": ["Hold on, I've got you."],
+"mission_lock": ["Mission first. I'll get to that after."],
+"bodyguard": ["I'm your shield.", "Nothing reaches you."]
+}

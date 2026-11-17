@@ -1,0 +1,1816 @@
+class_name SquadAlly
+extends CharacterBody3D
+## One squad "Echo" ally, fully driven by its `AllyProfile` resource and the `SquadCommand` it is running.
+## The manager (`AllySquadManager`) routes commands and coordinates two-ally handshake combos; this node owns
+## movement (formation follow, hazard/edge avoidance, no-stacking slots, catch-up blink), combat primitives
+## (melee, taunt, charge, finisher, nuke, mine/detonate, revive), self-preservation retreat, the DOWNED state
+## with manual revive (player presses Interact next to a downed ally) and silly orders (jump N / dance / emote).
+##
+## Contract used by enemies: group `squad_ally`, `is_targetable()`, `apply_damage(amount, source) -> bool`,
+## `get_facing_direction()`, `get_display_name()`.
+
+const GoreFXScript := preload("res://scripts/core/gore_fx.gd")
+const GameFeelScript := preload("res://scripts/core/game_feel.gd")
+const LoadoutScript := preload("res://scripts/core/character_loadout.gd")
+const SquadCommandScript := preload("res://scripts/allies/squad_command.gd")
+
+signal spoke(ally: SquadAlly, text: String, event: String)
+signal health_changed(ally: SquadAlly, hp: int, max_hp: int)
+signal downed(ally: SquadAlly)
+signal revived(ally: SquadAlly)
+signal command_started(ally: SquadAlly, cmd: SquadCommand)
+signal command_finished(ally: SquadAlly, cmd: SquadCommand, result: String)
+signal prompt_changed(show_prompt: bool, prompt_text: String)
+
+const GRAVITY: float = 22.0
+const INTERCEPT_RADIUS: float = 6.0
+const LEASH_RADIUS: float = 8.5
+const FOLLOW_LEASH: float = 15.0
+const KITE_RADIUS: float = 5.5
+const REVIVE_CHANNEL: float = 2.2
+
+var profile: AllyProfile = null
+var manager: Node = null
+var slot_index: int = 0
+
+var health: int = 100
+var max_health: int = 100
+var is_downed: bool = false
+var auto_engage: bool = true
+var current: SquadCommand = null
+var queue: Array[SquadCommand] = []
+
+var facing_direction: Vector3 = Vector3.FORWARD
+var _bridge: CharacterAnimationBridge = null
+var _name_label: Label3D = null
+var _ring: MeshInstance3D = null
+var _rng := RandomNumberGenerator.new()
+
+var _attack_cd: float = 0.0
+var _taunt_cd: float = 0.0
+var _charge_cd: float = 0.0
+var _action: String = ""
+var _action_timer: float = 0.0
+var _action_hit_at: float = -1.0
+var _action_cb: Callable = Callable()
+var _action_dur: float = 0.0
+var _stagger_timer: float = 0.0
+var _retreating: bool = false
+var _low_hp_warned: bool = false
+var _stuck_timer: float = 0.0
+var _last_pos: Vector3 = Vector3.ZERO
+var _engage_target: EnemyAI = null
+var _combat_quiet: float = 0.0
+var _speak_cd: float = 0.0
+var _idle_chatter: float = 0.0
+var _player_near_prompt: bool = false
+var _mine: Node3D = null
+var _cast_ring: MeshInstance3D = null
+var _cast_ring_mat: StandardMaterial3D = null
+var _dash_vel: Vector3 = Vector3.ZERO
+var _dash_timer: float = 0.0
+var _dash_hit_cb: Callable = Callable()
+var _dash_target: EnemyAI = null
+var _regen_acc: float = 0.0
+
+
+func setup(p: AllyProfile, mgr: Node, slot: int) -> void:
+	profile = p
+	manager = mgr
+	slot_index = slot
+	name = "Ally_" + p.ally_name
+	max_health = p.max_health
+	health = p.max_health
+
+
+func _ready() -> void:
+	add_to_group("squad_ally")
+	_rng.randomize()
+	collision_layer = 0
+	collision_mask = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_PLAYER_BLOCKER
+	floor_snap_length = 0.45
+	_build_body()
+	_sync_realm_mask()
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null:
+		rm.realm_changed.connect(func(_r: int) -> void: _sync_realm_mask())
+		rm.realms_merged.connect(_sync_realm_mask)
+	_last_pos = global_position
+	_idle_chatter = _rng.randf_range(25.0, 50.0)
+
+
+# ------------------------------------------------------------------ contract
+
+func get_display_name() -> String:
+	return profile.ally_name if profile != null else String(name)
+
+
+func get_role() -> String:
+	return profile.role if profile != null else "vanguard"
+
+
+func is_targetable() -> bool:
+	return not is_downed and is_inside_tree() and visible
+
+
+func is_available() -> bool:
+	return not is_downed
+
+
+func get_facing_direction() -> Vector3:
+	return facing_direction
+
+
+func get_health_ratio() -> float:
+	return float(health) / float(maxi(1, max_health))
+
+
+func get_state_text() -> String:
+	if is_downed:
+		return "DOWN"
+	if _retreating:
+		return "retreating"
+	if _action == "channel":
+		return "casting"
+	if _action == "revive":
+		return "reviving"
+	if current != null:
+		var s: String = current.describe()
+		if not current.step.is_empty() and current.step != "run":
+			s += " (" + current.step + ")"
+		return s
+	return "follow"
+
+
+func apply_damage(amount: int, source: Node = null) -> bool:
+	if is_downed or amount <= 0 or not is_inside_tree():
+		return false
+	if _action == "dodge":
+		return false
+	health = maxi(0, health - amount)
+	health_changed.emit(self, health, max_health)
+	_combat_quiet = 0.0
+	var chest: Vector3 = global_position + Vector3.UP * 1.1
+	var dir: Vector3 = Vector3.FORWARD
+	if source is Node3D:
+		dir = global_position - (source as Node3D).global_position
+		dir.y = 0.0
+	GoreFXScript.sparks(self, chest, dir.normalized() if dir.length_squared() > 0.001 else Vector3.UP, Color(1.0, 0.85, 0.5), 10)
+	GameFeelScript.play_sound(self, "hit_metal", chest, -8.0, 1.1)
+	if health <= 0:
+		_go_down()
+		return true
+	if amount >= 15 and _action != "channel" and _dash_timer <= 0.0:
+		_stagger_timer = 0.28
+		_play(["Hit_A", "Hit_B"], 0.28, true)
+	if get_health_ratio() < 0.35 and not _low_hp_warned:
+		_low_hp_warned = true
+		say_event("low_hp", 2)
+	# Being hit pulls an idle ally into the fight (unless told to hold fire).
+	if source is EnemyAI and _engage_target == null and not _is_ceasefire():
+		_engage_target = source as EnemyAI
+	return true
+
+
+# ------------------------------------------------------------------ body / visuals
+
+func _build_body() -> void:
+	var col := CollisionShape3D.new()
+	col.name = "BodyCollider"
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.36
+	cap.height = 1.75
+	col.shape = cap
+	col.position = Vector3(0, 0.875, 0)
+	add_child(col)
+	var vis := Node3D.new()
+	vis.name = "VisualRoot"
+	add_child(vis)
+	if profile != null and ResourceLoader.exists(profile.model_path):
+		var model: Node3D = (load(profile.model_path) as PackedScene).instantiate() as Node3D
+		model.name = "ModelRoot"
+		model.scale = Vector3.ONE * profile.model_scale
+		vis.add_child(model)
+		LoadoutScript.apply(model, profile.keep_props)
+		var bp: Array[String] = profile.borrow_props
+		var i: int = 0
+		while i + 2 < bp.size():
+			LoadoutScript.arm_with_borrowed(model, bp[i], bp[i + 1], bp[i + 2])
+			i += 3
+		if profile.tint != Color(1, 1, 1, 1):
+			_tint(model, profile.tint)
+	_bridge = CharacterAnimationBridge.new()
+	_bridge.name = "CharacterAnimationBridge"
+	_bridge.actor_path = NodePath("..")
+	_bridge.model_root_path = NodePath("../VisualRoot/ModelRoot")
+	_bridge.apply_default_loadout = false
+	add_child(_bridge)
+	# Name tag + HP pips, ally coloured; and a soft gold ring at the feet so allies never read as enemies.
+	_name_label = Label3D.new()
+	_name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_name_label.no_depth_test = true
+	_name_label.pixel_size = 0.0075
+	_name_label.font_size = 26
+	_name_label.outline_size = 7
+	_name_label.outline_modulate = Color(0.02, 0.02, 0.04, 0.9)
+	_name_label.font = UITheme.display_font()
+	_name_label.position = Vector3(0, 2.25, 0)
+	add_child(_name_label)
+	_ring = MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.48
+	tm.outer_radius = 0.56
+	tm.rings = 32
+	tm.ring_segments = 4
+	_ring.mesh = tm
+	_ring.scale = Vector3(1, 0.15, 1)
+	_ring.position = Vector3(0, 0.04, 0)
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	rm.albedo_color = Color(profile.color.r, profile.color.g, profile.color.b, 0.55) if profile != null else Color(1, 0.8, 0.4, 0.5)
+	_ring.material_override = rm
+	_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_ring)
+	_refresh_label()
+
+
+func _tint(node: Node, c: Color) -> void:
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mi: MeshInstance3D = node as MeshInstance3D
+		for s in range(mi.mesh.get_surface_count()):
+			var src: Material = mi.get_surface_override_material(s)
+			if src == null:
+				src = mi.mesh.surface_get_material(s)
+			if src is StandardMaterial3D:
+				var m: StandardMaterial3D = (src as StandardMaterial3D).duplicate() as StandardMaterial3D
+				m.albedo_color = m.albedo_color * c
+				mi.set_surface_override_material(s, m)
+	for ch in node.get_children():
+		_tint(ch, c)
+
+
+func _refresh_label() -> void:
+	if _name_label == null or profile == null:
+		return
+	var pips: int = int(ceil(get_health_ratio() * 6.0))
+	var bar: String = "▰".repeat(pips) + "▱".repeat(6 - pips)
+	_name_label.text = "%s\n%s" % [profile.ally_name.to_upper(), bar if not is_downed else "DOWN — revive"]
+	var c: Color = profile.color
+	_name_label.modulate = Color(c.r, c.g, c.b, 0.95) if not is_downed else Color(1.0, 0.35, 0.3, 0.95)
+
+
+func _sync_realm_mask() -> void:
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	var world: int = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY
+	if rm != null:
+		world = rm.get_realm_world_mask(rm.current_realm)
+	collision_mask = world | RealmManager.LAYER_PLAYER_BLOCKER
+
+
+func set_facing(dir: Vector3) -> void:
+	var flat := Vector3(dir.x, 0.0, dir.z)
+	if flat.length_squared() < 0.0001:
+		return
+	facing_direction = flat.normalized()
+	var vis: Node3D = get_node_or_null("VisualRoot") as Node3D
+	if vis != null:
+		vis.rotation.y = atan2(-facing_direction.x, -facing_direction.z) - rotation.y
+
+
+func _play(clips: Array[String], dur: float = -1.0, restart: bool = false, loop: bool = false) -> void:
+	if _bridge != null:
+		_bridge.play_candidates(clips, dur, restart, loop)
+
+
+# ------------------------------------------------------------------ speech
+
+## Speaks a profile voice line for `event`. `prio`: 0 chatter, 1 normal, 2 important, 3 critical.
+func say_event(event: String, prio: int = 1, fallback: String = "") -> void:
+	if profile == null:
+		return
+	var line: String = profile.line(event, fallback)
+	if line.is_empty():
+		return
+	say(line, event, prio)
+
+
+func say(text: String, event: String = "say", prio: int = 1) -> void:
+	if text.strip_edges().is_empty():
+		return
+	if prio <= 0 and _speak_cd > 0.0:
+		return
+	_speak_cd = 2.5
+	spoke.emit(self, text, event)
+	if manager != null and manager.has_method("on_ally_spoke"):
+		manager.call("on_ally_spoke", self, text, event, prio)
+
+
+# ------------------------------------------------------------------ commands
+
+func assign(cmd: SquadCommand) -> void:
+	if current != null and not current.done:
+		_abort_current_effects()
+	current = cmd
+	current.step = ""
+	current.timer = 0.0
+	# Combo halves keep handshake data the manager may already have posted while they were queued.
+	if cmd.combo_id == 0:
+		current.data = {}
+	_engage_target = null
+	command_started.emit(self, cmd)
+
+
+func enqueue(cmd: SquadCommand, front: bool = false) -> void:
+	if front:
+		queue.push_front(cmd)
+	else:
+		queue.append(cmd)
+	while queue.size() > 6:
+		queue.pop_back()
+
+
+func clear_queue() -> void:
+	queue.clear()
+
+
+func finish_current(result: String = "done") -> void:
+	if current == null:
+		return
+	var c: SquadCommand = current
+	c.done = true
+	# Natural completion: let a running dance / emote / release animation play out (queued orders wait).
+	current = null
+	command_finished.emit(self, c, result)
+	if not queue.is_empty():
+		assign(queue.pop_front())
+
+
+func _abort_current_effects() -> void:
+	_hide_cast_ring()
+	if _action == "channel" or _action == "revive" or _action == "dance" or _action == "emote":
+		_action = ""
+		_action_timer = 0.0
+
+
+func _is_ceasefire() -> bool:
+	return current != null and current.verb == "ceasefire"
+
+
+func _is_massacre() -> bool:
+	return current != null and current.verb == "massacre"
+
+
+# ------------------------------------------------------------------ main loop
+
+func _physics_process(delta: float) -> void:
+	if profile == null or not is_inside_tree():
+		return
+	_tick_timers(delta)
+	if is_downed:
+		_process_downed(delta)
+		return
+	_regen(delta)
+	var player: Node3D = _player()
+	if player != null:
+		_catch_up(player)
+	if _dash_timer > 0.0:
+		_process_dash(delta)
+		_finish_frame(delta)
+		return
+	if _stagger_timer > 0.0:
+		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+		_apply_gravity_and_move(delta)
+		_finish_frame(delta)
+		return
+	if not _action.is_empty():
+		_process_action(delta)
+		_finish_frame(delta)
+		return
+	_check_self_preservation()
+	if _retreating:
+		_run_retreat_self(delta, player)
+		_finish_frame(delta)
+		return
+	var cmd: SquadCommand = current
+	if cmd == null:
+		_run_follow(delta, player, null)
+	else:
+		cmd.timer += delta
+		_run_command(cmd, delta, player)
+	_finish_frame(delta)
+
+
+func _finish_frame(delta: float) -> void:
+	_update_stuck(delta)
+	_update_anim()
+	_refresh_label()
+	_update_revive_prompt()
+
+
+func _tick_timers(delta: float) -> void:
+	_attack_cd = maxf(0.0, _attack_cd - delta)
+	_taunt_cd = maxf(0.0, _taunt_cd - delta)
+	_charge_cd = maxf(0.0, _charge_cd - delta)
+	_stagger_timer = maxf(0.0, _stagger_timer - delta)
+	_speak_cd = maxf(0.0, _speak_cd - delta)
+	_combat_quiet += delta
+	_idle_chatter -= delta
+	if _idle_chatter <= 0.0:
+		_idle_chatter = _rng.randf_range(40.0, 80.0)
+		if _combat_quiet > 20.0 and not is_downed:
+			say_event("idle", 0)
+
+
+func _regen(delta: float) -> void:
+	if health >= max_health:
+		return
+	var rate: float = profile.regen_per_sec * (3.0 if _retreating else (1.0 if _combat_quiet > 4.0 else 0.0))
+	if rate <= 0.0:
+		return
+	_regen_acc += rate * delta
+	var add: int = int(_regen_acc)
+	if add <= 0:
+		return
+	_regen_acc -= float(add)
+	var before: int = health
+	health = mini(max_health, health + add)
+	if health != before:
+		if get_health_ratio() > 0.5:
+			_low_hp_warned = false
+		health_changed.emit(self, health, max_health)
+
+
+func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
+	match cmd.verb:
+		"follow":
+			_run_follow(delta, player, cmd)
+		"hold":
+			_run_hold(delta, cmd)
+		"retreat":
+			_run_retreat_order(delta, player, cmd)
+		"attack":
+			_run_attack(delta, player, cmd)
+		"taunt":
+			_run_taunt_cmd(delta, player, cmd)
+		"bodyguard":
+			_run_bodyguard(delta, player, cmd)
+		"kite":
+			_run_kite(delta, player, cmd)
+		"nuke":
+			_run_nuke(delta, player, cmd)
+		"revive":
+			_run_revive(delta, player, cmd)
+		"massacre":
+			_run_massacre(delta, player, cmd)
+		"ceasefire":
+			_run_ceasefire(delta, player, cmd)
+		"scatter":
+			_run_scatter(delta, player, cmd)
+		"jump":
+			_run_jump(cmd)
+		"dance":
+			_start_action("dance", 3.2, -1.0, Callable())
+			_play(["Cheer", "Taunt", "Dodge_Left"], 0.8, true)
+			finish_current("danced")
+		"emote":
+			_run_emote(cmd)
+		"combo_kite_nuke", "combo_charge_finish", "combo_lure_detonate":
+			_run_combo_part(delta, player, cmd)
+		_:
+			# say / status / stop / auto_engage are resolved instantly by the manager.
+			finish_current("ok")
+
+
+# ------------------------------------------------------------------ stances
+
+func _formation_point(player: Node3D) -> Vector3:
+	var f: Vector3 = Vector3.FORWARD
+	if player.has_method("get_facing_direction"):
+		f = player.call("get_facing_direction")
+	var r := Vector3(-f.z, 0.0, f.x)
+	var offsets: Array[Vector2] = [Vector2(-1.9, 1.7), Vector2(1.9, 1.7), Vector2(0.0, 3.0), Vector2(-2.8, 3.4), Vector2(2.8, 3.4), Vector2(0.0, 4.6)]
+	var o: Vector2 = offsets[slot_index % offsets.size()]
+	return player.global_position - f * o.y + r * o.x
+
+
+func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
+	if player == null:
+		_halt(delta)
+		return
+	# Auto-engage: defend the player / self, never stacking on an enemy another ally already holds.
+	if auto_engage and not _is_ceasefire():
+		if _engage_target == null or not _enemy_ok(_engage_target):
+			_engage_target = _pick_auto_target(player)
+		if _engage_target != null:
+			if _engage_target.global_position.distance_to(player.global_position) > FOLLOW_LEASH:
+				_engage_target = null
+			else:
+				_fight(_engage_target, delta)
+				return
+	var goal: Vector3 = _formation_point(player)
+	if global_position.distance_to(goal) > 0.9:
+		var spd: float = profile.move_speed * clampf(global_position.distance_to(goal) / 4.0, 0.45, 1.25)
+		_move_to(goal, spd, delta)
+	else:
+		_halt(delta)
+		var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else facing_direction
+		set_facing(facing_direction.slerp(pf, clampf(4.0 * delta, 0.0, 1.0)))
+
+
+func _run_hold(delta: float, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		cmd.data["spot"] = global_position
+		cmd.step = "holding"
+	var spot: Vector3 = cmd.data["spot"]
+	var near: EnemyAI = _nearest_enemy(global_position, 3.5)
+	if near != null:
+		_fight(near, delta)
+		return
+	if global_position.distance_to(spot) > 0.8:
+		_move_to(spot, profile.move_speed, delta)
+	else:
+		_halt(delta)
+
+
+func _run_retreat_order(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if player == null:
+		_halt(delta)
+		return
+	cmd.step = "falling back"
+	var centroid: Vector3 = _threat_centroid(player.global_position, 15.0)
+	var away: Vector3 = (player.global_position - centroid) if centroid != Vector3.INF else -(player.call("get_facing_direction") as Vector3)
+	away.y = 0.0
+	var goal: Vector3 = player.global_position + away.normalized() * 3.5 + Vector3(-away.z, 0, away.x).normalized() * (float(slot_index) - 1.0) * 1.6
+	if global_position.distance_to(goal) > 0.8:
+		_move_to(goal, profile.move_speed * 1.15, delta)
+	else:
+		_halt(delta)
+		var self_threat: EnemyAI = _nearest_enemy(global_position, 2.2)
+		if self_threat != null:
+			_fight(self_threat, delta)
+
+
+func _run_attack(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			finish_current("target down")
+			say_event("kill", 0)
+			return
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("No target in sight.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+		say_event("engage", 0)
+	cmd.step = "engaging"
+	_fight(e, delta)
+
+
+func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null:
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("Nothing to taunt.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+	if global_position.distance_to(e.global_position) > 7.0:
+		_move_to(e.global_position, profile.move_speed, delta)
+		return
+	_do_taunt(e, true)
+	finish_current("taunted")
+
+
+# ------------------------------------------------------------------ bodyguard
+
+func _run_bodyguard(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var ward: Node3D = _resolve_ward(String(cmd.args.get("target", "player")), player)
+	if ward == null:
+		_run_follow(delta, player, cmd)
+		return
+	if ward is SquadAlly and (ward as SquadAlly).is_downed:
+		# Ward fell: pick them up if we can, else guard the player.
+		if profile.has_ability("revive"):
+			_revive_target(ward as SquadAlly, delta, cmd)
+		else:
+			_run_follow(delta, player, cmd)
+		return
+	if cmd.step.is_empty():
+		say_event("bodyguard", 1, profile.line("ack"))
+	var wpos: Vector3 = ward.global_position
+	# Intercept: nearest enemy closing on the ward (prefer ones targeting the ward).
+	var threat: EnemyAI = null
+	var best: float = INTERCEPT_RADIUS
+	for e in _active_enemies(wpos, INTERCEPT_RADIUS + 2.0):
+		var d: float = e.global_position.distance_to(wpos)
+		if e.get_current_target() == ward:
+			d -= 2.0
+		if d < best:
+			best = d
+			threat = e
+	var my_d: float = global_position.distance_to(wpos)
+	if threat != null and my_d <= LEASH_RADIUS:
+		cmd.step = "intercepting"
+		if threat.get_current_target() == ward and _taunt_cd <= 0.0:
+			_do_taunt(threat, false)
+		_fight(threat, delta)
+		return
+	# Hold the guard spot between the ward and the nearest threat (or just off its shoulder).
+	cmd.step = "guarding"
+	var centroid: Vector3 = _threat_centroid(wpos, 16.0)
+	var spot: Vector3
+	if centroid != Vector3.INF:
+		var dir: Vector3 = centroid - wpos
+		dir.y = 0.0
+		spot = wpos + dir.normalized() * 1.7
+	else:
+		var f: Vector3 = ward.call("get_facing_direction") if ward.has_method("get_facing_direction") else Vector3.FORWARD
+		spot = wpos + f * 1.4 + Vector3(-f.z, 0, f.x) * 1.0
+	if global_position.distance_to(spot) > 0.6:
+		_move_to(spot, profile.move_speed * (1.3 if my_d > LEASH_RADIUS else 1.0), delta)
+	else:
+		_halt(delta)
+		if centroid != Vector3.INF:
+			set_facing(centroid - global_position)
+
+
+# ------------------------------------------------------------------ kite (approach -> provoke -> confirm -> sustain)
+
+func _run_kite(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	_kite_logic(delta, player, cmd, cmd.combo_id == 0)
+
+
+## Shared by plain kite and the kiter/lurer halves of combos. Returns nothing; posts combo events.
+func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bool) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		var near_pos: Vector3 = global_position
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			var chasing: Array[EnemyAI] = _enemies_targeting_me()
+			e = chasing[0] if not chasing.is_empty() else null
+		if e == null:
+			if cmd.step == "sustain" or cmd.step == "clear":
+				finish_current("all clear")
+			else:
+				say("Nothing to kite.", "refuse", 1)
+				finish_current("no target")
+				_post_combo(cmd, "failed", {})
+			return
+		cmd.data["enemy"] = e
+		if cmd.step.is_empty() or cmd.step == "sustain":
+			cmd.step = "approach" if cmd.step.is_empty() else cmd.step
+		near_pos = e.global_position
+		if not cmd.data.has("center"):
+			cmd.data["center"] = near_pos
+	if cmd.step.is_empty():
+		cmd.step = "approach"
+	match cmd.step:
+		"approach":
+			if global_position.distance_to(e.global_position) > 5.0:
+				_move_to(e.global_position, profile.move_speed * 1.1, delta)
+			else:
+				cmd.step = "provoke"
+		"provoke":
+			if _taunt_cd <= 0.0:
+				_do_taunt(e, false)
+				cmd.step = "confirm"
+				cmd.data["confirm_t"] = 0.0
+			else:
+				# Re-poke: dart in, land a hit, then confirm.
+				if global_position.distance_to(e.global_position) > profile.attack_range:
+					_move_to(e.global_position, profile.move_speed * 1.25, delta)
+				elif _attack_cd <= 0.0:
+					_melee(e)
+					cmd.step = "confirm"
+					cmd.data["confirm_t"] = 0.0
+		"confirm":
+			cmd.data["confirm_t"] = float(cmd.data.get("confirm_t", 0.0)) + delta
+			_back_off(e, delta)
+			if e.get_current_target() == self:
+				cmd.step = "sustain"
+				cmd.data["sustain_t"] = 0.0
+				cmd.data["center"] = e.global_position
+				cmd.data["ang"] = atan2(global_position.z - e.global_position.z, global_position.x - e.global_position.x)
+				say_event("kite", 0, profile.line("taunt"))
+			elif float(cmd.data["confirm_t"]) > 1.4:
+				cmd.step = "provoke"
+		"sustain":
+			_circle_kite(delta, cmd, e)
+			cmd.data["sustain_t"] = float(cmd.data.get("sustain_t", 0.0)) + delta
+			# Lost the enemy's attention for a while -> re-poke it.
+			if e.get_current_target() != self:
+				cmd.data["lost_t"] = float(cmd.data.get("lost_t", 0.0)) + delta
+				if float(cmd.data["lost_t"]) > 1.0:
+					cmd.data["lost_t"] = 0.0
+					cmd.step = "provoke"
+			else:
+				cmd.data["lost_t"] = 0.0
+			if not cmd.data.get("ready_sent", false) and float(cmd.data["sustain_t"]) > 2.6:
+				cmd.data["ready_sent"] = true
+				_post_combo(cmd, "ready", {"center": _cluster_centroid()})
+				if not standalone:
+					say_event("combo_ready", 2)
+			if bool(cmd.data.get("clear", false)):
+				cmd.step = "clear"
+				cmd.data["clear_t"] = 0.0
+				say_event("combo_go", 2)
+			elif standalone and float(cmd.data["sustain_t"]) > 14.0:
+				finish_current("kited")
+		"clear":
+			# Break off outward so the artillery can drop the payload on the cluster.
+			cmd.data["clear_t"] = float(cmd.data.get("clear_t", 0.0)) + delta
+			var cc: Vector3 = _cluster_centroid()
+			var out: Vector3 = global_position - cc
+			out.y = 0.0
+			if out.length_squared() < 0.01:
+				out = -facing_direction
+			_move_dir(out.normalized(), profile.move_speed * 1.35, delta)
+			if float(cmd.data["clear_t"]) > 1.6:
+				cmd.step = "sustain_after"
+		"sustain_after":
+			_halt(delta)
+
+
+func _circle_kite(delta: float, cmd: SquadCommand, e: EnemyAI) -> void:
+	var center: Vector3 = cmd.data.get("center", e.global_position)
+	# Drift the centre slowly toward the pack so the circle stays around the enemies chasing us.
+	center = center.lerp(_cluster_centroid(), clampf(0.4 * delta, 0.0, 1.0))
+	cmd.data["center"] = center
+	var r: float = float(cmd.data.get("radius", KITE_RADIUS))
+	var dirn: float = float(cmd.data.get("dir", 1.0))
+	var ang: float = float(cmd.data.get("ang", 0.0)) + dirn * (profile.move_speed * 0.85 / r) * delta
+	cmd.data["ang"] = ang
+	# Path recalculation every 0.4 s: probe the next waypoint; flip direction / tighten radius when blocked.
+	cmd.data["repath"] = float(cmd.data.get("repath", 0.0)) - delta
+	var wp: Vector3 = center + Vector3(cos(ang + dirn * 0.55), 0.0, sin(ang + dirn * 0.55)) * r
+	wp.y = global_position.y
+	if float(cmd.data["repath"]) <= 0.0:
+		cmd.data["repath"] = 0.4
+		if not _point_walkable(wp):
+			cmd.data["dir"] = -dirn
+			cmd.data["radius"] = maxf(3.2, r - 0.8)
+			cmd.data["center"] = center.lerp(global_position, 0.3)
+	_move_to(wp, profile.move_speed * 0.95, delta, false)
+	# Keep one eye on the chaser.
+	set_facing(e.global_position - global_position)
+
+
+func _back_off(e: EnemyAI, delta: float) -> void:
+	var away: Vector3 = global_position - e.global_position
+	away.y = 0.0
+	if away.length() < 3.5:
+		_move_dir(away.normalized(), profile.move_speed, delta)
+	else:
+		_halt(delta)
+	set_facing(e.global_position - global_position)
+
+
+# ------------------------------------------------------------------ nuke / mine
+
+func _run_nuke(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if cmd.step.is_empty():
+		var e: EnemyAI = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("No target worth the mana.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+		cmd.step = "approach"
+	var tgt: EnemyAI = cmd.data["enemy"] as EnemyAI
+	if cmd.step == "approach":
+		if not _enemy_ok(tgt):
+			finish_current("target gone")
+			return
+		if global_position.distance_to(tgt.global_position) > 9.0:
+			_move_to(tgt.global_position, profile.move_speed, delta)
+			return
+		cmd.step = "channel"
+		say_event("nuke", 2, profile.line("combo_go"))
+		begin_nuke(tgt.global_position, Callable(), tgt)
+	elif cmd.step == "channel" and _action.is_empty():
+		finish_current("released")
+
+
+## Channels the AoE. Artillery uses its full nuke; others throw a weaker version (profile numbers).
+## `track` keeps the ring on a moving enemy until the last 0.3 s.
+func begin_nuke(pos: Vector3, on_release: Callable = Callable(), track: Node3D = null) -> void:
+	var channel: float = profile.nuke_channel_sec
+	var radius: float = profile.nuke_radius
+	var dmg: int = profile.nuke_damage
+	set_facing(pos - global_position)
+	_show_cast_ring(pos, radius, channel)
+	_play(["Spellcast_Long", "Spellcasting", "Spellcast_Raise"], channel, true)
+	_start_action("channel", channel, channel, func() -> void:
+		var at: Vector3 = _cast_ring.global_position if _cast_ring != null and is_instance_valid(_cast_ring) else pos
+		_aoe_blast(at, radius, dmg, "ally_nuke", Color(0.75, 0.5, 1.0))
+		_play(["Spellcast_Shoot", "Spellcasting"], 0.4, true)
+		if on_release.is_valid():
+			on_release.call()
+	)
+	_action_data_track = track
+
+
+var _action_data_track: Node3D = null
+
+
+func plant_mine(pos: Vector3) -> void:
+	if _mine != null and is_instance_valid(_mine):
+		_mine.queue_free()
+	_mine = Node3D.new()
+	_mine.name = "MirrorSigil_" + profile.ally_name
+	var mi := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 2.7
+	tm.outer_radius = 3.0
+	tm.rings = 48
+	tm.ring_segments = 4
+	mi.mesh = tm
+	mi.scale = Vector3(1, 0.05, 1)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(0.7, 0.45, 1.0, 0.75)
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_mine.add_child(mi)
+	var l := OmniLight3D.new()
+	l.light_color = Color(0.7, 0.45, 1.0)
+	l.light_energy = 1.2
+	l.omni_range = 4.0
+	l.position = Vector3.UP * 0.4
+	_mine.add_child(l)
+	GoreFXScript.host_for(self).add_child(_mine)
+	_mine.global_position = pos + Vector3.UP * 0.05
+	GoreFXScript.flash_light(self, pos + Vector3.UP, Color(0.7, 0.45, 1.0), 3.0, 0.3, 5.0)
+
+
+func get_mine_position() -> Vector3:
+	return _mine.global_position if _mine != null and is_instance_valid(_mine) else Vector3.INF
+
+
+func detonate_mine() -> int:
+	if _mine == null or not is_instance_valid(_mine):
+		return 0
+	var at: Vector3 = _mine.global_position
+	_mine.queue_free()
+	_mine = null
+	_play(["Spellcast_Shoot", "Spellcasting"], 0.4, true)
+	return _aoe_blast(at, 3.4, maxi(profile.nuke_damage, 40) + 10, "ally_detonate", Color(0.85, 0.45, 1.0))
+
+
+func _aoe_blast(at: Vector3, radius: float, dmg: int, source: String, col: Color) -> int:
+	GoreFXScript.shockwave_ring(self, at + Vector3.UP * 0.08, radius, col, 0.45, 0.4)
+	GoreFXScript.flash_light(self, at + Vector3.UP * 1.0, col, 8.0, 0.35, radius * 2.5)
+	GoreFXScript.dust_puff(self, at, radius * 0.6, 40, Color(col.r, col.g, col.b, 0.6), 3.0)
+	GameFeelScript.play_sound(self, "glass_shatter", at, 0.0, 0.8)
+	GameFeelScript.play_sound(self, "landing_slam", at, -3.0, 1.2)
+	GameFeelScript.add_trauma(self, 0.3, at)
+	var hits: int = 0
+	var dmg_mult: float = 1.3 if _is_massacre() else 1.0
+	for e in _active_enemies(at, radius + 0.5):
+		var d: Vector3 = e.global_position - at
+		if Vector2(d.x, d.z).length() <= radius and absf(d.y) < 2.5:
+			if e.apply_damage(int(round(float(dmg) * dmg_mult)), true, source, self):
+				hits += 1
+				var push: Vector3 = Vector3(d.x, 0, d.z).normalized() * 6.0
+				e.add_knockback(push)
+	var sc: SquadCoordinator = SquadCoordinator.get_instance()
+	if sc != null:
+		sc.broadcast_noise(at, 16.0)
+	_hide_cast_ring()
+	return hits
+
+
+func _show_cast_ring(pos: Vector3, radius: float, dur: float) -> void:
+	if _cast_ring == null or not is_instance_valid(_cast_ring):
+		_cast_ring = MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.9
+		tm.outer_radius = 1.0
+		tm.rings = 48
+		tm.ring_segments = 4
+		_cast_ring.mesh = tm
+		_cast_ring_mat = StandardMaterial3D.new()
+		_cast_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_cast_ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_cast_ring_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_cast_ring.material_override = _cast_ring_mat
+		_cast_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		GoreFXScript.host_for(self).add_child(_cast_ring)
+	_cast_ring.visible = true
+	_cast_ring.global_position = pos + Vector3.UP * 0.06
+	_cast_ring.scale = Vector3(radius, 0.08, radius)
+	_cast_ring_mat.albedo_color = Color(0.7, 0.5, 1.0, 0.2)
+	var tw := create_tween()
+	tw.tween_property(_cast_ring_mat, "albedo_color:a", 0.9, maxf(0.05, dur))
+
+
+func _hide_cast_ring() -> void:
+	if _cast_ring != null and is_instance_valid(_cast_ring):
+		_cast_ring.visible = false
+	_action_data_track = null
+
+
+# ------------------------------------------------------------------ combos (one half each)
+
+func _post_combo(cmd: SquadCommand, event: String, data: Dictionary) -> void:
+	if cmd.combo_id > 0 and manager != null and manager.has_method("combo_event"):
+		manager.call("combo_event", cmd.combo_id, self, cmd.combo_part, event, data)
+
+
+func _run_combo_part(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	match cmd.combo_part:
+		"kiter":
+			_kite_logic(delta, player, cmd, false)
+		"nuker":
+			_run_nuker(delta, player, cmd)
+		"charger":
+			_run_charger(delta, player, cmd)
+		"finisher":
+			_run_finisher(delta, player, cmd)
+		"trapper":
+			_run_trapper(delta, player, cmd)
+		"lurer":
+			_run_lurer(delta, player, cmd)
+		"solo_kite_nuke":
+			_run_solo_kite_nuke(delta, player, cmd)
+		"solo_charge_finish":
+			_run_solo_charge_finish(delta, player, cmd)
+		"solo_lure_detonate":
+			_run_solo_lure(delta, player, cmd)
+		_:
+			finish_current("unknown part")
+
+
+func _run_nuker(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if cmd.step.is_empty():
+		cmd.step = "waiting"
+		say_event("ack", 1)
+	match cmd.step:
+		"waiting":
+			# Stay out of the kite circle, within casting range of it.
+			var center: Vector3 = cmd.data.get("watch", player.global_position if player != null else global_position)
+			var to_me: Vector3 = global_position - center
+			to_me.y = 0.0
+			var want: float = 8.0
+			if absf(to_me.length() - want) > 1.2:
+				var spot: Vector3 = center + (to_me.normalized() if to_me.length_squared() > 0.01 else Vector3.BACK) * want
+				_move_to(spot, profile.move_speed, delta)
+			else:
+				_halt(delta)
+				set_facing(center - global_position)
+			if cmd.data.has("go_pos"):
+				cmd.step = "casting"
+				var gp: Vector3 = cmd.data["go_pos"]
+				_post_combo(cmd, "casting", {})
+				say_event("combo_ready", 2)
+				begin_nuke(gp, func() -> void:
+					_post_combo(cmd, "released", {})
+				, cmd.data.get("track", null) as Node3D)
+		"casting":
+			if _action.is_empty():
+				finish_current("released")
+
+
+func _run_charger(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.step == "done":
+			finish_current("charged")
+			return
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("No one to charge.", "refuse", 1)
+			_post_combo(cmd, "failed", {})
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+		cmd.step = "approach"
+	match cmd.step:
+		"approach":
+			var d: float = global_position.distance_to(e.global_position)
+			if d > 6.5:
+				_move_to(e.global_position, profile.move_speed * 1.1, delta)
+			elif d < 2.2:
+				_back_off(e, delta)
+			else:
+				cmd.step = "charging"
+				say_event("combo_go", 2)
+				start_charge(e, func(hit: bool) -> void:
+					if hit:
+						cmd.step = "done"
+						_post_combo(cmd, "knocked", {"enemy": e})
+					else:
+						cmd.step = "approach"
+				)
+		"charging":
+			pass
+		"done":
+			_back_off(e, delta)
+			if cmd.timer > 0.0 and not cmd.data.has("done_t"):
+				cmd.data["done_t"] = cmd.timer
+			if cmd.timer - float(cmd.data.get("done_t", cmd.timer)) > 1.0:
+				finish_current("charged")
+
+
+func _run_finisher(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if cmd.step.is_empty():
+		cmd.step = "waiting"
+		say_event("ack", 1)
+	match cmd.step:
+		"waiting":
+			var watch: EnemyAI = e if e != null else _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+			if watch != null and _enemy_ok(watch):
+				var to_me: Vector3 = global_position - watch.global_position
+				to_me.y = 0.0
+				if absf(to_me.length() - 4.5) > 1.0:
+					_move_to(watch.global_position + (to_me.normalized() if to_me.length_squared() > 0.01 else Vector3.LEFT) * 4.5, profile.move_speed, delta)
+				else:
+					_halt(delta)
+			else:
+				_halt(delta)
+			if bool(cmd.data.get("go", false)) and e != null:
+				cmd.step = "finishing"
+		"finishing":
+			if e == null or not _enemy_ok(e):
+				finish_current("target gone")
+				return
+			# Get behind the downed enemy, then a heavy finisher (stunned + backstab multipliers apply).
+			var behind: Vector3 = e.global_position - e.get_facing_direction() * 1.2
+			if global_position.distance_to(behind) > 0.9 and global_position.distance_to(e.global_position) > 1.6:
+				_move_to(behind, profile.move_speed * 1.5, delta, false)
+				return
+			set_facing(e.global_position - global_position)
+			say_event("combo_go", 2)
+			_play(["Dualwield_Melee_Attack_Chop", "2H_Melee_Attack_Chop", "1H_Melee_Attack_Jump_Chop", "1H_Melee_Attack_Chop"], 0.5, true)
+			_start_action("attack", 0.55, 0.28, func() -> void:
+				if _enemy_ok(e):
+					e.apply_damage(55, true, "ally_finisher", self)
+					GoreFXScript.flash_light(self, e.global_position + Vector3.UP, Color(1.0, 0.8, 0.4), 4.0, 0.2, 4.0)
+					GameFeelScript.add_trauma(self, 0.25, e.global_position)
+				_post_combo(cmd, "finished", {})
+			)
+			cmd.step = "done"
+		"done":
+			if _action.is_empty():
+				finish_current("finished")
+
+
+func _run_trapper(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if cmd.step.is_empty():
+		cmd.step = "placing"
+	match cmd.step:
+		"placing":
+			var p: Vector3 = cmd.data.get("point", global_position)
+			if global_position.distance_to(p) > 2.0:
+				_move_to(p, profile.move_speed, delta)
+				return
+			_play(["Spellcast_Raise", "Interact", "Use_Item"], 0.8, true)
+			_start_action("channel", 0.8, 0.75, func() -> void:
+				plant_mine(p)
+				_post_combo(cmd, "planted", {"point": p})
+				say_event("combo_ready", 2)
+			)
+			cmd.step = "armed"
+		"armed":
+			var mp: Vector3 = get_mine_position()
+			if mp == Vector3.INF:
+				return
+			var to_me: Vector3 = global_position - mp
+			to_me.y = 0.0
+			if to_me.length() < 6.0:
+				_move_dir(to_me.normalized() if to_me.length_squared() > 0.01 else Vector3.BACK, profile.move_speed, delta)
+			else:
+				_halt(delta)
+				set_facing(mp - global_position)
+			if bool(cmd.data.get("detonate", false)):
+				_play(["Spellcast_Shoot"], 0.4, true)
+				var hits: int = detonate_mine()
+				_post_combo(cmd, "detonated", {"hits": hits})
+				say_event("combo_go", 2)
+				finish_current("detonated")
+	if player == null:
+		return
+
+
+func _run_lurer(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("point"):
+		# Wait for the sigil.
+		cmd.step = "waiting"
+		var ps: Vector3 = player.global_position if player != null else global_position
+		if global_position.distance_to(ps) > 3.0:
+			_move_to(ps, profile.move_speed, delta)
+		else:
+			_halt(delta)
+		return
+	var p: Vector3 = cmd.data["point"]
+	if cmd.step == "waiting" or cmd.step.is_empty():
+		cmd.step = "approach"
+	if cmd.step == "approach" or cmd.step == "provoke" or cmd.step == "confirm":
+		_kite_logic(delta, player, cmd, false)
+		if cmd.step == "sustain":
+			cmd.step = "luring"
+		return
+	if cmd.step == "luring":
+		# Run through the sigil to its far side; the chasers follow straight across it.
+		var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+		var from: Vector3 = e.global_position if e != null and _enemy_ok(e) else global_position
+		var through: Vector3 = p - from
+		through.y = 0.0
+		var goal: Vector3 = p + (through.normalized() if through.length_squared() > 0.01 else Vector3.BACK) * 4.5
+		if global_position.distance_to(goal) > 1.0:
+			_move_to(goal, profile.move_speed * 1.05, delta)
+		else:
+			_halt(delta)
+			if e != null:
+				set_facing(e.global_position - global_position)
+		if bool(cmd.data.get("done", false)):
+			finish_current("lured")
+
+
+func _run_solo_kite_nuke(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if cmd.step != "casting" and cmd.step != "after":
+		_kite_logic(delta, player, cmd, false)
+		if cmd.step == "sustain" and float(cmd.data.get("sustain_t", 0.0)) > 2.6:
+			cmd.step = "casting"
+			say("No artillery left — I'll do it myself!", "combo_go", 2)
+			begin_nuke(_cluster_centroid(), func() -> void: cmd.step = "after")
+	elif cmd.step == "after" and _action.is_empty():
+		finish_current("solo nuke")
+
+
+func _run_solo_charge_finish(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("phase"):
+		cmd.data["phase"] = "charge"
+		cmd.combo_part = "solo_charge_finish"
+	if String(cmd.data["phase"]) == "charge":
+		_run_charger(delta, player, cmd)
+		if current != cmd:
+			return
+		if cmd.step == "done":
+			cmd.data["phase"] = "finish"
+			cmd.data["go"] = true
+			cmd.step = "finishing"
+	else:
+		_run_finisher(delta, player, cmd)
+
+
+func _run_solo_lure(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("phase"):
+		cmd.data["phase"] = "plant"
+	match String(cmd.data["phase"]):
+		"plant":
+			var p: Vector3 = cmd.data.get("point", global_position)
+			if global_position.distance_to(p) > 2.0:
+				_move_to(p, profile.move_speed, delta)
+				return
+			plant_mine(p)
+			cmd.data["phase"] = "lure"
+			cmd.step = "approach"
+		"lure":
+			_run_lurer(delta, player, cmd)
+			if current != cmd:
+				return
+			var mp: Vector3 = get_mine_position()
+			var trapped: int = 0
+			for e in _enemies_targeting_me():
+				if mp != Vector3.INF and Vector2(e.global_position.x - mp.x, e.global_position.z - mp.z).length() < 3.0:
+					trapped += 1
+			if trapped > 0 or cmd.timer > 14.0:
+				detonate_mine()
+				say_event("combo_go", 2)
+				finish_current("solo detonate")
+
+
+# ------------------------------------------------------------------ revive
+
+func _run_revive(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var who: SquadAlly = null
+	if manager != null and manager.has_method("find_ally"):
+		who = manager.call("find_ally", String(cmd.args.get("target", ""))) as SquadAlly
+	if who == null or who == self:
+		# No name: nearest downed ally.
+		if manager != null and manager.has_method("nearest_downed"):
+			who = manager.call("nearest_downed", global_position, self) as SquadAlly
+	if who == null or not who.is_downed:
+		say("Nobody needs reviving.", "refuse", 1)
+		finish_current("nobody down")
+		return
+	_revive_target(who, delta, cmd)
+
+
+func _revive_target(who: SquadAlly, delta: float, cmd: SquadCommand) -> void:
+	if global_position.distance_to(who.global_position) > 1.6:
+		cmd.step = "moving"
+		_move_to(who.global_position, profile.move_speed * 1.2, delta)
+		return
+	if cmd.step != "channel":
+		cmd.step = "channel"
+		say_event("revive_other", 2)
+		set_facing(who.global_position - global_position)
+		_play(["Interact", "PickUp", "Use_Item"], REVIVE_CHANNEL, true)
+		_start_action("revive", REVIVE_CHANNEL, REVIVE_CHANNEL - 0.05, func() -> void:
+			if is_instance_valid(who) and who.is_downed:
+				who.revive(0.45)
+			if current == cmd and cmd.verb == "revive":
+				finish_current("revived")
+		)
+
+
+# ------------------------------------------------------------------ panic stances
+
+func _run_massacre(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	cmd.step = "berserk"
+	if _engage_target == null or not _enemy_ok(_engage_target):
+		_engage_target = _pick_auto_target(player, 22.0, true)
+	if _engage_target != null:
+		_fight(_engage_target, delta)
+		cmd.data["quiet"] = 0.0
+	else:
+		cmd.data["quiet"] = float(cmd.data.get("quiet", 0.0)) + delta
+		_run_follow(delta, player, null)
+
+
+func _run_ceasefire(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	cmd.step = "holding fire"
+	_engage_target = null
+	# Never strike; sidestep anything swinging at us and stay on the player.
+	var threat: EnemyAI = _nearest_enemy(global_position, 2.6)
+	if threat != null:
+		var away: Vector3 = global_position - threat.global_position
+		away.y = 0.0
+		_move_dir(away.normalized(), profile.move_speed, delta)
+		return
+	if player != null:
+		var goal: Vector3 = _formation_point(player)
+		if global_position.distance_to(goal) > 0.9:
+			_move_to(goal, profile.move_speed, delta)
+		else:
+			_halt(delta)
+
+
+func _run_scatter(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("dir"):
+		var origin: Vector3 = player.global_position if player != null else global_position
+		var c: Vector3 = _threat_centroid(origin, 18.0)
+		var away: Vector3 = (global_position - c) if c != Vector3.INF else (global_position - origin)
+		away.y = 0.0
+		if away.length_squared() < 0.01:
+			away = Vector3.FORWARD
+		var ang: float = deg_to_rad(-55.0 + 55.0 * float(slot_index % 3))
+		cmd.data["dir"] = away.normalized().rotated(Vector3.UP, ang)
+		cmd.step = "scattering"
+	_move_dir(cmd.data["dir"] as Vector3, profile.move_speed * 1.3, delta)
+	if cmd.timer > 3.0:
+		finish_current("scattered")
+
+
+# ------------------------------------------------------------------ silly orders
+
+func _run_jump(cmd: SquadCommand) -> void:
+	var remaining: int = int(cmd.data.get("left", int(cmd.args.get("count", 1))))
+	if remaining <= 0:
+		finish_current("jumped")
+		return
+	if is_on_floor() or cmd.data.get("first", true):
+		cmd.data["first"] = false
+		cmd.data["left"] = remaining - 1
+		cmd.step = "jump %d" % (int(cmd.args.get("count", 1)) - remaining + 1)
+		velocity.y = 6.5
+		_play(["Jump_Full_Short", "Jump_Start", "Jump_Idle"], 0.65, true)
+		_start_action("jump", 0.7, -1.0, Callable())
+		if remaining == int(cmd.args.get("count", 1)):
+			say_event("jump", 0)
+
+
+func _run_emote(cmd: SquadCommand) -> void:
+	var kind: String = String(cmd.args.get("text", "cheer"))
+	match kind:
+		"sit":
+			_play(["Sit_Floor_Down", "Sit_Floor_Idle"], 0.8, true)
+			_start_action("emote", 3.0, -1.0, Callable())
+		"spin":
+			_start_action("spin", 1.2, -1.0, Callable())
+		"bow", "salute":
+			_play(["Interact", "Use_Item"], 1.0, true)
+			_start_action("emote", 1.0, -1.0, Callable())
+		_:
+			_play(["Cheer", "Taunt"], 1.4, true)
+			_start_action("emote", 1.4, -1.0, Callable())
+	finish_current("emoted")
+
+
+# ------------------------------------------------------------------ self-preservation / downed
+
+func _check_self_preservation() -> void:
+	if _is_massacre():
+		_retreating = false
+		return
+	var r: float = get_health_ratio()
+	if not _retreating and r < profile.retreat_threshold:
+		_retreating = true
+		say_event("retreat", 2)
+	elif _retreating and r > profile.retreat_threshold + 0.25:
+		_retreating = false
+
+
+func _run_retreat_self(delta: float, player: Node3D) -> void:
+	if player == null:
+		_halt(delta)
+		return
+	var c: Vector3 = _threat_centroid(global_position, 14.0)
+	var anchor: Vector3 = player.global_position
+	var away: Vector3 = (anchor - c) if c != Vector3.INF else (global_position - anchor)
+	away.y = 0.0
+	var goal: Vector3 = anchor + (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * 4.5
+	if global_position.distance_to(goal) > 1.0:
+		_move_to(goal, profile.move_speed * 1.15, delta)
+	else:
+		_halt(delta)
+
+
+func _go_down() -> void:
+	is_downed = true
+	_retreating = false
+	_action = ""
+	_dash_timer = 0.0
+	_hide_cast_ring()
+	velocity = Vector3.ZERO
+	_play(["Death_A", "Death_B"], -1.0, true)
+	say_event("downed", 3)
+	add_to_group("interactable_switch")
+	downed.emit(self)
+	_refresh_label()
+
+
+func revive(ratio: float = 0.45) -> void:
+	if not is_downed:
+		return
+	is_downed = false
+	health = maxi(1, int(round(float(max_health) * clampf(ratio, 0.05, 1.0))))
+	_low_hp_warned = false
+	remove_from_group("interactable_switch")
+	if _player_near_prompt:
+		_player_near_prompt = false
+		prompt_changed.emit(false, "")
+	_play(["Lie_StandUp", "Idle"], 0.7, true)
+	_start_action("emote", 0.7, -1.0, Callable())
+	GoreFXScript.flash_light(self, global_position + Vector3.UP, Color(1.0, 0.9, 0.5), 4.0, 0.4, 4.0)
+	say_event("revived", 2)
+	health_changed.emit(self, health, max_health)
+	revived.emit(self)
+
+
+## Manual revive: the player presses Interact next to a downed ally (PlayerController.try_interact scans
+## the `interactable_switch` group within 2.6 m).
+func interact() -> bool:
+	if not is_downed:
+		return false
+	revive(0.5)
+	return true
+
+
+func _process_downed(delta: float) -> void:
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_apply_gravity_and_move(delta)
+	_update_revive_prompt()
+
+
+func _update_revive_prompt() -> void:
+	var p: Node3D = _player()
+	var near: bool = is_downed and p != null and p.global_position.distance_to(global_position) <= 2.6
+	if near != _player_near_prompt:
+		_player_near_prompt = near
+		var key: String = "E"
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null and store.has_method("get_action_display_label"):
+			key = String(store.call("get_action_display_label", "interact"))
+		prompt_changed.emit(near, "%s: Revive %s" % [key, get_display_name()])
+
+
+## Full restore (player respawn / new run).
+func reset_full(at: Vector3) -> void:
+	is_downed = false
+	remove_from_group("interactable_switch")
+	health = max_health
+	_retreating = false
+	_action = ""
+	_dash_timer = 0.0
+	_engage_target = null
+	_hide_cast_ring()
+	if _mine != null and is_instance_valid(_mine):
+		_mine.queue_free()
+	_mine = null
+	current = null
+	queue.clear()
+	global_position = at
+	velocity = Vector3.ZERO
+	_last_pos = at
+	health_changed.emit(self, health, max_health)
+	_refresh_label()
+
+
+# ------------------------------------------------------------------ combat primitives
+
+func _fight(e: EnemyAI, delta: float) -> void:
+	_engage_target = e
+	_combat_quiet = 0.0
+	if _hazard_dodge(delta):
+		return
+	# Distinct attack slot per ally around the enemy (no stacking on one spot).
+	var to_e: Vector3 = e.global_position - global_position
+	to_e.y = 0.0
+	var reach: float = profile.attack_range
+	if to_e.length() > reach:
+		var slot_ang: float = float(slot_index) * TAU / 3.0
+		var slot: Vector3 = e.global_position + Vector3(cos(slot_ang), 0.0, sin(slot_ang)) * (reach * 0.8)
+		var goal: Vector3 = slot if to_e.length() < 4.0 else e.global_position
+		_move_to(goal, profile.move_speed * (1.2 if _is_massacre() else 1.0), delta)
+		return
+	_halt(delta)
+	set_facing(to_e)
+	if _attack_cd <= 0.0:
+		_melee(e)
+
+
+func _melee(e: EnemyAI) -> void:
+	var cd: float = profile.attack_cooldown * (0.75 if _is_massacre() else 1.0)
+	_attack_cd = cd
+	var clips: Array[String] = ["1H_Melee_Attack_Slice_Diagonal", "1H_Melee_Attack_Chop", "1H_Melee_Attack_Slice_Horizontal"]
+	if profile.role == "skirmisher":
+		clips = ["Dualwield_Melee_Attack_Slice", "Dualwield_Melee_Attack_Stab", "1H_Melee_Attack_Stab"]
+	elif profile.role == "vanguard":
+		clips = ["1H_Melee_Attack_Chop", "1H_Melee_Attack_Slice_Horizontal", "2H_Melee_Attack_Slice"]
+	clips.shuffle()
+	_play(clips, 0.55, true)
+	var dmg: int = int(round(float(profile.attack_damage) * (1.3 if _is_massacre() else 1.0)))
+	_start_action("attack", 0.5, 0.24, func() -> void:
+		if _enemy_ok(e) and global_position.distance_to(e.global_position) <= profile.attack_range + 0.7:
+			if e.apply_damage(dmg, false, "ally_melee", self):
+				GameFeelScript.play_sound(self, "enemy_hit", e.global_position + Vector3.UP, -6.0, 1.05)
+				if e.is_dead:
+					say_event("kill", 0)
+	)
+
+
+func _do_taunt(e: EnemyAI, area: bool) -> void:
+	_taunt_cd = profile.taunt_cooldown
+	set_facing(e.global_position - global_position)
+	_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
+	_start_action("taunt", 0.55, 0.15, Callable())
+	say_event("taunt", 1)
+	e.apply_taunt(self, -1.0, 4.0)
+	if area:
+		for o in _active_enemies(global_position, 6.0):
+			if o != e:
+				o.apply_taunt(self, 30.0, 2.5)
+
+
+func start_charge(e: EnemyAI, on_done: Callable) -> void:
+	var dir: Vector3 = e.global_position - global_position
+	dir.y = 0.0
+	set_facing(dir)
+	_dash_target = e
+	_dash_vel = dir.normalized() * 12.5
+	_dash_timer = clampf(dir.length() / 12.5 + 0.15, 0.2, 0.9)
+	_dash_hit_cb = on_done
+	_charge_cd = 4.0
+	_play(["Running_A", "Running_B"], -1.0, true, true)
+
+
+func _process_dash(delta: float) -> void:
+	_dash_timer -= delta
+	velocity.x = _dash_vel.x
+	velocity.z = _dash_vel.z
+	_apply_gravity_and_move(delta)
+	var e: EnemyAI = _dash_target
+	var hit: bool = false
+	if e != null and _enemy_ok(e) and global_position.distance_to(e.global_position) < 1.6:
+		hit = true
+		_play(["1H_Melee_Attack_Chop", "Block_Attack"], 0.4, true)
+		e.apply_damage(22, true, "ally_charge", self)
+		e.add_knockback(_dash_vel.normalized() * 7.0)
+		GameFeelScript.add_trauma(self, 0.3, e.global_position)
+		GameFeelScript.play_sound(self, "hit_metal", e.global_position + Vector3.UP, 0.0, 0.8)
+		GoreFXScript.dust_puff(self, e.global_position, 0.8, 20)
+	if hit or _dash_timer <= 0.0:
+		_dash_timer = 0.0
+		velocity.x = 0.0
+		velocity.z = 0.0
+		var cb: Callable = _dash_hit_cb
+		_dash_hit_cb = Callable()
+		_dash_target = null
+		if cb.is_valid():
+			cb.call(hit)
+
+
+## Sidestep enemy wind-ups aimed at us and brute slam rings (hazard avoidance). Returns true while dodging.
+func _hazard_dodge(delta: float) -> bool:
+	for e in _active_enemies(global_position, 5.0):
+		if e.current_state != EnemyAI.State.WINDUP:
+			continue
+		var to_me: Vector3 = global_position - e.global_position
+		to_me.y = 0.0
+		var d: float = to_me.length()
+		var slam: bool = e is ArchetypeEnemy and (e as ArchetypeEnemy).get_kind() == "slam"
+		var danger_r: float = ((e as ArchetypeEnemy).archetype.aoe_radius + 0.8) if slam else e.attack_range + 0.6
+		if d > danger_r:
+			continue
+		if not slam and e.get_facing_direction().dot(to_me.normalized()) < 0.4:
+			continue
+		if _massacre_brave():
+			return false
+		var side := Vector3(-to_me.z, 0.0, to_me.x).normalized() * (1.0 if slot_index % 2 == 0 else -1.0)
+		_move_dir((to_me.normalized() + side).normalized(), profile.move_speed * 1.3, delta)
+		return true
+	return false
+
+
+func _massacre_brave() -> bool:
+	return _is_massacre() and _rng.randf() < 0.5
+
+
+# ------------------------------------------------------------------ actions (timed, animation-locked)
+
+func _start_action(kind: String, dur: float, hit_at: float, cb: Callable) -> void:
+	_action = kind
+	_action_timer = dur
+	_action_dur = dur
+	_action_hit_at = hit_at
+	_action_cb = cb
+
+
+func _process_action(delta: float) -> void:
+	var before: float = _action_dur - _action_timer
+	_action_timer -= delta
+	var after: float = _action_dur - _action_timer
+	if _action_hit_at >= 0.0 and before < _action_hit_at and after >= _action_hit_at:
+		var cb: Callable = _action_cb
+		_action_cb = Callable()
+		if cb.is_valid():
+			cb.call()
+	match _action:
+		"dance":
+			var k: int = int(after / 0.55)
+			var moves: Array[String] = ["Cheer", "Dodge_Left", "Dodge_Right", "Taunt", "Spellcasting", "Jump_Full_Short"]
+			_play([moves[k % moves.size()], "Cheer"], 0.55, false)
+			var vis: Node3D = get_node_or_null("VisualRoot") as Node3D
+			if vis != null and k % 3 == 2:
+				vis.rotation.y += 9.0 * delta
+		"spin":
+			var vis2: Node3D = get_node_or_null("VisualRoot") as Node3D
+			if vis2 != null:
+				vis2.rotation.y += TAU / 1.2 * delta
+		"channel":
+			if _action_data_track != null and is_instance_valid(_action_data_track) and _action_timer > 0.3 and _cast_ring != null:
+				var tp: Vector3 = _action_data_track.global_position + Vector3.UP * 0.06
+				_cast_ring.global_position = _cast_ring.global_position.lerp(tp, clampf(5.0 * delta, 0.0, 1.0))
+	if _action != "jump":
+		velocity.x = move_toward(velocity.x, 0.0, 25.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 25.0 * delta)
+	_apply_gravity_and_move(delta)
+	if _action_timer <= 0.0:
+		_action = ""
+		_action_cb = Callable()
+		if current != null and current.verb == "jump":
+			pass  # next hop starts on the next frame
+
+
+# ------------------------------------------------------------------ movement
+
+func _move_to(goal: Vector3, speed: float, delta: float, avoid_allies: bool = true) -> void:
+	var to: Vector3 = goal - global_position
+	to.y = 0.0
+	var d: float = to.length()
+	if d < 0.05:
+		_halt(delta)
+		return
+	var dir: Vector3 = to / d
+	if avoid_allies:
+		dir = (dir + _separation() * 0.9).normalized()
+	_move_dir(dir, minf(speed, d * 4.0), delta)
+
+
+func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
+	var d: Vector3 = Vector3(dir.x, 0.0, dir.z)
+	if d.length_squared() < 0.0001:
+		_halt(delta)
+		return
+	d = d.normalized()
+	# Edge / hazard probe: never step off a ledge; try fanning around it.
+	if not _floor_ahead(d):
+		var found: bool = false
+		for a in [0.6, -0.6, 1.2, -1.2, 1.8, -1.8]:
+			var alt: Vector3 = d.rotated(Vector3.UP, a)
+			if _floor_ahead(alt):
+				d = alt
+				found = true
+				break
+		if not found:
+			_halt(delta)
+			return
+	var cur := Vector3(velocity.x, 0.0, velocity.z).move_toward(d * speed, 30.0 * delta)
+	velocity.x = cur.x
+	velocity.z = cur.z
+	set_facing(facing_direction.slerp(d, clampf(10.0 * delta, 0.0, 1.0)))
+	_apply_gravity_and_move(delta)
+
+
+func _halt(delta: float) -> void:
+	velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
+	velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
+	_apply_gravity_and_move(delta)
+
+
+func _apply_gravity_and_move(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y = maxf(velocity.y - GRAVITY * delta, -30.0)
+	elif velocity.y < 0.0:
+		velocity.y = 0.0
+	move_and_slide()
+
+
+func _separation() -> Vector3:
+	var push := Vector3.ZERO
+	var others: Array[Node] = get_tree().get_nodes_in_group("squad_ally")
+	var p: Node = get_tree().get_first_node_in_group("player")
+	if p != null:
+		others.append(p)
+	for o in others:
+		if o == self or not (o is Node3D):
+			continue
+		var d: Vector3 = global_position - (o as Node3D).global_position
+		d.y = 0.0
+		var l: float = d.length()
+		if l < 1.3 and l > 0.001:
+			push += d / l * (1.3 - l)
+	return push
+
+
+func _floor_ahead(dir: Vector3, dist: float = 0.85) -> bool:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + dir * dist + Vector3.UP * 0.7
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.4, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
+	return not space.intersect_ray(q).is_empty()
+
+
+func _point_walkable(p: Vector3) -> bool:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
+	var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 0.8, p + Vector3.DOWN * 2.0, mask, [get_rid()])
+	if space.intersect_ray(q).is_empty():
+		return false
+	var wall := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 0.9, p + Vector3.UP * 0.9, collision_mask, [get_rid()])
+	return space.intersect_ray(wall).is_empty()
+
+
+func _update_stuck(delta: float) -> void:
+	var moved: float = Vector2(global_position.x - _last_pos.x, global_position.z - _last_pos.z).length()
+	var wants: bool = Vector2(velocity.x, velocity.z).length() > 1.0
+	_last_pos = global_position
+	if wants and moved < 0.6 * delta:
+		_stuck_timer += delta
+	else:
+		_stuck_timer = maxf(0.0, _stuck_timer - delta * 2.0)
+	if _stuck_timer > 2.0:
+		_stuck_timer = 0.0
+		var p: Node3D = _player()
+		if p != null and global_position.distance_to(p.global_position) > 6.0:
+			_blink_to(p)
+
+
+## Catch-up: allies are mirror echoes — when hopelessly far, fallen, or left behind a jump, they blink
+## to a free spot behind the player (with a spectral flash) instead of path-finding across chasms.
+func _catch_up(player: Node3D) -> void:
+	var d: Vector3 = player.global_position - global_position
+	var far: float = 30.0 if (current != null and current.is_mission()) else 20.0
+	if d.length() > far or d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0 or global_position.y < player.global_position.y - 6.0:
+		if player is PlayerController and (player as PlayerController).is_currently_airborne():
+			return
+		_blink_to(player)
+
+
+func _blink_to(player: Node3D) -> void:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var base: Vector3 = _formation_point(player)
+	var tries: Array[Vector3] = [base, player.global_position - (player.call("get_facing_direction") as Vector3) * 1.5, player.global_position]
+	for t in tries:
+		var q := PhysicsRayQueryParameters3D.create(t + Vector3.UP * 1.5, t + Vector3.DOWN * 3.0, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty():
+			GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 2.5, 0.25, 3.0)
+			global_position = (hit["position"] as Vector3) + Vector3.UP * 0.05
+			velocity = Vector3.ZERO
+			_last_pos = global_position
+			GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 3.0, 0.3, 3.0)
+			return
+
+
+func _update_anim() -> void:
+	if not _action.is_empty() or _stagger_timer > 0.0 or is_downed or _dash_timer > 0.0:
+		return
+	var sp: float = Vector2(velocity.x, velocity.z).length()
+	if sp > 3.4:
+		_play(["Running_A", "Running_B"], -1.0, false, true)
+	elif sp > 0.4:
+		_play(["Walking_A", "Walking_B", "Running_A"], -1.0, false, true)
+	elif _engage_target != null and _enemy_ok(_engage_target):
+		_play(["Idle_Combat", "2H_Melee_Idle", "Idle"], -1.0, false, true)
+	else:
+		_play(["Idle", "Idle_B"], -1.0, false, true)
+
+
+# ------------------------------------------------------------------ queries
+
+func _player() -> Node3D:
+	return get_tree().get_first_node_in_group("player") as Node3D
+
+
+func _enemy_ok(e: EnemyAI) -> bool:
+	return e != null and is_instance_valid(e) and not e.is_dead and e.is_active and e.is_inside_tree()
+
+
+func _active_enemies(center: Vector3, radius: float) -> Array[EnemyAI]:
+	var out: Array[EnemyAI] = []
+	for n in get_tree().get_nodes_in_group("enemy"):
+		var e: EnemyAI = n as EnemyAI
+		if e == null or not _enemy_ok(e):
+			continue
+		if e.global_position.distance_to(center) <= radius and absf(e.global_position.y - center.y) < 4.0:
+			out.append(e)
+	return out
+
+
+func _nearest_enemy(center: Vector3, radius: float) -> EnemyAI:
+	var best: EnemyAI = null
+	var bd: float = radius
+	for e in _active_enemies(center, radius):
+		var d: float = e.global_position.distance_to(center)
+		if d < bd:
+			bd = d
+			best = e
+	return best
+
+
+func _enemies_targeting_me() -> Array[EnemyAI]:
+	var out: Array[EnemyAI] = []
+	for e in _active_enemies(global_position, 16.0):
+		if e.get_current_target() == self:
+			out.append(e)
+	return out
+
+
+func _cluster_centroid() -> Vector3:
+	var chasers: Array[EnemyAI] = _enemies_targeting_me()
+	if chasers.is_empty():
+		var e: EnemyAI = _nearest_enemy(global_position, 12.0)
+		return e.global_position if e != null else global_position
+	var c := Vector3.ZERO
+	for e in chasers:
+		c += e.global_position
+	return c / float(chasers.size())
+
+
+func _threat_centroid(center: Vector3, radius: float) -> Vector3:
+	var list: Array[EnemyAI] = []
+	for e in _active_enemies(center, radius):
+		if e.is_aggroed():
+			list.append(e)
+	if list.is_empty():
+		return Vector3.INF
+	var c := Vector3.ZERO
+	for e in list:
+		c += e.global_position
+	return c / float(list.size())
+
+
+func _pick_auto_target(player: Node3D, radius: float = -1.0, any: bool = false) -> EnemyAI:
+	if manager != null and manager.has_method("pick_enemy_for"):
+		return manager.call("pick_enemy_for", self, player, radius if radius > 0.0 else profile.aggro_radius, any) as EnemyAI
+	return _nearest_enemy(global_position, profile.aggro_radius)
+
+
+func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
+	if manager != null and manager.has_method("resolve_enemy"):
+		return manager.call("resolve_enemy", selector, player.global_position if player != null else global_position) as EnemyAI
+	return _nearest_enemy(global_position, 20.0)
+
+
+func _resolve_ward(sel: String, player: Node3D) -> Node3D:
+	if sel.is_empty() or sel == "player" or sel == "me":
+		return player
+	if manager != null and manager.has_method("find_ally"):
+		var a: SquadAlly = manager.call("find_ally", sel) as SquadAlly
+		if a != null and a != self:
+			return a
+	return player
