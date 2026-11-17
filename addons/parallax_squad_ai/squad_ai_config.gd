@@ -184,7 +184,10 @@ static func native_url() -> String:
 
 static func model() -> String:
 	ensure_loaded()
-	return model_override if not model_override.strip_edges().is_empty() else _def("model")
+	if not model_override.strip_edges().is_empty():
+		return model_override
+	var env_model: String = OS.get_environment("PARALLAX_AI_MODEL").strip_edges()
+	return env_model if not env_model.is_empty() else _def("model")
 
 
 static func stt_model() -> String:

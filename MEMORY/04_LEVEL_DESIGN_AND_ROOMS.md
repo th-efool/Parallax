@@ -249,8 +249,13 @@ Critical path (feet positions, in order): `GrandJourneyBuilder.get_route_waypoin
 | `Stage04_MechanismChamber/Roamers/TowerSkeleton_A`, `_B`, `TowerPhantom` | Skel ×2, Phantom | (3.5,6,97.5), (-4.2,6,97), (3.8,6,91) | 3 / roamer |
 | `Stage05_ExecutionArena/Roamers/EsplanadeGatekeeper`, `EsplanadeSkeleton`, `StairPhantom` | Guard, Skel, Phantom | (0,10,118.4), (-5.5,10,118), (3,8.3,110) | 3 / roamer |
 | `Stage05_ExecutionArena/Enemies/TheWarden` | Warden | (0,10,153) | 4 / `the_warden` |
+| `Stage01_EntryVestibule/Roamers/OverlookHexcaster` | Hollow Hexcaster (archetype) | (-4.3,0,-24) on Causeway B, facing the overlook | 0 / roamer |
+| `Stage02_HallOfEchoes/Roamers/RampartStalker` | Shade Stalker (archetype, both realms) | (2,6,59.3) on the Rampart landing, patrol `0.6 m` | 1 / roamer |
+| `Stage05_ExecutionArena/Roamers/EsplanadeBrute` | Grave Brute (archetype) | (5.5,10,118) east half of the esplanade | 3 / roamer |
 
-Add roamers with `GrandJourneyBuilder._add_roamer(parent, "skeleton"/"phantom"/"shield", name, pos, section, face_toward)`. Enemies only wake up while `EncounterDirector.current_section` equals their section.
+Add roamers with `GrandJourneyBuilder._add_roamer(parent, kind, name, pos, section, face_toward)`; `kind` = `"skeleton"` / `"phantom"` / `"shield"` or a data archetype `"hexcaster"` / `"brute"` / `"stalker"` (`ARCHETYPE_PATHS`). Roamers get `patrol_radius 1.6 m` (archetypes use their data). Enemies only wake up while `EncounterDirector.current_section` equals their section.
+
+- **Squad allies** spawn on the player's formation points at run start (`AllySquad` in `main.tscn`), follow along the whole route and blink to the player across gaps / level changes, so no per-room ally placement exists. The scripted squad test uses the **Gate Forecourt** (14 × 10 m at (0,0,-10), ENTRY) as its arena.
 
 ### 6.4 Lights, sound and weather bands
 - **Braziers** (`BrazierLight` OmniLight3D, fire in Reality, cobalt in Mirror, 3D fire-crackle audio): (-6,2.1,-14), (-8.2,6.1,25.8), (-3,8.1,61), (-4.6,8.1,99), (-7.8,12.1,117.5). Ring braziers sit on the arena podium cap. Keep extra lights sparse: the budget is around 10 dynamic omni lights visible.

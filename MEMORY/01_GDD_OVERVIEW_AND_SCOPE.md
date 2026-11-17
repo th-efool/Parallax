@@ -15,8 +15,8 @@
 | **Genre / Camera** | Single-player third-person action / melee combat / puzzle traversal (over-right-shoulder follow camera) |
 | **Target Build** | Windows 64-bit executable; Godot 4.7+ (Forward+) |
 | **Session Length** | ~10–15 minutes for a first clear |
-| **Content Scope** | One continuous level, 5 connected sections, 1 weapon (sword), 4 enemy classes (incl. 1 boss) |
-| **Online Dependency** | None (100% offline; local `ConfigFile` leaderboard & options under `user://`) |
+| **Content Scope** | One continuous level, 5 connected sections, 1 weapon (sword), 7 enemy classes (incl. 1 boss; 3 data-driven archetypes added 2026-11-17), 3-ally AI squad (data-driven, 2026-11-17) |
+| **Online Dependency** | **Optional only** (since 2026-11-17): the Squad AI plugin may call an AI API (Gemini preferred, OpenAI optional) when the player supplies a key. The game is 100% playable offline — typed squad orders fall back to a local keyword parser. Leaderboard, saves and settings stay local `ConfigFile`s under `user://`. |
 | **Design Sources** | User-provided PARALLAX concept sheet (`reference_images/00_concept_sheet_overview.jpg`), working Mirrorrealm Combat notes, IGDC 2023 Low-Prep Game-Dev Challenge brief |
 
 > **Core Design Rule**: When a feature does not reinforce **shifting**, **combat readability**, **traversal**, or the **score chase**, it is outside the one-week build unless required for a complete start-to-finish game.
@@ -141,13 +141,20 @@ PARALLAX satisfies all five competition themes at bounded scope:
 
 ### Locked Quantities
 - **Protagonists**: 1 | **Weapons**: 1 Sword | **Levels**: 1 Continuous Level (`5` Sections)
-- **Standard Enemies**: 3 classes (`Skeleton Guard`, `Phantom Twin`, `Shielded Guard`)
+- **Standard Enemies**: 3 core classes (`Skeleton Guard`, `Phantom Twin`, `Shielded Guard`) + 3 data-driven archetypes (`Hollow Hexcaster`, `Grave Brute`, `Shade Stalker`, `res://data/enemies/`)
+- **Allies**: 3 AI squad "Echoes" (`Brannoc`, `Sera`, `Ivo`, `res://data/allies/`) — a 4th needs only a new resource
 - **Bosses**: 1 (`The Warden`, 2 phases) | **Breakables**: 3 authored events | **Leaderboard**: Local Top 5
 
+### 6.1 Scope Change Record — 2026-11-17 (user-requested "Conversational Squad AI")
+The user explicitly lifted two locks for this feature; everything else in this section still stands.
+- **"No online services" → optional AI service.** `addons/parallax_squad_ai` may call Gemini (preferred, free tier) or any OpenAI-compatible endpoint for squad chat, speech-to-text and ally voices. Rules: (1) **API keys are never committed** — read from env vars, a gitignored `.env`, or `user://squad_ai.cfg` (the repo is public); (2) the game must stay fully playable with no key (offline keyword parser, canned voice lines); (3) API errors surface as in-game notifications, never crashes. No accounts, telemetry, cloud saves or online leaderboards.
+- **"Single-player, no co-op" → AI companions.** A 3-ally AI squad fights beside the player (still single-player; no networked players). Voice acting remains cut — ally voices are optional runtime TTS.
+- Enemy roster grew by 3 data-driven archetypes (user asked for "a few more enemy types").
+
 ### Explicitly Cut (DO NOT IMPLEMENT)
-- Multiplayer, co-op, PvP, online leaderboards, cloud saves, accounts, telemetry.
+- Multiplayer, networked co-op, PvP, online leaderboards, cloud saves, accounts, telemetry. *(AI squad companions + optional AI API are allowed per §6.1.)*
 - Multiple weapons, ranged weapons/bows/magic spells, parry mechanic, dedicated block button, stamina bar, inventory, loot, crafting, shops, XP, skill trees.
 - Branching routes, hub worlds, side quests, secret rooms, second biome, procedural generation.
 - Full systemic physics destruction of walls/props.
-- Voice acting, facial animation/lip sync, elaborate boss cutscenes.
+- Recorded voice acting, facial animation/lip sync, elaborate boss cutscenes. *(Optional runtime TTS ally voices are allowed per §6.1.)*
 - Additional puzzle mechanics in Mechanism Chamber (strictly reuses airborne `F` landing attack + pressure plate).

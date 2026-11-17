@@ -18,6 +18,10 @@
 | `landing_attack` | `F` | **Airborne only**: triggers committed downward plunge; spawns single `2.2 m` radial shockwave (`60` dmg) on ground impact. No effect on ground. |
 | `interact` | `E` | Contextual interaction with Mirror Switch, Bridge Anchor, and Mechanism/Gates when in prompt range. |
 | `pause` | `Escape` | Opens Pause menu and pauses `SceneTree` + run timer. |
+| `squad_chat` | `Enter` (+ keypad Enter) | Opens the squad chat bar (Enter sends, Esc closes). Gameplay input is locked while typing. Registered at runtime by `SquadCommsHUD`. |
+| `push_to_talk` | `V` (hold) — or hold the on-screen mic button | Records a voice order (needs an API key); release to transcribe -> same path as chat. |
+| `toggle_command_log` | `L` | Shows / hides the squad command-history log. |
+| `cinematic_mode` | `F10` | Hide-all: HUD + enemy / ally overhead labels. |
 
 ### 1.2 Camera & Movement Targets
 - **Camera**: Third-person follow camera positioned behind and slightly right-of-shoulder (`SpringArm3D` with collision push-in so walls never clip view).
@@ -111,6 +115,9 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 | **Phantom Twin** | 2 | `MIRROR_ONLY` | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
 | **Shielded Guard** | 1 | `BOTH_STATEFUL` | `250` | `20` (shield bash) | Frontal shield blocks light hits & absorbs heavy in Reality. Shift to Mirror: reflection is shieldless -> Heavy staggers & kills. |
 | **The Warden (Boss)** | 1 | `BOTH_STATEFUL` -> Merged | `1,000` (shared) | `20` Cleave / `25` Lunge | Phase 1: Dodge in Reality, shift to Mirror during `1.4 s` recovery chest-rune opening. Phase 2 (`<=500 HP`): Realms merge, dodge faster chain & kill in Reality. |
+| **Hollow Hexcaster** *(archetype)* | 1 | `REALITY_ONLY` | `70` | `12` (hex bolt, `11 m/s`) | Ranged caster on Skeleton_Warrior (purple tint, hand orb). Holds `7 m`, strafes, fires a dodgeable bolt (`0.8 s` wind-up, `Spellcast_Shoot`). Close the gap; flees at `30%` HP. |
+| **Grave Brute** *(archetype)* | 1 | `REALITY_ONLY` | `260` | `24` (ground slam, `3.2 m` AoE) | Barbarian ×1.18, 2H axe. `1.05 s` wind-up with a growing red floor ring; slam hits player **and allies**, cracks the ground, broadcasts noise. No flinch on lights, knock-back `0.3`, never flees. Dodge out of the ring, punish the `1.3 s` recovery. |
+| **Shade Stalker** *(archetype)* | 1 | `BOTH_STATEFUL` | `90` | `14` (dual stab; `×1.6` from behind) | Fast Skeleton_Rogue (blue tint). Blinks behind its target (`6 s` cooldown) before a token swing, evade `0.75`, flees at `35%`. Exists in both realms. |
 
 ### 3.2 Behavioral Details
 - **Skeleton Guard** (`Hall of Echoes`):
@@ -148,7 +155,34 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 - **Enrage**: last survivor of a squad of ≥2 moves `1.25x`, winds up `0.8x`, recovers `0.7x`.
 - **Every hit**: knock-back (`knockback_scale`: Warden `0.15`, Shielded `0.55`, Phantom `1.3`), hit-lean spring on `ModelRoot`, white flash overlay, directional blood spray + floor splat decals, wound drip below 55% HP. Spectral (Mirror-only) enemies bleed emissive cyan ichor.
 - **Death**: `GoreFX.dismember()` splits the rig into per-bone physics gibs posed exactly as the killing frame (meshes grouped by dominant skin bone; helmets/weapons follow their bone attachment), blood fountain + pool, gib bleed trails; gibs fade after ~7 s (cap 80, decals cap 48).
-- **Loadouts** (`CharacterLoadout`): Knight player = `1H_Sword + Badge_Shield`; Knight Shielded Guard = `1H_Sword + Rectangle_Shield`; Barbarian Warden = `2H_Axe`; Skeleton Warrior borrows Barbarian `1H_Axe` + Knight `Round_Shield`; Skeleton Rogue borrows Knight `1H_Sword` + offhand.
+- **Loadouts** (`CharacterLoadout`): Knight player = `1H_Sword + Badge_Shield`; Knight Shielded Guard = `1H_Sword + Rectangle_Shield`; Barbarian Warden = `2H_Axe`; Skeleton Warrior borrows Barbarian `1H_Axe` + Knight `Round_Shield`; Skeleton Rogue borrows Knight `1H_Sword` + offhand. Archetype enemies and allies take `keep_props` / `borrow_props` from their resources.
+
+### 3.4 Threat & Aggro (2026-11-17 — replaces "always target the player")
+- **Threat table** per enemy (`instance_id -> threat`) over the player and every `squad_ally`. Target = highest *score* (threat × `0.45` if the entity is already saturated by `max_enemies_per_target = 3` other enemies), re-evaluated every `0.3 s` with **hysteresis `1.15`** (a challenger must beat the current target by 15 %, so pursuit does not snap just because someone else chipped in). Lost / dead / out-of-range targets are dropped and the table re-evaluated; nothing left -> ALERT at the last known position.
+- **Gains**: damage dealt × `damage_threat_mult 1.0`; proximity `7/s × (1 - d/4.5 m)` while aggroed; first sighting `+10`; squad call `+12`; knock-down source `+8`.
+- **Decay**: `10 %/s` exponential (Shielded `6 %`, Brute `6 %`); entries under `0.25` are pruned.
+- **Taunt** (`apply_taunt`): `+60` flat (`taunt_threat_bonus`) + **lock** (`default_taunt_lock 3 s`; allies use `4 s`). TAUNTED is a modifier (lock timer): the enemy ignores the soft cap and never waits for an attack token. Taunts affect only the enemy taunted — the rest of its group keeps its own targets (area "take aggro" is an explicit ally order).
+- **Backstab** (attacker in the rear arc, facing·to_attacker < −0.35): damage `×1.25`, threat `×1.8`, stagger `0.55 s` (Shielded `0.4`; Warden never), then a **turn-around** (snaps to face and targets the stabber with a `0.2 s` roar) before it can counter.
+- **Knock-down** (`KNOCKDOWN_SOURCES`: `player_landing`, `fin_sunder`, `ally_charge`, `ally_nuke`, `ally_detonate`): STUNNED `1.6 s` (Lie_Down → Lie_Idle → Lie_StandUp), incoming damage `×1.35` while stunned. Warden is `knockdown_immune`.
+- **States**: ALERT (walk to the noise / call, look around `4 s`, detection ×1.25), FLEEING (once per life below `flee_health_ratio`: Skeleton `0.15`, Phantom `0.25`, Hexcaster `0.30`, Stalker `0.35`, others `0`; runs `flee_duration` then turns and fights), RETURNING (leash: beyond `max_chase_distance` from home — default `22 m`, Warden `80`, Brute `18`, Hexcaster `20`, Stalker `24` — clears threat and walks home, `1.5 s` re-aggro block, snaps home after `14 s` stuck). IDLE roamers patrol within `patrol_radius` (roamers `1.6 m`, archetypes from data) with an edge probe.
+- **Alert propagation**: spotter calls squad-mates in the same encounter or within `9 m` straight into CHASE; within `18 m` they come to investigate (ALERT). Ally detonations / brute slams `broadcast_noise` (`14–16 m`).
+- **Overhead state glyph** (`StateIcon` Label3D, hidden within 4 m of the camera): `?` alert, `!` roar, `⚔` taunted, `✦ ✦` stunned, `!!` fleeing, `↩` returning.
+
+### 3.5 Ally Squad — "Echoes" (2026-11-17)
+| Ally (`res://data/allies/`) | Role | Rig | HP | Speed | Aggro r | Melee | Retreat ≤ | Abilities | TTS voice (Gemini / OpenAI) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `01_brannoc` Brannoc | vanguard | Barbarian ×1.04 (axe + round shield) | `190` | `5.4` | `8` | `20` / `1.1 s` | `25 %` | taunt, charge, bodyguard, revive | Algenib / onyx |
+| `02_sera` Sera | skirmisher | Skeleton_Rogue (borrowed blades, cyan tint) | `120` | `6.6` | `9` | `16` / `0.75 s` | `35 %` | taunt, kite, lure, finisher, revive | Puck / nova |
+| `03_ivo` Ivo | artillery | Knight ×0.98 (sword, violet tint) | `110` | `5.2` | `10` | `14` / `1.0 s` | `40 %` | nuke (`48` dmg, `3.8 m`, `1.3 s` channel), mine, revive | Iapetus / fable |
+- All allies: `damage_taken_mult 0.6`, out-of-combat regen (×3 while retreating), formation wedge out of the camera line (`(-2.5,0.3)`, `(2.7,0.8)`, `(-2.2,2.4)`…), catch-up blink when > 20 m (30 on missions) / stuck 2 s / a level below. Personalities only change voice & flavour lines (incl. banter every 50–95 s out of combat and complaints at repeated silly orders).
+- **Priority ladder**: PANIC (`massacre`, `ceasefire`, `scatter`) > direct orders / MISSIONS > self-preservation at **critical** HP (< half the retreat threshold) > autonomous combat (follow + auto-engage, retreat below threshold) > idle. Equal-priority finite orders queue; stances replace stances; queued finite orders always run before a resumable stance; a preempted mission resumes afterwards.
+- **Mission lock** (`bodyguard`, `kite`, `nuke`, `revive`, `peel`, combos): lower / equal orders queue (`"Mission first…"`), stray hits never retarget the ally; the lock ends on critical HP, a new panic order, `stop`, or the mission target dying.
+- **Phased tactics**: approach → provoke (taunt, else dart-in poke) → confirm (`enemy.get_current_target() == ally` within `1.4 s`) → sustain loop. Failures are reported and fall back (3 failed provokes / `9 s` approach -> straight fight; combo partner still signalled).
+- **Circle kite**: radius `5.5 m` around a centre that drifts toward the pack; re-path every `0.4 s` (blocked -> reverse and widen `+1 m` up to `8.5 m`, then recentre); re-poke after `1 s` of lost aggro; `ready` handshake only after threat is confirmed **and** `2.6 s` of running.
+- **Combos** (manager handshakes, scarcest specialist filled first): kite+nuke (`ready` → nuker channels on the cluster, `casting` → kiter clears out, `released`); charge+finish (charge `12.5 m/s`, `22` dmg + knock-down → `knocked` → finisher gets behind, `55` heavy → `finished`); lure+detonate (trapper plants a `3 m` mirror sigil off the player's flank → `planted` → lurer provokes and runs through it → detonate when a chaser is inside or after `15 s`, `≥50` dmg + knock-down). Downed / retreating > 4 s participant -> substitute by role with a voice line, else **solo** variant, else abort cleanly. Combos time out at `40 s`.
+- **Bodyguard**: guard spot `1.7 m` from the ward toward the threat centroid every tick (not beside it); intercepts enemies within `6 m` of the ward (taunting ones on the ward), leash `8.5 m`; ward = player, ally, or `objective` (nearest switch / mechanism target); ward down -> "Standing by" and stand down.
+- **Other orders**: attack (selector / type / `ally:<Name>`'s target), split (left / right / centre lanes), take aggro (area taunt of everything on the player), peel, hit-and-run (in, strike, out `5.5 m`, `16 s`), hold, follow, retreat, nuke, taunt, revive, hunt (scares ambient wildlife — they have no HP), destroy (safe breakables only; never the boss mirror plane), interact (switches / chests), status, stop, auto-engage on/off, jump N (clamped `1–12`), dance, emote. Unknown verbs / nonsense -> a "confused" line, never a crash.
+- **DOWNED**: at 0 HP; targetable = false, label "DOWN — revive". Revive by the player (Interact within `2.6 m`, `50 %` HP) or by order (`2.2 s` channel, `45 %`). Player respawn regroups and fully heals the squad.
 
 ---
 
@@ -172,11 +206,15 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 
 > **Live code values (audited Claude Pass C, 2026-11-16)** — `_init()` of each enemy script: Skeleton `100 HP / 15 dmg / 0.55 s windup / 0.80 s rec`; Phantom `80 / 20 / 0.65 / 1.00`; Shielded Guard `250 / 20 / 0.65 / 0.90`; Warden P1 Cleave `20` / Lunge `25`, windup `0.90`, recovery `1.40`; P2 windup `0.65`, recovery `0.85`, chain windup `0.45`. Player (`player_controller.gd` export defaults; `player.tscn` doesn't override them) still uses dodge `0.48 s` / i-frames `0.24 s` and run speed `5.5`, which differ from the `0.55/0.18` and `4.5` baselines above — intentional Pass 5 feel tuning, not changed here.
 
+> **Archetype & ally tuning (2026-11-17)** lives in data: `data/enemies/{hollow_hexcaster,grave_brute,shade_stalker}.tres` and `data/allies/0N_*.tres` (values in §3.1 / §3.5). Threat tuning = `EnemyAI` "Threat & Aggro" exports (§3.4).
+
 ### 4.2 Appendix B — Locked Glossary
 - **Reality**: Warm physical limestone/amber state of the arena.
 - **Mirror**: Cool spectral cobalt/moonlight counterpart state.
 - **Realm Shift (`Q`)**: Instant toggle preserving player world transform.
 - **Realm-Reactive Actor**: Node whose mesh, collision, and AI respond to Reality/Mirror via `RealmReactive`.
 - **Mirror Kill**: Killing any enemy while `MIRROR` is active (`+200` bonus, combo-multiplied).
+- **Echo / Squad Ally**: An AI companion (`SquadAlly`) — a champion the mirror preserved, fighting beside the player.
+- **Threat**: Per-enemy aggro value per entity; the highest-threat entity is the enemy's target.
 - **Environmental Kill**: Killing blow dealt by authored hazard such as Cracked Pillar (`+250` bonus, combo-multiplied).
 - **Registered Geometry**: Reality & Mirror counterparts aligned to identical world-space landmarks.
