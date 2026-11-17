@@ -258,6 +258,7 @@ func _build_body() -> void:
 	_name_label.font = UITheme.display_font()
 	_name_label.position = Vector3(0, 2.25, 0)
 	add_child(_name_label)
+	WorldLabelOverlay.adopt(_name_label, {"px": 15, "font": "display", "max_dist": 45.0})
 	_ring = MeshInstance3D.new()
 	var tm := TorusMesh.new()
 	tm.inner_radius = 0.48

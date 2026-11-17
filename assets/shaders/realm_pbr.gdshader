@@ -23,6 +23,9 @@ uniform vec4 mirror_tint : source_color = vec4(0.17, 0.23, 0.38, 1.0);
 uniform vec4 rune_color : source_color = vec4(0.25, 0.62, 1.0, 1.0);
 uniform float rune_strength : hint_range(0.0, 8.0) = 2.2;
 uniform float rune_threshold : hint_range(0.0, 1.0) = 0.42;
+// 0 = photographic texture detail, 1 = flat low-poly look (albedo pulled toward its blurred average colour,
+// normal maps / AO muted, rougher). Matches the low-poly KayKit characters.
+uniform float stylize : hint_range(0.0, 1.0) = 0.7;
 
 varying vec3 w_pos;
 varying vec3 w_nrm;
@@ -60,6 +63,7 @@ void fragment() {
 	uvz.x *= -axis_sign.z;
 
 	vec3 alb = vec3(0.0);
+	vec3 flat_alb = vec3(0.0);
 	vec3 arm = vec3(0.0);
 	vec3 wn = vec3(0.0);
 	// Skip projections that contribute almost nothing (most surfaces are axis-aligned).
@@ -69,6 +73,7 @@ void fragment() {
 		tn = vec3(tn.xy + n.zy, abs(tn.z) * n.x);
 		wn += tn.zyx * bw.x;
 		alb += texture(albedo_tex, uvx).rgb * bw.x;
+		flat_alb += textureLod(albedo_tex, uvx, 7.0).rgb * bw.x;
 		arm += texture(arm_tex, uvx).rgb * bw.x;
 	}
 	if (bw.y > 0.02) {
@@ -77,6 +82,7 @@ void fragment() {
 		tn = vec3(tn.xy + n.xz, abs(tn.z) * n.y);
 		wn += tn.xzy * bw.y;
 		alb += texture(albedo_tex, uvy).rgb * bw.y;
+		flat_alb += textureLod(albedo_tex, uvy, 7.0).rgb * bw.y;
 		arm += texture(arm_tex, uvy).rgb * bw.y;
 	}
 	if (bw.z > 0.02) {
@@ -85,12 +91,15 @@ void fragment() {
 		tn = vec3(tn.xy + n.xy, abs(tn.z) * n.z);
 		wn += tn.xyz * bw.z;
 		alb += texture(albedo_tex, uvz).rgb * bw.z;
+		flat_alb += textureLod(albedo_tex, uvz, 7.0).rgb * bw.z;
 		arm += texture(arm_tex, uvz).rgb * bw.z;
 	}
 	float wsum = bw.x * step(0.02, bw.x) + bw.y * step(0.02, bw.y) + bw.z * step(0.02, bw.z);
 	alb /= max(wsum, 1e-4);
+	flat_alb /= max(wsum, 1e-4);
 	arm /= max(wsum, 1e-4);
-	wn = normalize(mix(n, normalize(wn), normal_strength));
+	alb = mix(alb, flat_alb, stylize * 0.85);
+	wn = normalize(mix(n, normalize(wn), normal_strength * (1.0 - 0.8 * stylize)));
 
 	// Macro variation breaks visible tiling over large surfaces.
 	float macro = vnoise(w_pos.xz * 0.045 + w_pos.y * 0.03) * 0.6 + vnoise(w_pos.xz * 0.17) * 0.4;
@@ -102,6 +111,7 @@ void fragment() {
 	ALBEDO = mix(alb, mirror_alb, mb);
 
 	float rough = clamp(arm.g + roughness_bias, 0.04, 1.0);
+	rough = mix(rough, 0.9, stylize * 0.5);
 	// Rain: up-facing surfaces darken and turn glossy; puddles collect in cavities.
 	float wet = clamp(realm_wetness, 0.0, 1.0) * smoothstep(0.2, 0.9, n.y);
 	float puddle = wet * smoothstep(0.55, 0.25, arm.r * (0.6 + macro * 0.6));
@@ -110,7 +120,7 @@ void fragment() {
 	rough = mix(rough, 0.03, puddle);
 	ROUGHNESS = mix(rough, rough * 0.55, mb);
 	METALLIC = metallic_override >= 0.0 ? metallic_override : arm.b;
-	AO = arm.r;
+	AO = mix(arm.r, 1.0, stylize * 0.6);
 	AO_LIGHT_AFFECT = 0.35;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
 

@@ -1882,7 +1882,7 @@ func _configure_atmosphere() -> void:
 		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 		sun.directional_shadow_max_distance = 140.0
 		sun.directional_shadow_blend_splits = true
-		sun.shadow_blur = 1.2
+		sun.shadow_blur = 2.0
 		sun.light_volumetric_fog_energy = 1.4
 	if we == null:
 		return
@@ -1918,7 +1918,7 @@ func _configure_atmosphere() -> void:
 	env.glow_hdr_threshold = 1.1
 	env.ssao_enabled = true
 	env.ssao_radius = 1.4
-	env.ssao_intensity = 1.8
+	env.ssao_intensity = 1.0
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = Color(0.82, 0.66, 0.5)
@@ -1928,7 +1928,8 @@ func _configure_atmosphere() -> void:
 	env.fog_sun_scatter = 0.25
 	env.fog_height = -18.0
 	env.fog_height_density = 0.012
-	env.volumetric_fog_enabled = true
+	# Stylized look: no volumetric light shafts (photoreal haze clashed with the low-poly art; also cheaper).
+	env.volumetric_fog_enabled = false
 	env.volumetric_fog_density = 0.0035
 	env.volumetric_fog_albedo = Color(1.0, 0.93, 0.85)
 	env.volumetric_fog_anisotropy = 0.6
@@ -1936,8 +1937,8 @@ func _configure_atmosphere() -> void:
 	env.volumetric_fog_ambient_inject = 0.12
 	env.volumetric_fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.06
-	env.adjustment_saturation = 1.08
+	env.adjustment_contrast = 1.0
+	env.adjustment_saturation = 1.15
 	# Zone-driven weather (golden -> storm -> blood moon over the Warden -> clear aftermath).
 	if main.get_node_or_null("WeatherDirector") == null:
 		var wd: Node = (load("res://scripts/environment/weather_director.gd") as GDScript).new()

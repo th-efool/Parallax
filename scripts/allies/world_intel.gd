@@ -376,6 +376,7 @@ func _update_tag(e: EnemyAI, en: Dictionary) -> void:
 		tag.modulate = Color(1.0, 0.86, 0.5, 0.95)
 		e.add_child(tag)
 		tag.position = Vector3(0, 2.45, 0)
+		WorldLabelOverlay.adopt(tag, {"px": 14, "offset": Vector2(0, -16), "max_dist": 30.0})
 	# Mirror insight reveals more: exact health and the exposed weak point.
 	if e.mirror_insight:
 		tag.text = "%s · %d%% · WEAK" % [String(en["id"]), int(en["hp_pct"])]

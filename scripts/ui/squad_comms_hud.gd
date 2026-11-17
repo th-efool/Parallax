@@ -291,72 +291,44 @@ func _draw() -> void:
 	if _cinematic:
 		return
 	var s: Vector2 = size
-	_draw_roster(Vector2(28.0, s.y * 0.30))
+	# Minimal squad readout directly under the player's own health cluster (top-left, ends at y ~136).
+	var end_y: float = _draw_roster(Vector2(36.0, 150.0))
 	_draw_subtitles(s)
 	_draw_notes(s)
 	if _log_visible:
 		_draw_log(Vector2(s.x - 470.0, s.y * 0.30))
-	if not _chat_open and SquadAIConfig.chat_allowed():
-		var hint: String = "ENTER  orders" + ("   ·   V  talk" if SquadAIConfig.voice_allowed() else "") + "   ·   L  log   ·   F10  cinematic"
-		_text(UITheme.body_font(), Vector2(28.0, s.y * 0.30 - 14.0), hint, 16, Color(0.95, 0.9, 0.78, 0.92), 4)
+	if not _chat_open and SquadAIConfig.chat_allowed() and not _roster.is_empty():
+		var hint: String = "ENTER orders" + ("  ·  V talk" if SquadAIConfig.voice_allowed() else "") + "  ·  L log"
+		_text(UITheme.body_font(), Vector2(36.0, end_y + 12.0), hint, 13, Color(0.95, 0.9, 0.78, 0.6), 3)
 
 
 # ------------------------------------------------------------------ drawing
 
-func _draw_roster(origin: Vector2) -> void:
+## Minimal squad readout: one row per ally — NAME + health bar (a downed ally pulses red with "DOWN · E").
+## Returns the y below the last row.
+func _draw_roster(origin: Vector2) -> float:
 	var disp: Font = UITheme.display_font()
 	var body: Font = UITheme.body_font()
 	var y: float = origin.y
 	var now: float = float(Time.get_ticks_msec()) * 0.001
-	var m: AllySquadManager = AllySquadManager.instance
-	if m != null and not m.active_strategy.is_empty():
-		_text(disp, Vector2(origin.x, y - 40.0), "STRATEGY · " + m.active_strategy.to_upper(), 17, Color(1.0, 0.93, 0.72, 1.0), 6)
 	for r_v in _roster:
 		var r: Dictionary = r_v as Dictionary
 		var col: Color = r.get("color", UITheme.GOLD) as Color
 		var down: bool = bool(r.get("downed", false))
-		var rect := Rect2(origin.x, y, 300.0, 78.0)
-		var c: float = 9.0
-		var poly := _chamfer(rect, c)
-		draw_colored_polygon(poly, Color(0.035, 0.04, 0.065, 0.80))
-		var edge: Color = col if not down else Color(1.0, 0.3, 0.25).lerp(Color(0.5, 0.1, 0.1), 0.5 + 0.5 * sin(now * 6.0))
-		poly.append(poly[0])
-		draw_polyline(poly, Color(edge.r, edge.g, edge.b, 0.9), 1.5, true)
-		draw_rect(Rect2(rect.position.x + 3.0, rect.position.y + 8.0, 3.0, rect.size.y - 16.0), Color(col.r, col.g, col.b, 0.95))
-		var glyph: String = String(ROLE_GLYPH.get(String(r.get("role", "")), "◆"))
-		_text(disp, rect.position + Vector2(16.0, 24.0), glyph + "  " + String(r.get("name", "")).to_upper(), 19, Color(col.r, col.g, col.b, 1.0), 4)
-		_text(body, rect.position + Vector2(rect.size.x - 12.0 - body.get_string_size(String(r.get("role", "")).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x, 21.0), String(r.get("role", "")).to_upper(), 13, Color(0.75, 0.75, 0.8, 0.8), 2)
 		var ratio: float = clampf(float(r.get("hp", 0)) / maxf(1.0, float(r.get("max_hp", 1))), 0.0, 1.0)
-		var bar := Rect2(rect.position.x + 16.0, rect.position.y + 32.0, 180.0, 6.0)
+		_text(disp, Vector2(origin.x, y + 14.0), String(r.get("name", "")).to_upper(), 15, Color(col.r, col.g, col.b, 1.0), 4)
+		var bar := Rect2(origin.x + 96.0, y + 5.0, 170.0, 8.0)
 		draw_rect(bar, Color(0, 0, 0, 0.6))
-		var hp_col: Color = Color(0.45, 0.95, 0.55) if ratio > 0.5 else (Color(1.0, 0.8, 0.3) if ratio > 0.25 else Color(1.0, 0.3, 0.25))
-		draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), hp_col)
-		var st: String = "DOWN — E to revive" if down else String(r.get("state", ""))
-		if int(r.get("queued", 0)) > 0 and not down:
-			st += "  +%d queued" % int(r.get("queued", 0))
-		_text(body, rect.position + Vector2(16.0, 53.0), _fit(body, st, 14, 270.0), 14, Color(1, 0.55, 0.5) if down else Color(0.88, 0.88, 0.92, 0.9), 2)
-		var buffs: String = String(r.get("buffs", ""))
-		if not buffs.is_empty() and not down:
-			_text(body, rect.position + Vector2(204.0, 39.0), buffs.strip_edges(), 12, Color(1.0, 0.85, 0.45, 0.95), 2)
-		# Skill pills: lit when ready, dim with seconds while cooling down.
-		var sx: float = rect.position.x + 16.0
-		for sk_v in (r.get("skills", []) as Array):
-			var sk: Dictionary = sk_v as Dictionary
-			var rem: float = float(sk.get("remaining", 0.0))
-			var scol: Color = sk.get("color", UITheme.GOLD) as Color
-			var label: String = String(sk.get("name", "")).get_slice(" ", 0).left(7).to_upper()
-			if rem > 0.0:
-				label += " %d" % int(ceil(rem))
-			var w: float = body.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 10.0
-			var pill := Rect2(sx, rect.position.y + 60.0, w, 13.0)
-			var ready: bool = rem <= 0.0 and not down
-			draw_rect(pill, Color(scol.r, scol.g, scol.b, 0.28 if ready else 0.08))
-			draw_rect(pill, Color(scol.r, scol.g, scol.b, 0.9 if ready else 0.3), false, 1.0)
-			_text(body, Vector2(sx + 5.0, rect.position.y + 71.0), label, 11, Color(1, 1, 1, 0.95) if ready else Color(0.7, 0.7, 0.75, 0.7), 0)
-			sx += w + 4.0
-			if sx > rect.end.x - 30.0:
-				break
-		y += 84.0
+		if down:
+			var pulse: float = 0.5 + 0.5 * sin(now * 6.0)
+			draw_rect(bar, Color(1.0, 0.3, 0.25, 0.35 + 0.4 * pulse))
+			_text(body, Vector2(bar.end.x + 8.0, y + 14.0), "DOWN · E", 13, Color(1.0, 0.45, 0.4, 1.0), 3)
+		else:
+			var hp_col: Color = Color(0.45, 0.95, 0.55) if ratio > 0.5 else (Color(1.0, 0.8, 0.3) if ratio > 0.25 else Color(1.0, 0.3, 0.25))
+			draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), hp_col)
+		draw_rect(bar, Color(col.r, col.g, col.b, 0.55), false, 1.0)
+		y += 24.0
+	return y
 
 
 func _draw_subtitles(s: Vector2) -> void:

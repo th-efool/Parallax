@@ -22,6 +22,11 @@ uniform vec4 storm_color : source_color = vec4(0.32, 0.33, 0.38, 1.0);
 uniform float blood : hint_range(0.0, 1.0) = 0.0;
 uniform vec4 blood_color : source_color = vec4(0.75, 0.05, 0.03, 1.0);
 uniform float flash : hint_range(0.0, 4.0) = 0.0;
+// Stylized day sky: 0 = photographic HDRI, 1 = painted gradient (horizon -> zenith + soft sun glow).
+uniform float stylize : hint_range(0.0, 1.0) = 0.7;
+uniform vec4 day_zenith : source_color = vec4(0.32, 0.52, 0.86, 1.0);
+uniform vec4 day_horizon : source_color = vec4(1.0, 0.80, 0.58, 1.0);
+uniform vec4 sun_tint : source_color = vec4(1.0, 0.85, 0.6, 1.0);
 
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -103,7 +108,12 @@ vec3 day_sky(vec3 d) {
 	float lon = atan(d.x, -d.z) + sky_rotation;
 	vec2 uv = vec2(lon / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
 	uv.x = fract(uv.x);
-	return texture(hdri, uv).rgb * exposure;
+	vec3 photo = texture(hdri, uv).rgb;
+	vec3 grad = mix(day_horizon.rgb, day_zenith.rgb, smoothstep(-0.02, 0.6, d.y));
+	float sd = max(dot(d, normalize(sun_dir)), 0.0);
+	grad += sun_tint.rgb * (pow(sd, 6.0) * 0.6 + pow(sd, 200.0) * 6.0);
+	grad *= mix(0.55, 1.0, smoothstep(-0.3, 0.0, d.y));
+	return mix(photo, grad, stylize) * exposure;
 }
 
 vec3 night_sky(vec3 d, bool cubemap_pass) {

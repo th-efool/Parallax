@@ -46,7 +46,8 @@ static var _env_source: Dictionary = {"gemini": "", "openai": ""}
 ## both | chat | voice
 static var mode: String = "both"
 static var tts_enabled: bool = true
-static var show_command_log: bool = true
+## Hidden by default (toggle with L). Persisted under the v2 key so an old "visible" setting is not inherited.
+static var show_command_log: bool = false
 static var show_subtitles: bool = true
 static var request_timeout_sec: float = 25.0
 ## Cap on voiced lines per minute (protects free-tier quotas); extra lines stay subtitle-only.
@@ -69,7 +70,7 @@ static func ensure_loaded() -> void:
 		_file_keys["openai"] = String(cf.get_value("api", "openai_key", ""))
 		mode = String(cf.get_value("comms", "mode", mode))
 		tts_enabled = bool(cf.get_value("comms", "tts_enabled", tts_enabled))
-		show_command_log = bool(cf.get_value("comms", "show_command_log", show_command_log))
+		show_command_log = bool(cf.get_value("comms", "show_command_log_v2", show_command_log))
 		show_subtitles = bool(cf.get_value("comms", "show_subtitles", show_subtitles))
 	if not MODES.has(mode):
 		mode = "both"
@@ -138,7 +139,7 @@ static func save() -> void:
 	cf.set_value("api", "openai_key", _file_keys["openai"])
 	cf.set_value("comms", "mode", mode)
 	cf.set_value("comms", "tts_enabled", tts_enabled)
-	cf.set_value("comms", "show_command_log", show_command_log)
+	cf.set_value("comms", "show_command_log_v2", show_command_log)
 	cf.set_value("comms", "show_subtitles", show_subtitles)
 	cf.save(PATH)
 

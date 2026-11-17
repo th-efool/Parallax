@@ -159,17 +159,11 @@ func _label_props() -> void:
 		var l := Label3D.new()
 		l.name = "WorldHint"
 		l.text = String(s[1])
-		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		l.fixed_size = true
-		l.pixel_size = 0.0009
-		l.font_size = 22
-		l.outline_size = 6
-		l.outline_modulate = Color(0, 0, 0, 0.85)
-		l.modulate = Color(1.0, 0.92, 0.75, 0.9)
-		l.font = UITheme.body_font()
+		l.outline_modulate = Color(0, 0, 0, 0.9)
+		l.modulate = Color(1.0, 0.92, 0.75, 1.0)
 		l.position = Vector3(0, float(s[2]), 0)
-		l.visibility_range_end = 22.0
 		n.add_child(l)
+		WorldLabelOverlay.adopt(l, {"px": 20, "font": "body", "max_dist": 26.0})
 
 
 ## Mirror only: the objective written in light over its target ("the reflection remembers the way").
@@ -180,19 +174,13 @@ func _update_inscription() -> void:
 	if _inscription == null or not is_instance_valid(_inscription):
 		_inscription = Label3D.new()
 		_inscription.name = "MirrorInscription"
-		_inscription.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_inscription.fixed_size = true
-		_inscription.pixel_size = 0.0010
-		_inscription.font_size = 26
-		_inscription.outline_size = 8
 		_inscription.outline_modulate = Color(0.0, 0.05, 0.12, 0.9)
-		_inscription.modulate = Color(CYAN.r, CYAN.g, CYAN.b, 0.95)
-		_inscription.font = UITheme.flavor_font()
-		_inscription.no_depth_test = true
+		_inscription.modulate = Color(CYAN.r, CYAN.g, CYAN.b, 1.0)
 		var lv: Node = _find_level()
 		if lv == null:
 			return
 		lv.add_child(_inscription)
+		WorldLabelOverlay.adopt(_inscription, {"px": 24, "font": "flavor", "max_dist": 70.0})
 	_inscription.visible = in_mirror
 	_inscription.global_position = (_obj.get("target", Vector3.ZERO) as Vector3) + Vector3.UP * 2.6
 	_inscription.text = "◇ " + String(_obj.get("title", "")) + " ◇"

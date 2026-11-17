@@ -867,14 +867,14 @@ func _attach_enemy_hp_bar(enemy: EnemyBase, height_offset: float) -> void:
 	if enemy is ArchetypeEnemy and (enemy as ArchetypeEnemy).archetype != null:
 		lbl.modulate = (enemy as ArchetypeEnemy).archetype.hp_bar_color
 	enemy.add_child(lbl)
+	WorldLabelOverlay.adopt(lbl, {"kind": "bar", "px": 13, "max_dist": 32.0})
 
 	var update_fn := func(cur_hp: int, m_hp: int) -> void:
 		if not is_instance_valid(lbl):
 			return
 		var ratio: float = clampf(float(cur_hp) / float(maxi(1, m_hp)), 0.0, 1.0)
-		var filled: int = int(round(ratio * 10.0))
-		var bar_str: String = "█".repeat(filled) + "░".repeat(10 - filled)
-		lbl.text = "%s  %d/%d" % [bar_str, cur_hp, m_hp]
+		lbl.set_meta("hp_ratio", ratio)
+		lbl.text = "%d/%d" % [cur_hp, m_hp]
 		lbl.visible = cur_hp > 0
 
 	enemy.health_changed.connect(update_fn)

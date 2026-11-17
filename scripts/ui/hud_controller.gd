@@ -158,6 +158,12 @@ func _apply_readability_pass() -> void:
 		_root_ctrl.add_child(ChainCounter.new())
 	if _root_ctrl.get_node_or_null("ObjectiveTracker") == null:
 		_root_ctrl.add_child(ObjectiveTracker.new())
+	# In-world labels drawn as 2D text. Index 0 now; the corner scrims below are moved to 0..3 after it,
+	# so the overlay ends up above the scrims and below every HUD panel.
+	if _root_ctrl.get_node_or_null("WorldLabelOverlay") == null:
+		var wlo := WorldLabelOverlay.new()
+		_root_ctrl.add_child(wlo)
+		_root_ctrl.move_child(wlo, 0)
 	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
 	if brand != null:
 		brand.visible = false
@@ -323,15 +329,23 @@ func _wire_visuals() -> void:
 			tr.move_child(_combo_bar, _combo_lbl.get_index() + 1 if _combo_lbl != null else tr.get_child_count() - 1)
 		_style_combo()
 
-	# --- Keycap look for action labels ---
+	# --- Keycap look for action labels + bigger action icons (80 px diamonds, was 54) ---
+	var br_cluster: Control = _root_ctrl.get_node_or_null("BottomRightActionsCluster") as Control
+	if br_cluster != null:
+		# 5 slots x 80 px + 4 gaps x 16 px = 464 px wide; extra height for the larger keycaps.
+		br_cluster.offset_left = -640.0
+		br_cluster.offset_top = -184.0
 	for act: String in _action_slots.keys():
+		var badge: Control = (_action_slots[act] as Dictionary).get("badge") as Control
+		if badge != null:
+			badge.custom_minimum_size = Vector2(80, 80)
 		var klbl: Label = (_action_slots[act] as Dictionary).get("key") as Label
 		if klbl != null:
 			klbl.add_theme_stylebox_override("normal", _keycap_style())
 			klbl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			_style_hud_label(klbl, false, 14)
+			_style_hud_label(klbl, false, 18)
 		var vlbl: Label = (_action_slots[act] as Dictionary).get("verb") as Label
-		_style_hud_label(vlbl, false, 14)
+		_style_hud_label(vlbl, false, 16)
 		if vlbl != null:
 			vlbl.add_theme_color_override("font_color", Color(0.93, 0.88, 0.76, 0.95))
 			vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
@@ -732,8 +746,15 @@ func _on_boss_health_changed(current_hp: int, max_hp: int) -> void:
 		_boss_ghost_delay = 0.5
 	else:
 		_boss_ghost = boss_hp_percent / 100.0
-	boss_bar_visible = current_hp > 0
+	# Health updates never reveal the bar on their own: it appears only once the run is in the Execution Arena
+	# (bind_boss() at level load sends the starting HP and used to show the bar from the first second).
+	boss_bar_visible = current_hp > 0 and _boss_in_play()
 	_sync_ui_nodes()
+
+
+func _boss_in_play() -> bool:
+	var director: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	return director != null and director.current_section == EncounterDirector.Section.EXECUTION_ARENA
 
 
 func _on_boss_defeated() -> void:

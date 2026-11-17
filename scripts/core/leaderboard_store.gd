@@ -446,7 +446,7 @@ func _apply_scene_graphics_and_camera() -> void:
 			we.environment.fog_enabled = bool(_settings.get("fog_enabled", true))
 			we.environment.tonemap_exposure = clampf(float(_settings.get("brightness", 1.0)), 0.5, 1.5)
 			# Scale the expensive passes with the preset: volumetric light shafts only on High/Ultra, SSAO from Low up.
-			we.environment.volumetric_fog_enabled = we.environment.fog_enabled and shadow_q >= 2
+			we.environment.volumetric_fog_enabled = false   # stylized look: never re-enabled by the preset
 			we.environment.ssao_enabled = shadow_q >= 1
 
 	# Update Player Camera3D FOV & sensitivity

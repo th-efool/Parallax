@@ -1164,6 +1164,7 @@ func _update_state_icon() -> void:
 		_state_icon.position = Vector3(0.0, 2.75, 0.0)
 		_state_icon.font = UITheme.display_font()
 		add_child(_state_icon)
+		WorldLabelOverlay.adopt(_state_icon, {"px": 26, "font": "display", "offset": Vector2(0, -34), "max_dist": 30.0})
 	var txt: String = ""
 	var col := Color(1.0, 0.85, 0.35)
 	match current_state:
