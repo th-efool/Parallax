@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 ## Headless boot smoke test: loads main.tscn, starts a run, simulates ~6 s, reports script errors via stderr.
 ## Usage: godot --headless --path . -s res://tests/boot_smoke.gd
 
@@ -30,3 +30,11 @@ func _process(_delta: float) -> bool:
 		print("[boot_smoke] WATCHDOG TIMEOUT")
 		quit(2)
 	return false
+
+## Waits until MainController has built the level behind the loading screen (Start shows it now).
+func _await_level() -> void:
+	var mc: Node = get_first_node_in_group("main_controller")
+	var t0: int = Time.get_ticks_msec()
+	while mc != null and not bool(mc.get("level_ready")) and Time.get_ticks_msec() - t0 < 120000:
+		await process_frame
+	await create_timer(0.5).timeout

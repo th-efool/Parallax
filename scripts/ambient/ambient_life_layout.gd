@@ -32,8 +32,15 @@ const GARDEN_CENTER: Vector3 = Vector3(6.5, -1.5, -33.0)
 var _mats: Dictionary = {}
 
 
+## When false, MainController builds the flora / fauna with build_progressive() under the loading screen.
+@export var build_on_ready: bool = false
+
+signal build_progress(fraction: float, label: String)
+
+
 func _ready() -> void:
-	_build.call_deferred()
+	if build_on_ready:
+		_build.call_deferred()
 
 
 func _build() -> void:
@@ -44,6 +51,23 @@ func _build() -> void:
 		_populate_hall()
 		_populate_rampart_and_gallery()
 		_populate_arena_and_summit()
+
+
+## One section per frame with progress reporting (used by the loading screen).
+func build_progressive() -> void:
+	var steps: Array = []
+	if build_garden:
+		steps.append(["Growing the cliff garden", _build_cliff_garden])
+	if populate_route:
+		steps.append(["Seeding the approach", _populate_prologue])
+		steps.append(["Seeding the Hall of Echoes", _populate_hall])
+		steps.append(["Seeding the rampart", _populate_rampart_and_gallery])
+		steps.append(["Seeding the arena", _populate_arena_and_summit])
+	for i in range(steps.size()):
+		build_progress.emit(float(i) / float(maxi(1, steps.size())), String((steps[i] as Array)[0]))
+		await get_tree().process_frame
+		((steps[i] as Array)[1] as Callable).call()
+	build_progress.emit(1.0, "Flora in place")
 
 
 # =====================================================================================================

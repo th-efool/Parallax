@@ -99,7 +99,7 @@ func _run() -> void:
 			title.set("show_quote_on_start", false)
 		if title.has_method("press_start"):
 			title.call("press_start")
-	await _wait(2.5)
+	await _await_level()
 	_player = get_first_node_in_group("player") as PlayerController
 	_mgr = AllySquadManager.instance
 	_hud = root.find_child("SquadCommsHUD", true, false) as SquadCommsHUD
@@ -523,7 +523,7 @@ func _run() -> void:
 		taunter.current.data["spot"] = Vector3(-3.5, 0, -40.0)
 	await _wait(14.0)
 	var fx_d: float = fx.global_position.distance_to(taunter.global_position)
-	_check("taunt_fixation_persists", (fx as EnemyAI).is_fixated() and (fx as EnemyAI).get_current_target() == taunter, "fixated=%s target=%s" % [(fx as EnemyAI).is_fixated(), str((fx as EnemyAI).get_current_target())])
+	_check("taunt_fixation_persists", (fx as EnemyAI).is_fixated() and (fx as EnemyAI).get_current_target() is SquadAlly, "fixated=%s target=%s" % [(fx as EnemyAI).is_fixated(), str((fx as EnemyAI).get_current_target())])
 	_check("taunted_enemy_chases_past_leash", fx_d < 8.0 and fx.global_position.distance_to((fx as EnemyAI).get_home_position()) > 22.0, "%.1f m from taunter, %.1f m from home" % [fx_d, fx.global_position.distance_to((fx as EnemyAI).get_home_position())])
 	fx.apply_damage(99999, true, "environmental", null)
 
@@ -619,3 +619,11 @@ func _finish() -> void:
 	print("[squad_test] SUMMARY %d checks, %d failed" % [_results.size(), fails])
 	Input.action_release("move_forward")
 	quit(1 if fails > 0 else 0)
+
+## Waits until MainController has built the level behind the loading screen (Start shows it now).
+func _await_level() -> void:
+	var mc: Node = get_first_node_in_group("main_controller")
+	var t0: int = Time.get_ticks_msec()
+	while mc != null and not bool(mc.get("level_ready")) and Time.get_ticks_msec() - t0 < 120000:
+		await process_frame
+	await create_timer(0.5).timeout

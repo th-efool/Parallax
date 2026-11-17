@@ -34,9 +34,14 @@ var _realm_blend: float = 0.0
 var _realm_blend_tween: Tween = null
 
 
+## When false the level is NOT built on _ready; MainController builds it step by step under the loading screen.
+@export var build_on_ready: bool = true
+
+
 func _ready() -> void:
-	build_greybox()
-	_bind_realm_visuals()
+	if build_on_ready:
+		build_greybox()
+		_bind_realm_visuals()
 
 
 func build_greybox() -> void:

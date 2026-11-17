@@ -18,8 +18,14 @@ func _initialize() -> void:
 
 
 func _bake() -> void:
-	# Let the builder, set dressing, ambient life and static batching finish.
-	for _i in range(90):
+	# The level is built by MainController at run start; the bake builds it itself, same steps.
+	var lvl: Node = _main.get_node_or_null("LevelRoot")
+	if lvl != null and lvl.has_method("build_greybox_progressive"):
+		await lvl.call("build_greybox_progressive")
+	var amb: Node = _main.get_node_or_null("AmbientLife")
+	if amb != null and amb.has_method("build_progressive"):
+		await amb.call("build_progressive")
+	for _i in range(30):
 		await process_frame
 	var preview := Node3D.new()
 	preview.name = "MapPreview"

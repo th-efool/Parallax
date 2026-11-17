@@ -126,8 +126,7 @@ func press_leaderboard() -> void:
 
 func press_replay() -> void:
 	visible = false
-	if EncounterDirector.instance != null:
-		EncounterDirector.instance.restart_full_run()
+	# MainController reloads the level for a fresh run (the world is rebuilt, not just the director reset).
 	replay_requested.emit()
 
 

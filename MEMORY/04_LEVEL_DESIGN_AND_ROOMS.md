@@ -1,4 +1,4 @@
-# PARALLAX — Level Design, Coordinates, Rooms & Visual References
+﻿# PARALLAX — Level Design, Coordinates, Rooms & Visual References
 
 > Encapsulates GDD Section 7 plus visual mapping to the 4 reference images stored in `MEMORY/reference_images/`.
 
@@ -204,7 +204,7 @@ Instanced in `scenes/main/main.tscn` as `Main/AmbientLife` (delete the node to r
 Perf (RTX 3070, 1080p, steady state, without -> with): Colosseum 78 -> 68 FPS, Hall 77 -> 67, Garden view 68 -> 56, Forecourt 66 -> 56. Cost is mostly draw calls from multi-part procedural birds / dense small plants; knobs = habitat `count`, patch `count`, creature `lod_distance`.
 ## 6. MAP ATLAS FOR AGENTS — read this instead of the builder (dumped from the live level, 2026-11-17)
 
-**See it in the editor**: the level only exists at runtime, so run `godot --path . -s res://scripts/tools/bake_map_preview.gd` (windowed, not headless — the dummy renderer drops merged meshes) to bake `res://scenes/preview/map_preview.scn` (gitignored, ~8.5 MB, Reality state, scripts stripped) and open it. It is a read-only snapshot: edit the builder, then re-bake.
+**See it in the editor**: the level only exists at runtime (it is built behind the loading screen after Start, so `main.tscn` in the editor shows only an empty `LevelRoot`), so run `godot --path . -s res://scripts/tools/bake_map_preview.gd` (windowed, not headless — the dummy renderer drops merged meshes; the tool calls `build_greybox_progressive()` / `build_progressive()` itself) to bake `res://scenes/preview/map_preview.scn` (gitignored, ~8.5 MB, Reality state, scripts stripped) and open it. It is a read-only snapshot: edit the builder, then re-bake.
 
 Use this to place flora, fauna, props, lights or sounds **without loading `grand_journey_builder.gd` (≈2k lines)**. Everything is procedural: the level is built at runtime by `LevelRoot` (`GrandJourneyBuilder`) in `scenes/main/main.tscn`. There is no saved geometry to edit in a `.tscn`. Put your content **in a scene or script you own** and instance it as a sibling under `Main`, or add a builder hook. Do not hand-edit `StageNN_*` children: their names are a save/MainController contract. Axes: `+Z` = north = forward along the route; `+Y` up; `X < 0` is west, where the sunset is (keep the west skyline clear).
 

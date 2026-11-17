@@ -78,9 +78,7 @@ func press_continue() -> bool:
 	if not has_saved_run():
 		return false
 	visible = false
-	var store: Node = _get_leaderboard_store()
-	if store != null and store.has_method("apply_saved_world_state"):
-		store.call("apply_saved_world_state")
+	# The saved world is applied by MainController once the level has been built behind the loading screen.
 	continue_run_requested.emit()
 	return true
 

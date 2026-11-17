@@ -63,7 +63,7 @@ func _run() -> void:
 		if "show_quote_on_start" in title:
 			title.set("show_quote_on_start", false)
 		title.call("press_start")
-	await create_timer(2.5).timeout
+	await _await_level()
 	_player = get_first_node_in_group("player") as PlayerController
 	_mgr = AllySquadManager.instance
 	_player.max_health = 100000
@@ -278,3 +278,11 @@ func _finish() -> void:
 	var fails: int = _results.filter(func(r: String) -> bool: return r.begins_with("FAIL")).size()
 	print("[feel] SUMMARY %d checks, %d failed" % [_results.size(), fails])
 	quit(1 if fails > 0 else 0)
+
+## Waits until MainController has built the level behind the loading screen (Start shows it now).
+func _await_level() -> void:
+	var mc: Node = get_first_node_in_group("main_controller")
+	var t0: int = Time.get_ticks_msec()
+	while mc != null and not bool(mc.get("level_ready")) and Time.get_ticks_msec() - t0 < 120000:
+		await process_frame
+	await create_timer(0.5).timeout

@@ -55,41 +55,83 @@ var _parapet_count: int = 0
 # Entry points
 # =====================================================================================================
 
+## Emitted during build_greybox_progressive(): fraction 0..1 and the step being built.
+signal build_progress(fraction: float, label: String)
+
+
+func _init() -> void:
+	# The journey is built by MainController under the loading screen (not during scene load).
+	build_on_ready = false
+
+
 func _ready() -> void:
 	super._ready()
 	if configure_atmosphere:
 		call_deferred("_configure_atmosphere")
 
 
-func build_greybox() -> void:
-	if _is_built:
-		return
-	_is_built = true
+## One entry per build step: [label, Callable]. Shared by the synchronous and the progressive build.
+func _build_steps() -> Array:
+	return [
+		["Stepping through the mirror", _step_containers],
+		["Raising the Sundering Entry", func() -> void: add_child(_build_stage_01_entry())],
+		["Building the Hall of Echoes", func() -> void: add_child(_build_stage_02_hall())],
+		["Laying the Collapsed Gallery", func() -> void: add_child(_build_stage_03_gallery())],
+		["Assembling the Mechanism", func() -> void: add_child(_build_stage_04_mechanism())],
+		["Raising the Execution Arena", func() -> void: add_child(_build_stage_05_arena())],
+		["Hanging the banners", func() -> void: add_child(_decor)],
+		["Dressing the ruins", _step_dressing],
+		["Planting the scenery", _step_scenery],
+		["Placing shadow casters", func() -> void: _build_occluders()],
+		["Batching meshes", _step_batch],
+	]
 
+
+func _step_containers() -> void:
 	_scenery = Node3D.new()
 	_scenery.name = "Scenery"
 	_decor = Node3D.new()
 	_decor.name = "Decor"
 
-	var stages: Array[Node3D] = [
-		_build_stage_01_entry(),
-		_build_stage_02_hall(),
-		_build_stage_03_gallery(),
-		_build_stage_04_mechanism(),
-		_build_stage_05_arena(),
-	]
-	for st in stages:
-		add_child(st)
-	add_child(_decor)
+
+func _step_dressing() -> void:
 	# Environmental set dressing & realm storytelling (see JourneySetDressing for the art direction).
 	if enable_set_dressing:
 		(load("res://scripts/environment/journey_set_dressing.gd") as GDScript).new(self).call("build")
+
+
+func _step_scenery() -> void:
 	add_child(_scenery)
 	_build_world_scenery()
-	_build_occluders()
+
+
+func _step_batch() -> void:
 	if enable_static_batching:
 		var merged: int = _static_batch(self)
 		print_verbose("[GrandJourney] static-batched %d meshes" % merged)
+
+
+## Synchronous build (tools / headless). Same steps as the progressive build.
+func build_greybox() -> void:
+	if _is_built:
+		return
+	_is_built = true
+	for step in _build_steps():
+		(step[1] as Callable).call()
+
+
+## Builds one step per frame and reports progress, so the loading screen can animate and the game stays responsive.
+func build_greybox_progressive() -> void:
+	if _is_built:
+		return
+	_is_built = true
+	var steps: Array = _build_steps()
+	for i in range(steps.size()):
+		build_progress.emit(float(i) / float(steps.size()), String((steps[i] as Array)[0]))
+		await get_tree().process_frame
+		((steps[i] as Array)[1] as Callable).call()
+	_bind_realm_visuals()
+	build_progress.emit(1.0, "The mirror is ready")
 
 
 func get_key_anchors() -> Dictionary:

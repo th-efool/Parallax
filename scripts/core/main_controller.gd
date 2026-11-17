@@ -1,4 +1,4 @@
-class_name MainController
+﻿class_name MainController
 extends Node
 ## Root scene orchestrator for `scenes/main/main.tscn`:
 ## Wires `PlayerController`, `ColosseumGreyboxBuilder` (`TheWarden`), `HUDController`,
@@ -14,7 +14,20 @@ extends Node
 @export var leaderboard_screen_path: NodePath = NodePath("MenusLayer/LeaderboardScreen")
 @export var options_screen_path: NodePath = NodePath("MenusLayer/OptionsScreen")
 @export var death_overlay_path: NodePath = NodePath("MenusLayer/DeathOverlay")
-@export var start_on_title_screen: bool = false
+## Launch flow: the title (main menu) comes first; "Start" / "Continue" then show the loading screen while the
+## level is generated step by step, and the run begins when it is ready.
+@export var start_on_title_screen: bool = true
+
+## Set right before a scene reload so the rebooted scene skips the title and starts a fresh run at once.
+static var pending_auto_start: bool = false
+static var pending_continue: bool = false
+
+signal level_ready_changed(ready: bool)
+var level_ready: bool = false
+var _run_started_once: bool = false
+var _building: bool = false
+var _pending_continue: bool = false
+var _loading: LoadingScreen = null
 
 ## QA-D01: OS cursor is captured during active gameplay and released whenever a menu is up.
 @export var manage_mouse_capture: bool = true
@@ -94,20 +107,10 @@ func _wire_all_subsystems() -> void:
 	var lb_ui: LeaderboardScreenController = get_node_or_null(leaderboard_screen_path) as LeaderboardScreenController
 	var opts_ui: OptionsScreenController = get_node_or_null(options_screen_path) as OptionsScreenController
 
-	var warden: Node = null
-	if level_root != null:
-		warden = level_root.get_node_or_null("Stage05_ExecutionArena/Enemies/TheWarden")
-
 	if hud != null:
 		hud.bind_singletons()
 		if player != null:
 			hud.bind_player(player)
-		if warden != null:
-			hud.bind_boss(warden)
-		if get_tree() != null:
-			for sw in get_tree().get_nodes_in_group("interactable_switch"):
-				if sw != null and sw.has_signal("prompt_changed") and not sw.is_connected("prompt_changed", hud.set_interact_prompt):
-					sw.connect("prompt_changed", hud.set_interact_prompt)
 
 	if get_tree() != null and get_tree().root != null:
 		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
@@ -117,11 +120,18 @@ func _wire_all_subsystems() -> void:
 	if death_ui != null and player != null:
 		death_ui.bind_player(player)
 
-	if audio_mgr != null:
-		audio_mgr.bind_to_world(self)
+	# The player stays inactive (no falling into a void that isn't built yet) until the run begins, and the
+	# in-game HUD stays hidden so the title / loading screens are clean.
+	_set_player_active(false)
+	if hud != null:
+		hud.visible = false
 
 	if title_ui != null:
 		title_ui.visible = start_on_title_screen
+		if not title_ui.start_run_requested.is_connected(_on_start_run_requested):
+			title_ui.start_run_requested.connect(_on_start_run_requested)
+		if not title_ui.continue_run_requested.is_connected(_on_continue_requested):
+			title_ui.continue_run_requested.connect(_on_continue_requested)
 		if not title_ui.leaderboard_requested.is_connected(_on_open_leaderboard.bind(title_ui)):
 			title_ui.leaderboard_requested.connect(_on_open_leaderboard.bind(title_ui))
 		if not title_ui.options_requested.is_connected(_on_open_options.bind(title_ui)):
@@ -135,11 +145,16 @@ func _wire_all_subsystems() -> void:
 		if not pause_ui.main_menu_requested.is_connected(_on_return_to_title):
 			pause_ui.main_menu_requested.connect(_on_return_to_title)
 
+	if pause_ui != null and not pause_ui.full_run_restarted.is_connected(_on_start_run_requested):
+		pause_ui.full_run_restarted.connect(_on_start_run_requested)
+
 	if results_ui != null:
 		if not results_ui.leaderboard_requested.is_connected(_on_open_leaderboard.bind(results_ui)):
 			results_ui.leaderboard_requested.connect(_on_open_leaderboard.bind(results_ui))
 		if not results_ui.main_menu_requested.is_connected(_on_return_to_title):
 			results_ui.main_menu_requested.connect(_on_return_to_title)
+		if not results_ui.replay_requested.is_connected(_on_start_run_requested):
+			results_ui.replay_requested.connect(_on_start_run_requested)
 
 	if lb_ui != null:
 		lb_ui.visible = false
@@ -151,10 +166,127 @@ func _wire_all_subsystems() -> void:
 		if not opts_ui.back_requested.is_connected(_on_close_subscreen.bind(opts_ui)):
 			opts_ui.back_requested.connect(_on_close_subscreen.bind(opts_ui))
 
-	if not start_on_title_screen:
-		var run_state: Node = get_tree().root.get_node_or_null("RunState") if get_tree() != null else null
-		if run_state != null and run_state.has_method("start_new_run"):
-			run_state.call("start_new_run")
+	# Coming back from a reload (Replay / Restart Run / Continue): skip the title and start right away.
+	if pending_auto_start:
+		pending_auto_start = false
+		_pending_continue = pending_continue
+		pending_continue = false
+		if title_ui != null:
+			title_ui.visible = false
+		call_deferred("_begin_run_loading")
+	elif not start_on_title_screen:
+		call_deferred("_begin_run_loading")
+
+
+## Level-dependent wiring: the boss bar and interact prompts exist only once the level is built.
+func _wire_level_dependent() -> void:
+	var hud: HUDController = get_node_or_null(hud_path) as HUDController
+	var level_root: Node = get_node_or_null(level_root_path)
+	var warden: Node = level_root.get_node_or_null("Stage05_ExecutionArena/Enemies/TheWarden") if level_root != null else null
+	if hud != null:
+		if warden != null:
+			hud.bind_boss(warden)
+		if get_tree() != null:
+			for sw in get_tree().get_nodes_in_group("interactable_switch"):
+				if sw != null and sw.has_signal("prompt_changed") and not sw.is_connected("prompt_changed", hud.set_interact_prompt):
+					sw.connect("prompt_changed", hud.set_interact_prompt)
+	var audio_mgr: AudioManager = get_node_or_null(audio_manager_path) as AudioManager
+	if audio_mgr != null:
+		audio_mgr.bind_to_world(self)
+
+
+func _set_player_active(active: bool) -> void:
+	var p: Node = get_node_or_null(player_path)
+	if p != null:
+		p.process_mode = Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
+
+
+## Title "Start", a pause-menu restart, or the results screen's Replay.
+func _on_start_run_requested() -> void:
+	if _building:
+		return
+	if _run_started_once:
+		# A run already exists in this scene: reload it so the world (enemies, gates, breakables, checkpoints)
+		# is rebuilt from scratch instead of carrying over the finished level.
+		_reload_for_new_run(false)
+		return
+	_begin_run_loading()
+
+
+func _on_continue_requested() -> void:
+	if _building:
+		return
+	if _run_started_once:
+		_reload_for_new_run(true)
+		return
+	_pending_continue = true
+	_begin_run_loading()
+
+
+func _reload_for_new_run(continue_saved: bool) -> void:
+	pending_auto_start = true
+	pending_continue = continue_saved
+	if get_tree() != null:
+		get_tree().paused = false
+		# Deferred: the old scene is still mid-call here, so the swap happens at the end of the frame.
+		get_tree().call_deferred("reload_current_scene")
+
+
+## Public entry for tests and tools: starts the run without going through the title screen.
+func start_run_now() -> void:
+	_on_start_run_requested()
+
+
+func _begin_run_loading() -> void:
+	if _building or level_ready:
+		return
+	_building = true
+	_run_started_once = true
+	_set_player_active(false)
+	_loading = LoadingScreen.new()
+	add_child(_loading)
+	_loading.set_progress(0.0, "Stepping through the mirror")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var level: Node = get_node_or_null(level_root_path)
+	if level != null and level.has_method("build_greybox_progressive"):
+		var on_level := func(frac: float, text: String) -> void:
+			_loading.set_progress(frac * 0.85, text)
+		level.connect("build_progress", on_level)
+		await level.call("build_greybox_progressive")
+		level.disconnect("build_progress", on_level)
+
+	var amb: Node = get_node_or_null("AmbientLife")
+	if amb != null and amb.has_method("build_progressive"):
+		var on_amb := func(frac: float, text: String) -> void:
+			_loading.set_progress(0.85 + frac * 0.12, text)
+		amb.connect("build_progress", on_amb)
+		await amb.call("build_progressive")
+		amb.disconnect("build_progress", on_amb)
+
+	_wire_level_dependent()
+	_loading.set_progress(0.97, "Waking the squad")
+
+	var ed: Node = get_tree().get_first_node_in_group("encounter_director") if get_tree() != null else null
+	if _pending_continue:
+		_pending_continue = false
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null and store.has_method("apply_saved_world_state"):
+			store.call("apply_saved_world_state")
+	elif ed != null and ed.has_method("restart_full_run"):
+		# Now that the enemies exist, set their section activation and the run state.
+		ed.call("restart_full_run")
+
+	_set_player_active(true)
+	var hud_node: HUDController = get_node_or_null(hud_path) as HUDController
+	if hud_node != null:
+		hud_node.visible = true
+	level_ready = true
+	_building = false
+	level_ready_changed.emit(true)
+	await _loading.finish()
+	_loading = null
 
 
 func _on_open_leaderboard(from_menu: Control) -> void:

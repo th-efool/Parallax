@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 ## LIVE provider test (uses real API quota — ~6 requests). Run only with a key configured (env / .env):
 ##   godot --headless --path . -s res://tests/squad_ai_live_test.gd
 ## Natural-language orders with no trigger words go through the single Squad Director:
@@ -178,3 +178,11 @@ func _run() -> void:
 		_check("stt_roundtrip", txt.to_lower().contains("cease"), txt)
 	print("[live] SUMMARY %d checks, %d failed" % [_checks, _fails])
 	quit(1 if _fails > 0 else 0)
+
+## Waits until MainController has built the level behind the loading screen (Start shows it now).
+func _await_level() -> void:
+	var mc: Node = get_first_node_in_group("main_controller")
+	var t0: int = Time.get_ticks_msec()
+	while mc != null and not bool(mc.get("level_ready")) and Time.get_ticks_msec() - t0 < 120000:
+		await process_frame
+	await create_timer(0.5).timeout
