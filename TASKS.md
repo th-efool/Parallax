@@ -6,6 +6,37 @@
 
 ---
 
+## Execute the IdiotHandOffGuides (01 → 05)
+
+Five self-contained handoff guides live in [`plan/`](plan/). Each one lists its own files, exact replace blocks, and verification commands. Apply them **in order**: 04 depends on 01–03 and 05 depends on 04.
+
+| Order | Guide | Covers |
+|---|---|---|
+| 1 | [IdiotHandOffGuide_01_HUD_Readability_Lighting.md](plan/IdiotHandOffGuide_01_HUD_Readability_Lighting.md) | Ally cards, bigger skill icons, hidden command log (L toggles), world-text overlay, stylized lighting |
+| 2 | [IdiotHandOffGuide_02_Combat_Enemies.md](plan/IdiotHandOffGuide_02_Combat_Enemies.md) | 2.5× enemy health, Warden phase-2 fix, Mirror-only enemies, Ivo's staff and visible bolts |
+| 3 | [IdiotHandOffGuide_03_Squad_Voice.md](plan/IdiotHandOffGuide_03_Squad_Voice.md) | Squad voice: no random chatter, spoken line matches subtitle, TTS voice and rate |
+| 4 | [IdiotHandOffGuide_04_Gate_Support_Enemies.md](plan/IdiotHandOffGuide_04_Gate_Support_Enemies.md) | Gate stone beside the gate, gate guards, raised cracked support with parkour ledge |
+| 5 | [IdiotHandOffGuide_05_Bridges_Bastions_Halls.md](plan/IdiotHandOffGuide_05_Bridges_Bastions_Halls.md) | Winding bridges with two bastions each, 3× Hall of Echoes and clock-tower chamber, `JourneyLayout` |
+
+### Instructions for the executing agent
+
+1. **Preconditions.** Close the Godot editor. It rewrites `main.tscn` and `project.godot` while open. Do not kill `godot-ai.exe`. Confirm `git status` is clean, or that any changes belong to the guide being applied.
+2. **Back up the save.** Starting a run clears `%APPDATA%\Godot\app_userdata\PARALLAX\savegame.cfg`. Copy it aside first and restore it after tests.
+3. **Per guide, in order:**
+   - Read the guide's section A (contract) and B (acceptance map).
+   - Check each step's postcondition before the next step. If a replace block does not match exactly once, **stop**, and report the guide, step ID and file.
+   - Apply the steps in order, using the code exactly as written. The code uses tab indentation.
+   - Run the guide's section E verification commands. Compare results with the stated pass conditions.
+   - Report the applied step IDs, changed files, and each check's real result (section F of the guide).
+4. **Do not** commit or push a guide's changes until its verification passes or its failures are reported and the user approves.
+5. **Documentation.** Each guide's MEMORY step updates `MEMORY/0X_*.md` and `MEMORY/07_DEV_STATUS_AND_CHANGELOG.md`. Do this in the same turn as the code change.
+6. **Scope.** Apply only what the guides say. Anything else found along the way goes in a follow-up note, not a fix.
+7. **Report at the end:** guides applied, guides blocked (with the exact missing input), and the verification output that matters.
+
+Tools: `godot.cmd` is at `E:\game making workshop\Godot\Godot_v4.7.2-stable_win64_console.exe`. Each guide's commands set `$g` to this path.
+
+---
+
 ## Claude Prompt 1: Combat Juicing, Hit Feedback, VFX & Sound Polish (Claude Pass A)
 
 ```markdown
