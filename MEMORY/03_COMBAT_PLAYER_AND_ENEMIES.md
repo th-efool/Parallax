@@ -42,7 +42,7 @@
 ### 2.1 Player Attack Table
 | Verb | Input | Damage / Radius | Gameplay Purpose |
 | :--- | :--- | :--- | :--- |
-| **Light Combo (3-Hit)** | `LMB` | `25` -> `25` -> `35` | Reliable DPS and combo building; short recovery; forward micro-step. |
+| **Light Chain (5-Hit, 2026-11-17)** | `LMB` | `20` -> `22` -> `26` -> `30` -> `44` (FLOW ×1.15); pause-branch Rising Arc `30` | Five distinct moves; rhythm taps chain faster (FLOW); pausing mid-chain branches. Resets `0.9 s` after the last swing. |
 | **Heavy Attack** | `RMB` | `60` | Slow startup + recovery; breaks authored weak props; staggers Shielded Guard echo (Mirror) & punishes Warden recovery. |
 | **Dodge** | `Space` | `0 dmg` / `0.55 s` (`0.18 s` i-frames) | Evades enemy swings/cleaves/lunges. Survival reward only (no separate dodge score). |
 | **Landing Attack** | `F` (in air) | `60` / `2.2 m` radius | Single radial pulse on ground contact; area damage + knockback + triggers Mechanism Chamber Mirror weight. Never auto-triggers on normal jump landing. |
@@ -53,12 +53,18 @@
 
 | Attack | Clip (time-remapped) | Windup / Active / Recovery (s) | Shape | Hit-stop |
 | :--- | :--- | :--- | :--- | :--- |
-| `light_1` | `1H_Melee_Attack_Slice_Horizontal` | `0.11 / 0.10 / 0.26` | 120° arc, 2.35 m | 0.05 |
-| `light_2` | `1H_Melee_Attack_Slice_Diagonal` | `0.11 / 0.10 / 0.26` | 120° arc | 0.055 |
-| `light_3` finisher | `1H_Melee_Attack_Chop` | `0.17 / 0.10 / 0.36` | 90° arc + ground crack | 0.09 |
+| `light_1` SLICE | `1H_Melee_Attack_Slice_Horizontal` | `0.10 / 0.09 / 0.24`, cancel 0.18 | 120° arc, 2.35 m | 0.045 |
+| `light_2` BACKHAND | `1H_Melee_Attack_Slice_Diagonal` | `0.09 / 0.09 / 0.24`, cancel 0.18 | 120° arc | 0.05 |
+| `light_3` THRUST | `1H_Melee_Attack_Stab` | `0.08 / 0.08 / 0.26`, cancel 0.20 | 50° arc + 3.4 m line, 2.1 m lunge | 0.06 |
+| `light_4` WHIRL | `2H_Melee_Attack_Spin` | `0.10 / 0.22 / 0.28`, cancel 0.25 | 360°, 2.6 m + ring | 0.06 |
+| `light_5` SKYFALL (chain ender, always crits) | `1H_Melee_Attack_Chop` | `0.16 / 0.10 / 0.38`, cancel 0.42 | 100° arc + ground crack | 0.10 |
+| `light_rise` RISING ARC (pause branch, heavy/stagger) | `2H_Melee_Attack_Slice` | `0.12 / 0.12 / 0.30` | 160° arc | 0.08 |
 | `heavy` Cleave (neutral) | `2H_Melee_Attack_Chop` | `0.30 / 0.12 / 0.42` | 70° arc + 4.2 m line | 0.12 |
 | `heavy_spin` Whirlwind (RMB mid-chain) | `2H_Melee_Attack_Spin` | `0.15 / 0.30 / 0.34` | 360°, 2.8 m | 0.085 |
 
+- **FLOW (rhythm)**: a press during a light swing that lands in `[cancel − flow_window_early 0.10, cancel + flow_window_late 0.28]` **and is the only press during that swing** makes the next step FLOW: wind-up ×`0.62`, damage ×`1.15`, trail ×1.35, rising-pitch whoosh (+7 %/step) and an FOV punch. Mashing still chains through the buffer but never earns FLOW. `flow_streak` counts consecutive FLOW steps.
+- **Pause branch**: in LOCOMOTION with the chain still open, waiting `pause_branch_delay 0.28 s` after a swing ends and then tapping plays `light_rise` (heavy, staggers); the chain then continues from where it was.
+- **Chain HUD** (`scripts/ui/chain_counter.gd`, `ChainCounter`, in the shared HUD): roman step + move name, 5 pips, `FLOW ×n` or `BRANCH`; fades 1.1 s after the last swing. Reads `attack_started` timing keys `chain_step`, `flow`, `flow_streak`, `branch`, `display`.
 - **Input buffer** `0.24 s`; attacks chain in the recovery cancel window (`cancel` fraction of recovery); dodge cancels anything except ACTIVE frames; late-dodge (`>60%`) can chain straight into an attack.
 - **Magnetism**: target within `4.8 m` and ±75° of stick (or facing); stick neutral falls back to any enemy within `2.8 m`. Lunge closes to `1.25 m`, tracks target through windup.
 - **Shield deflect**: a fully blocked light swing calls `on_attack_deflected()` → blade bounces (forced recovery, knock-back, sparks, clang).
@@ -85,7 +91,7 @@
 - Resets to `x1` on timeout (`4.0 s`) OR when player takes enemy/hazard damage. **Realm shift (`Q`) preserves combo.**
 
 ### 2.2b Critical Hits & Finishers (2026-11-17)
-- **Critical hit** (`PlayerController._try_open_finisher_window`): a non-killing sword hit by a chain ender (`light_3`, `heavy`, `heavy_spin` = defs with `finisher: true`) always crits; other light hits crit at `crit_chance_light = 0.12`. Deflected hits never crit. Cooldown `finisher_cooldown_sec = 2.5` after a finisher.
+- **Critical hit** (`PlayerController._try_open_finisher_window`): a non-killing sword hit by a chain ender (`light_5`, `heavy`, `heavy_spin` = defs with `finisher: true`) always crits; other light hits crit at `crit_chance_light = 0.12`. Deflected hits never crit. Cooldown `finisher_cooldown_sec = 2.5` after a finisher.
 - **Window**: `finisher_window_sec = 1.1` real seconds at `finisher_slowmo_scale = 0.35`; frame hitches > 50 ms are credited back. Press one of three inputs (read from the input buffer, so it works mid-attack):
   | Input | Finisher (`ATTACK_DEFS`) | Damage | Shape / effect |
   | :--- | :--- | :--- | :--- |
@@ -174,6 +180,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 | `01_brannoc` Brannoc | vanguard | Barbarian ×1.04 (axe + round shield) | `190` | `5.4` | `8` | `20` / `1.1 s` | `25 %` | taunt, charge, bodyguard, revive | Algenib / onyx |
 | `02_sera` Sera | skirmisher | Skeleton_Rogue (borrowed blades, cyan tint) | `120` | `6.6` | `9` | `16` / `0.75 s` | `35 %` | taunt, kite, lure, finisher, revive | Puck / nova |
 | `03_ivo` Ivo | artillery | Knight ×0.98 (sword, violet tint) | `110` | `5.2` | `10` | `14` / `1.0 s` | `40 %` | nuke (`48` dmg, `3.8 m`, `1.3 s` channel), mine, revive | Iapetus / fable |
+- **Spatial awareness (context steering, `SquadAlly._steer_toward_dir` / `_context_pick`)**: every `0.06 s` each ally scores 12 headings = interest (toward the goal, +0.15 keep-heading bias) − 1.6 × danger, where danger = waist-height wall ray within `1.0–2.6 m` look-ahead (speed-scaled), personal space from squad-mates `1.5 m` / player `1.8 m` (×1.4) / enemies `1.1 m` (the engaged target exempt within 2.5 m), the real camera→player sight line and a 2 m bubble around the camera (0.5), enemies winding up a strike that covers the step (0.85); ledges veto a heading. Heading is held between refreshes; speed eases with misalignment and danger, arrival eases over the last 1.5 m; a blocked final spot = stop, no jitter. Standing still also keeps personal space (allies 1.25 m, player 1.45 m) and steps off the camera line only toward open floor. Formation slots must have floor, line of sight to the player, 0.65 m wall clearance, no squad-mate within 1.2 m and must not block the camera — otherwise pulled in toward the player (cached 0.2 s).
 - All allies: `damage_taken_mult 0.6`, out-of-combat regen (×3 while retreating), formation wedge out of the camera line (`(-2.5,0.3)`, `(2.7,0.8)`, `(-2.2,2.4)`…), catch-up blink when > 20 m (30 on missions) / stuck 2 s / a level below. Personalities only change voice & flavour lines (incl. banter every 50–95 s out of combat and complaints at repeated silly orders).
 - **Priority ladder**: PANIC (`massacre`, `ceasefire`, `scatter`) > direct orders / MISSIONS > self-preservation at **critical** HP (< half the retreat threshold) > autonomous combat (follow + auto-engage, retreat below threshold) > idle. Equal-priority finite orders queue; stances replace stances; queued finite orders always run before a resumable stance; a preempted mission resumes afterwards.
 - **Mission lock** (`bodyguard`, `kite`, `nuke`, `revive`, `peel`, combos): lower / equal orders queue (`"Mission first…"`), stray hits never retarget the ally; the lock ends on critical HP, a new panic order, `stop`, or the mission target dying.
