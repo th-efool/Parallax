@@ -145,9 +145,9 @@ func get_key_anchors() -> Dictionary:
 		"phantom_1": Vector3(-6.0, Y_HALL, 40.0),
 		"phantom_2": Vector3(6.0, Y_HALL, 40.0),
 		"gallery_bridge_center": Vector3(0.0, Y_GALLERY, 72.0),
-		"weak_stone_support": Vector3(0.0, Y_GALLERY, 77.0),
-		"bridge_anchor": Vector3(0.0, Y_GALLERY, 79.0),
-		"shielded_guard": Vector3(0.0, Y_GALLERY, 82.0),
+		"weak_stone_support": Vector3(0.0, Y_GALLERY + 3.6, 80.2),
+		"bridge_anchor": Vector3(0.0, Y_GALLERY + 3.6, 81.6),
+		"shielded_guard": Vector3(0.0, Y_GALLERY, 83.2),
 		"mechanism_dais": Vector3(-3.0, Y_GALLERY + 1.35, 93.0),
 		"mechanism_plate": Vector3(0.0, Y_GALLERY, 94.0),
 		"arena_entry": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 13.5),
@@ -167,7 +167,9 @@ func get_route_waypoints() -> Array:
 		[Vector3(3.5, Y_HALL, 30), 0], [Vector3(3.5, Y_HALL, 40), 0], [Vector3(0, Y_HALL, 43), 0],
 		[Vector3(0, Y_HALL, 46), 0], [Vector3(0, 5.0, 53), 0], [Vector3(0, Y_GALLERY, 59), 0],
 		[Vector3(0, Y_GALLERY, 65), 0], [Vector3(0, Y_GALLERY, 72), 1], [Vector3(0, Y_GALLERY, 76), 1],
-		[Vector3(0, Y_GALLERY, 83), 0], [Vector3(0, Y_GALLERY, 86), 0], [Vector3(0, Y_GALLERY, 90), 0],
+		[Vector3(2.55, Y_GALLERY + 1.0, 75.3), 1], [Vector3(2.55, Y_GALLERY + 2.0, 77.0), 1], [Vector3(2.9, Y_GALLERY + 3.0, 78.5), 1],
+		[Vector3(0, Y_GALLERY + 3.6, 79.2), 1],
+		[Vector3(0, Y_GALLERY, 83.6), 0], [Vector3(0, Y_GALLERY, 86), 0], [Vector3(0, Y_GALLERY, 90), 0],
 		[Vector3(0, Y_GALLERY, 101), 0], [Vector3(0, 8.0, 109), 0], [Vector3(0, Y_ARENA, 118), 0],
 		[Vector3(0, Y_ARENA, 130), 0], [Vector3(0, Y_ARENA, 140), 0], [Vector3(2.6, Y_ARENA, 144), 0],
 		[Vector3(6, Y_ARENA, 154), 0], [Vector3(2.6, Y_ARENA, 164), 0], [Vector3(0, Y_ARENA, 168), 0],
@@ -466,6 +468,37 @@ func _add_roamer(parent: Node3D, kind: String, node_name: String, pos: Vector3, 
 		e.rotation.y = atan2(-d.x, -d.z)
 	parent.add_child(e)
 	return e
+
+
+## Makes a configured enemy physically bigger: model, body capsule, hurtbox, floating HP-bar height and melee reach
+## all scale by `k` (the CharacterBody3D itself is never scaled — Godot physics bodies must stay unscaled).
+## Call before the enemy enters the tree (right after _add_roamer / _configure_enemy_actor).
+func _enlarge_enemy(e: EnemyBase, k: float) -> void:
+	if e == null:
+		return
+	var vr: Node3D = e.get_node_or_null("VisualRoot") as Node3D
+	if vr != null:
+		vr.scale = Vector3.ONE * k
+	var bc: CollisionShape3D = e.get_node_or_null("BodyCollider") as CollisionShape3D
+	if bc != null and bc.shape is CapsuleShape3D:
+		var cap := (bc.shape as CapsuleShape3D).duplicate() as CapsuleShape3D
+		cap.radius *= k
+		cap.height *= k
+		bc.shape = cap
+		bc.position *= k
+	var hb: Node3D = e.get_node_or_null("Hurtbox3D") as Node3D
+	if hb != null:
+		for c in hb.get_children():
+			if c is CollisionShape3D and (c as CollisionShape3D).shape is BoxShape3D:
+				var bs := ((c as CollisionShape3D).shape as BoxShape3D).duplicate() as BoxShape3D
+				bs.size *= k
+				(c as CollisionShape3D).shape = bs
+				(c as CollisionShape3D).position *= k
+	var hp: Node3D = e.get_node_or_null("FloatingHPBar") as Node3D
+	if hp != null:
+		hp.position *= k
+	if e is EnemyAI:
+		(e as EnemyAI).attack_range *= lerpf(1.0, k, 0.7)
 
 
 func _roamer_group(root: Node3D) -> Node3D:
@@ -979,7 +1012,8 @@ func _build_stage_01_entry() -> Node3D:
 	var gate := _make_gate("Gate01_EntryToHall", Vector3(0.0, 0.0, 5.0), 0, "", false)
 	_style_gate(gate)
 	root.add_child(gate)
-	var sw := _make_switch("EntryMirrorSwitch", Vector3(0.0, 0.0, 4.0), InteractSwitch.SwitchRole.GATE_OPENER, 1,
+	# Gate stone beside the gate (left of the 4 m opening), not on the walking line in front of it.
+	var sw := _make_switch("EntryMirrorSwitch", Vector3(-3.1, 0.0, 3.2), InteractSwitch.SwitchRole.GATE_OPENER, 1,
 		NodePath("../Gate01_EntryToHall"), NodePath(), NodePath())
 	_style_switch(sw)
 	root.add_child(sw)
@@ -1017,8 +1051,9 @@ func _build_stage_01_entry() -> Node3D:
 	tunnel_roof.size = Vector3(4.6, 0.6, 3.0)
 	# Pedestals + colossal guardians flanking the gate, facing the approaching pilgrim (south, -Z).
 	for sx in [-1.0, 1.0]:
-		_solid(root, "GuardianPlinth_%s" % ("W" if sx < 0.0 else "E"), Vector3(sx * 4.3, 1.2, 3.6), Vector3(2.6, 2.4, 2.4), _m_marble())
-		_sword_monument(g[0], Vector3(sx * 4.3, 2.4, 3.6), 0.0, 10.0)
+		# Narrower plinths pushed out to the gatehouse wings (x 4.1..5.9) so the gate stone has room beside the gate.
+		_solid(root, "GuardianPlinth_%s" % ("W" if sx < 0.0 else "E"), Vector3(sx * 5.0, 1.2, 3.6), Vector3(1.8, 2.4, 2.0), _m_marble())
+		_sword_monument(g[0], Vector3(sx * 5.0, 2.4, 3.6), 0.0, 10.0)
 		_banner(g[1], Vector3(sx * 8.5, 13.0, 4.35), 180.0, 2.2, 7.5, false)
 		_banner(g[2], Vector3(sx * 8.5, 13.0, 4.35), 180.0, 2.2, 7.5, true)
 	for p in [Vector3(-6.0, 0, -14.0), Vector3(6.0, 0, -14.0), Vector3(-6.0, 0, -6.0), Vector3(6.0, 0, -6.0)]:
@@ -1053,6 +1088,15 @@ func _build_stage_01_entry() -> Node3D:
 	_add_roamer(rg, "skeleton", "OverlookSkeleton_A", Vector3(-8.0, 0.0, -31.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	_add_roamer(rg, "skeleton", "OverlookSkeleton_B", Vector3(-5.0, 0.0, -30.5), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	_add_roamer(rg, "phantom", "ForecourtPhantom", Vector3(3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
+	# Gate stone guards: two enlarged Shielded Guards flanking the stepping-stone pit, a Grave Brute holding the
+	# forecourt and a Hexcaster on the north landing beside the gate stone.
+	for gw in [["GateWarden_W", -3.2], ["GateWarden_E", 3.2]]:
+		var warden_e: EnemyBase = _add_roamer(rg, "shield", String(gw[0]), Vector3(float(gw[1]), 0.0, -2.6), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
+		_enlarge_enemy(warden_e, 1.35)
+		if warden_e is EnemyAI:
+			(warden_e as EnemyAI).patrol_radius = 0.0
+	_add_roamer(rg, "brute", "GateBrute", Vector3(0.0, 0.0, -8.5), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
+	_add_roamer(rg, "hexcaster", "GateHexcaster", Vector3(3.2, 0.0, 3.4), EncounterDirector.Section.ENTRY, Vector3(0, 0, -2))
 	# A Hollow Hexcaster hangs back up the path, teaching that some threats strike from range.
 	_add_roamer(rg, "hexcaster", "OverlookHexcaster", Vector3(-4.3, 0.0, -24.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	return root
@@ -1294,22 +1338,33 @@ func _build_stage_03_gallery() -> Node3D:
 	bridge.add_child(repaired_geo)
 	root.add_child(bridge)
 
-	var support := _make_breakable_pillar("WeakStoneSupport", Vector3(0.0, y, 77.0), BreakableProp.PropKind.WEAK_STONE_SUPPORT, 2, 0.0, Vector3.ZERO, 1.5)
+	# Cracked support stationed HIGH: on a stone ledge 3.6 m above the deck, reached by a 3-step parkour climb
+	# (+1.0 / +2.0 / +3.0 m blocks on the east side; jump apex ~1.94 m). The anchor switch hides behind it.
+	const LEDGE_H: float = 3.6
+	_solid(root, "SupportLedge", Vector3(0.0, y + LEDGE_H * 0.5, 80.6), Vector3(4.0, LEDGE_H, 3.6), _m_wall())
+	_solid(root, "ParkourStep_1", Vector3(2.55, y + 0.5, 75.3), Vector3(1.3, 1.0, 1.3), _m_ruin())
+	_solid(root, "ParkourStep_2", Vector3(2.55, y + 1.0, 77.0), Vector3(1.3, 2.0, 1.3), _m_ruin())
+	_solid(root, "ParkourStep_3", Vector3(2.9, y + 1.5, 78.5), Vector3(1.2, 3.0, 1.2), _m_ruin())
+	# The ledge top is above the deck rails' 2.7 m blockers: extra invisible blockers keep jumps off the ledge
+	# landing on the deck instead of in the gorge.
+	_invisible_wall(root, "LedgeBlocker_W", Vector3(-3.95, y + 4.7, 79.0), Vector3(0.45, 4.0, 10.0))
+	_invisible_wall(root, "LedgeBlocker_E", Vector3(3.95, y + 4.7, 79.0), Vector3(0.45, 4.0, 10.0))
+	var support := _make_breakable_pillar("WeakStoneSupport", Vector3(0.0, y + LEDGE_H, 80.2), BreakableProp.PropKind.WEAK_STONE_SUPPORT, 2, 0.0, Vector3.ZERO, 1.5)
 	var sup_intact: Node3D = support.get_node("IntactVisual") as Node3D
 	for c in sup_intact.get_children():
 		if c.name != "FractureSeam":
 			c.free()
 	var block := BoxMesh.new()
-	block.size = Vector3(3.2, 3.4, 1.4)
-	_mesh(sup_intact, "BarrierBlock", block, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(0, 1.7, 0)), true, 0.0, false)
-	(sup_intact.get_node("FractureSeam") as Node3D).position = Vector3(0, 1.7, -0.69)
+	block.size = Vector3(3.2, 3.0, 1.0)
+	_mesh(sup_intact, "BarrierBlock", block, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(0, 1.5, 0)), true, 0.0, false)
+	(sup_intact.get_node("FractureSeam") as Node3D).position = Vector3(0, 1.5, -0.49)
 	# Collider = the barrier block (the greybox cylinder let players walk through both ends of the wall).
 	var sup_body: StaticBody3D = support.get_node("SolidBody") as StaticBody3D
 	for c in sup_body.get_children():
 		c.free()
 	var sup_cs := CollisionShape3D.new()
-	sup_cs.shape = _box_shape(Vector3(3.2, 3.4, 1.4))
-	sup_cs.position = Vector3(0, 1.7, 0)
+	sup_cs.shape = _box_shape(Vector3(3.2, 3.0, 1.0))
+	sup_cs.position = Vector3(0, 1.5, 0)
 	sup_body.add_child(sup_cs)
 	# Rubble: low piles pushed against the balustrades, clear of the anchor switch path.
 	var sup_broken: Node3D = support.get_node("BrokenVisual") as Node3D
@@ -1321,14 +1376,14 @@ func _build_stage_03_gallery() -> Node3D:
 	sup_broken.add_child(rubble_body)
 	for sx in [-1.0, 1.0]:
 		var pile: ArrayMesh = ProcMesh.rock_mesh(Vector3(1.6, 0.5, 1.4), 88 + int(sx), 0.3, 6, 0.0)
-		_mesh(sup_broken, "Rubble", pile, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(sx * 2.7, 0.05, 0.2)), true, 0.0, false)
+		_mesh(sup_broken, "Rubble", pile, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(sx * 1.3, 0.05, 0.2)), true, 0.0, false)
 		var rcs := CollisionShape3D.new()
-		rcs.shape = _box_shape(Vector3(1.6, 0.45, 1.3))
-		rcs.position = Vector3(sx * 2.7, 0.22, 0.2)
+		rcs.shape = _box_shape(Vector3(0.9, 0.45, 1.0))
+		rcs.position = Vector3(sx * 1.3, 0.22, 0.2)
 		rubble_body.add_child(rcs)
 	root.add_child(support)
 
-	var anchor := _make_switch("BridgeAnchorSwitch", Vector3(0.0, y, 79.0), InteractSwitch.SwitchRole.BRIDGE_ANCHOR, 1,
+	var anchor := _make_switch("BridgeAnchorSwitch", Vector3(0.0, y + LEDGE_H, 81.6), InteractSwitch.SwitchRole.BRIDGE_ANCHOR, 1,
 		NodePath(), NodePath("../GallerySpectralBridge"), NodePath("../WeakStoneSupport"))
 	_style_switch(anchor)
 	root.add_child(anchor)
@@ -1341,9 +1396,13 @@ func _build_stage_03_gallery() -> Node3D:
 		var enemies := Node3D.new()
 		enemies.name = "Enemies"
 		var sg := ShieldedGuard.new()
-		_configure_enemy_actor(sg, "ShieldedGuard_1", "gallery_shielded_1", Vector3(0.0, y, 82.0), Color(0.75, 0.58, 0.25))
+		_configure_enemy_actor(sg, "ShieldedGuard_1", "gallery_shielded_1", Vector3(0.0, y, 83.2), Color(0.75, 0.58, 0.25))
 		enemies.add_child(sg)
 		root.add_child(enemies)
+	# Gallery deck patrol (roamers: they never hold the gallery gate shut).
+	var grg: Node3D = _roamer_group(root)
+	_add_roamer(grg, "skeleton", "GallerySkeleton_A", Vector3(-2.4, y, 63.5), EncounterDirector.Section.COLLAPSED_GALLERY, Vector3(0, y, 60))
+	_add_roamer(grg, "skeleton", "GallerySkeleton_B", Vector3(2.4, y, 66.5), EncounterDirector.Section.COLLAPSED_GALLERY, Vector3(0, y, 60))
 
 	# Deck edges: parapets except across the broken span.
 	for sx in [-1.0, 1.0]:
@@ -1562,6 +1621,7 @@ func _build_stage_05_arena() -> Node3D:
 	_add_roamer(rg, "phantom", "StairPhantom", Vector3(3.0, 8.3, 110.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 102))
 	# Grave Brute: slow ground-slam heavy guarding the east half of the esplanade.
 	_add_roamer(rg, "brute", "EsplanadeBrute", Vector3(5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
+	_add_roamer(rg, "hexcaster", "EsplanadeHexcaster", Vector3(-3.0, y, 117.4), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	var esp_support := BoxMesh.new()
 	# Slightly inset under the esplanade slab so no side face is coplanar with the floor's edges.
 	esp_support.size = Vector3(17.8, 5.0, 6.8)

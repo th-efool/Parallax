@@ -91,7 +91,7 @@ func _compute(player: Node3D) -> Dictionary:
 		if pz < -16.0:
 			return {"title": "Follow the Pilgrim's Causeway to the gate", "hint": "Head north along the stone causeway.", "target": Vector3(0, 0, -9)}
 		return {"title": "Open the Gate of Reflections",
-			"hint": "Press Q to see the Mirror: the glowing stones over the gap turn solid. Cross, then press E at the glowing Mirror Switch.",
+			"hint": "Beat the gate guards, press Q so the glowing stones turn solid, cross, then press E at the Mirror Switch left of the gate.",
 			"target": sw1.global_position if sw1 != null else Vector3(0, 0, 4)}
 	var hall_left: Array[EnemyBase] = _alive_in("Stage02_HallOfEchoes/Enemies")
 	var gate2: Node = _n("Stage02_HallOfEchoes/Gate02_HallToGallery")
@@ -111,7 +111,7 @@ func _compute(player: Node3D) -> Dictionary:
 		var sup_intact: bool = sup != null and int(sup.get("current_state")) == 0
 		if sup_intact:
 			return {"title": "Cross the broken bridge",
-				"hint": "The bridge only exists in the Mirror — press Q and cross, then smash the cracked stone support with a Heavy (RMB).",
+				"hint": "The bridge only exists in the Mirror — press Q and cross, climb the broken blocks on the right to the high ledge, then smash the cracked support with a Heavy (RMB).",
 				"target": sup.global_position}
 		return {"title": "Pull the Bridge Anchor", "hint": "Press E at the anchor switch to rebuild the bridge in Reality.",
 			"target": sw3.global_position if sw3 != null else Vector3(0, 6, 79)}

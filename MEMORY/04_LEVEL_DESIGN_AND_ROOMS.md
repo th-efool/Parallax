@@ -220,7 +220,7 @@ Use this to place flora, fauna, props, lights or sounds **without loading `grand
 | `SunlitStair_Ramp` + `_Landing` | 0 -> 4 | (0, 14.7) | 8 × 15 | 16° stair, landing z 22–24 |
 | `HallFloor` | 4 | (0, 34) | 20 × 20 | Hall of Echoes (combat arena) |
 | `Corridor02_Floor`, `Rampart_Ramp`, `Rampart_Landing` | 4 -> 6 | z 44..60 | ramp centre x −0.6, **6.2** wide; landing centre x −0.5, **7.0** wide (2026-11-17) | Windswept rampart, open to the west; west rails at x −3.9 (ramp) / −4.2 (landing) + `Rail_Rampart_Join` |
-| `GalleryFloorSouth` / `GalleryFloorNorth` | 6 | (0, 65) / (0, 79) | 8 × 10 each | Aqueduct deck. **Gap z 70..74 is a pit** (spectral bridge `(0,6,72)` is Mirror-only until repaired) |
+| `GalleryFloorSouth` / `GalleryFloorNorth` | 6 | (0, 65) / (0, 79) | 8 × 10 each | Aqueduct deck. **Gap z 70..74 is a pit** (spectral bridge `(0,6,72)` is Mirror-only until repaired). `SupportLedge` (x -2..2, z 78.8..82.4, top y 9.6) carries the WeakStoneSupport (z 80.2) and the BridgeAnchorSwitch (z 81.6); climb via ParkourStep_1/2/3 at (2.55,·,75.3) top 7.0, (2.55,·,77.0) top 8.0, (2.9,·,78.5) top 9.0 |
 | `ChamberFloor` | 6 | (0, 94) | 12 × 12 | Clock-tower chamber, enclosed, roof oculus at Y 24.5 |
 | `Processional_Ramp` | 6 -> 8 -> 10 | (0, 108.8) | 12 × 15 | Grand stair |
 | `Processional_Esplanade` | 10 | (0, 118) | 18 × 4 | Terrace with statue plinth |
