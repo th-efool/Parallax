@@ -767,7 +767,11 @@ func _configure_enemy_actor(
 	vis_root.name = "VisualRoot"
 	var model_path: String = "res://assets/models/characters/Skeleton_Warrior.glb"
 	var model_scale: Vector3 = Vector3.ONE
-	if enemy is ShieldedGuard:
+	var archetype: EnemyArchetype = (enemy as ArchetypeEnemy).archetype if enemy is ArchetypeEnemy else null
+	if archetype != null:
+		model_path = archetype.model_path
+		model_scale = Vector3.ONE * archetype.model_scale
+	elif enemy is ShieldedGuard:
 		model_path = "res://assets/models/characters/Knight.glb"
 		model_scale = Vector3(1.06, 1.06, 1.06)
 	elif enemy is WardenBoss:
@@ -799,6 +803,8 @@ func _configure_enemy_actor(
 	anim_bridge.actor_path = NodePath("..")
 	anim_bridge.model_root_path = NodePath("../VisualRoot/ModelRoot")
 	anim_bridge.apply_spectral_shader = (enemy is PhantomTwin)
+	# Archetype rigs get their loadout from data (ArchetypeEnemy._dress_model), not the default trim.
+	anim_bridge.apply_default_loadout = archetype == null
 	enemy.add_child(anim_bridge)
 
 	_attach_enemy_hp_bar(enemy, body_size.y + 0.55)
@@ -851,6 +857,8 @@ func _attach_enemy_hp_bar(enemy: EnemyBase, height_offset: float) -> void:
 	lbl.outline_size = 6
 	lbl.outline_modulate = Color(0.05, 0.05, 0.08, 0.95)
 	lbl.modulate = Color(0.28, 0.85, 1.0, 0.95) if (enemy is PhantomTwin) else Color(0.95, 0.30, 0.25, 0.95)
+	if enemy is ArchetypeEnemy and (enemy as ArchetypeEnemy).archetype != null:
+		lbl.modulate = (enemy as ArchetypeEnemy).archetype.hp_bar_color
 	enemy.add_child(lbl)
 
 	var update_fn := func(cur_hp: int, m_hp: int) -> void:

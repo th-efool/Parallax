@@ -19,6 +19,12 @@ const SKY_HDRI: String = "res://assets/sky/kloppenheim_06_puresky_4k.hdr"
 const CLOUD_SHADER: String = "res://assets/shaders/cloud_sea.gdshader"
 const BANNER_SHADER: String = "res://assets/shaders/banner_cloth.gdshader"
 const KNIGHT_MODEL: String = "res://assets/models/characters/Knight.glb"
+## Roamer kind -> data-driven EnemyArchetype resource.
+const ARCHETYPE_PATHS: Dictionary = {
+	"hexcaster": "res://data/enemies/hollow_hexcaster.tres",
+	"brute": "res://data/enemies/grave_brute.tres",
+	"stalker": "res://data/enemies/shade_stalker.tres",
+}
 
 const Y_HALL: float = 4.0
 const Y_GALLERY: float = 6.0
@@ -390,11 +396,18 @@ func _add_roamer(parent: Node3D, kind: String, node_name: String, pos: Vector3, 
 		"shield":
 			e = ShieldedGuard.new()
 			col = Color(0.75, 0.58, 0.25)
+		"hexcaster", "brute", "stalker":
+			# Data-driven archetypes (res://data/enemies/*.tres).
+			var ae := ArchetypeEnemy.new()
+			ae.archetype = load(ARCHETYPE_PATHS[kind]) as EnemyArchetype
+			e = ae
 		_:
 			e = SkeletonGuard.new()
 	_configure_enemy_actor(e, node_name, "journey_" + node_name.to_lower(), pos, col)
 	e.section_id = section
 	e.encounter_id = ""
+	if e is EnemyAI and (e as EnemyAI).patrol_radius <= 0.0 and not (e is ArchetypeEnemy):
+		(e as EnemyAI).patrol_radius = 1.6
 	if face_toward != Vector3.ZERO:
 		var d: Vector3 = face_toward - pos
 		e.rotation.y = atan2(-d.x, -d.z)
@@ -969,6 +982,8 @@ func _build_stage_01_entry() -> Node3D:
 	_add_roamer(rg, "skeleton", "OverlookSkeleton_A", Vector3(-8.0, 0.0, -31.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	_add_roamer(rg, "skeleton", "OverlookSkeleton_B", Vector3(-5.0, 0.0, -30.5), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	_add_roamer(rg, "phantom", "ForecourtPhantom", Vector3(3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
+	# A Hollow Hexcaster hangs back up the path, teaching that some threats strike from range.
+	_add_roamer(rg, "hexcaster", "OverlookHexcaster", Vector3(-4.3, 0.0, -24.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	return root
 
 
@@ -1090,6 +1105,10 @@ func _build_stage_02_hall() -> Node3D:
 	_banner(g[2], Vector3(2.85, y + 6.5, 53.0), -90.0, 1.6, 5.0, true)
 	# Rampart sentry (HALL section stays current until the gallery trigger): holds the narrow ramp.
 	_add_roamer(_roamer_group(root), "skeleton", "RampartSentry", Vector3(0.0, Y_GALLERY, 58.6), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, 48))
+	# A Shade Stalker (exists in both realms) waits beside the sentry and blinks behind whoever it hunts.
+	var stalker: EnemyBase = _add_roamer(_roamer_group(root), "stalker", "RampartStalker", Vector3(2.0, Y_GALLERY, 59.3), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, 48))
+	if stalker is EnemyAI:
+		(stalker as EnemyAI).patrol_radius = 0.6
 	return root
 
 
@@ -1467,6 +1486,8 @@ func _build_stage_05_arena() -> Node3D:
 	_add_roamer(rg, "shield", "EsplanadeGatekeeper", Vector3(0.0, y, 118.4), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	_add_roamer(rg, "skeleton", "EsplanadeSkeleton", Vector3(-5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	_add_roamer(rg, "phantom", "StairPhantom", Vector3(3.0, 8.3, 110.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 102))
+	# Grave Brute: slow ground-slam heavy guarding the east half of the esplanade.
+	_add_roamer(rg, "brute", "EsplanadeBrute", Vector3(5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	var esp_support := BoxMesh.new()
 	# Slightly inset under the esplanade slab so no side face is coplanar with the floor's edges.
 	esp_support.size = Vector3(17.8, 5.0, 6.8)

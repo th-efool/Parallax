@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EnemyArchetype" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_archetype.gd" id="1_arch"]
+
+[resource]
+script = ExtResource("1_arch")
+attack_kind = "bolt"
+id = "hollow_hexcaster"
+display_name = "Hollow Hexcaster"
+model_path = "res://assets/models/characters/Skeleton_Warrior.glb"
+model_scale = 0.96
+tint = Color(0.78, 0.68, 1, 1)
+emission_tint = Color(0.16, 0.05, 0.26, 1)
+hp_bar_color = Color(0.78, 0.45, 1, 0.95)
+keep_props = Array[String]([])
+borrow_props = Array[String]([])
+realm = "reality"
+max_health = 70
+move_speed = 2.8
+detection_range = 12.0
+attack_range = 10.0
+windup_duration = 0.8
+attack_active_duration = 0.15
+recover_duration = 1.1
+stagger_duration = 0.6
+attack_damage = 12
+attack_name = "hex_bolt"
+attack_lunge_speed = 0.0
+evade_skill = 0.55
+knockback_scale = 1.2
+max_flinch_chain = 2
+flee_health_ratio = 0.3
+flee_duration = 2.5
+max_chase_distance = 20.0
+patrol_radius = 2.5
+preferred_range = 7.0
+bolt_speed = 11.0
+bolt_color = Color(0.75, 0.35, 1, 1)

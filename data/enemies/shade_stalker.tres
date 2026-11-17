@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="EnemyArchetype" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_archetype.gd" id="1_arch"]
+
+[resource]
+script = ExtResource("1_arch")
+attack_kind = "melee"
+id = "shade_stalker"
+display_name = "Shade Stalker"
+model_path = "res://assets/models/characters/Skeleton_Rogue.glb"
+model_scale = 1.0
+tint = Color(0.55, 0.62, 0.8, 1)
+emission_tint = Color(0.02, 0.12, 0.2, 1)
+hp_bar_color = Color(0.35, 0.85, 1, 0.95)
+keep_props = Array[String]([])
+borrow_props = Array[String](["res://assets/models/characters/Knight.glb", "1H_Sword", "handslot.r", "res://assets/models/characters/Knight.glb", "1H_Sword_Offhand", "handslot.l"])
+realm = "both"
+max_health = 90
+move_speed = 4.4
+detection_range = 10.0
+attack_range = 1.7
+windup_duration = 0.42
+attack_active_duration = 0.18
+recover_duration = 0.7
+stagger_duration = 0.55
+attack_damage = 14
+attack_name = "stalker_stab"
+attack_lunge_speed = 4.5
+evade_skill = 0.75
+knockback_scale = 1.25
+max_flinch_chain = 2
+flee_health_ratio = 0.35
+flee_duration = 2.0
+max_chase_distance = 24.0
+patrol_radius = 2.0
+ring_margin = 1.1
+bolt_color = Color(0.35, 0.85, 1, 1)
+blink_cooldown = 6.0
+backstab_bonus_mult = 1.6

@@ -23,6 +23,9 @@ const ENEMY_ATTACK_CLIPS: Dictionary = {
 	"shield_bash": ["Block_Attack", 0.0, 0.45, 1.00],
 	"warden_cleave": ["2H_Melee_Attack_Chop", 0.10, 0.75, 1.50],
 	"warden_lunge": ["2H_Melee_Attack_Stab", 0.0, 0.40, 1.30],
+	"hex_bolt": ["Spellcast_Shoot", 0.0, 0.42, 1.05],
+	"grave_slam": ["2H_Melee_Attack_Chop", 0.10, 0.75, 1.50],
+	"stalker_stab": ["Dualwield_Melee_Attack_Stab", 0.0, 0.38, 1.00],
 }
 
 @export var actor_path: NodePath = NodePath("..")
