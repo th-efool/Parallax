@@ -43,6 +43,12 @@ const VERBS: Dictionary = {
 	"combo_kite_nuke": [Priority.MISSION, true, false],
 	"combo_charge_finish": [Priority.MISSION, true, false],
 	"combo_lure_detonate": [Priority.MISSION, true, false],
+	"position": [Priority.ORDER, false, true],    # stand behind / in front / left / right / close / far
+	"rearguard": [Priority.ORDER, false, true],   # hold the rear: trail behind facing back, intercept from behind
+	"ranged": [Priority.ORDER, true, false],      # attack from 6-9 m with thrown / cast bolts
+	"circle": [Priority.ORDER, true, false],      # run laps around the player (fun)
+	"face": [Priority.ORDER, true, false],        # look at the player
+	"chat": [Priority.ORDER, true, false],        # small talk (answered by the manager, no movement)
 	"massacre": [Priority.PANIC, false, true],
 	"ceasefire": [Priority.PANIC, false, true],
 	"scatter": [Priority.PANIC, true, false],
@@ -108,7 +114,20 @@ func describe() -> String:
 			return "skill %s" % String(args.get("skill", "")).replace("_", " ") + ("" if t.is_empty() else " → " + t)
 		"surround":
 			return "flank %s" % String(args.get("side", "")) + ("" if t.is_empty() else " " + t)
+		"position":
+			var sp: String = String(args.get("spot", "behind"))
+			return {"behind": "behind you", "front": "in front of you", "left": "on your left", "right": "on your right", "close": "stay close", "far": "keep distance"}.get(sp, sp)
+		"rearguard":
+			return "rear guard"
+		"ranged":
+			return "ranged" + ("" if t.is_empty() else " " + t)
+		"circle":
+			return "run circles"
+		"chat":
+			return "chat"
 		"hold":
+			if args.has("step_sec"):
+				return "wait %ds" % int(args["step_sec"])
 			if args.has("lane"):
 				return "hold %s" % String(args["lane"])
 			if args.has("label"):

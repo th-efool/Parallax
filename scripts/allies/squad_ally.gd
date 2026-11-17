@@ -521,7 +521,31 @@ func _regen(delta: float) -> void:
 
 
 func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
+	# Timed steps: "wait 3 seconds", or a stance in the middle of a chain ("get behind me, then shoot")
+	# completes on arrival (or after its time limit) so the next step runs.
+	if cmd.args.has("step_sec") and cmd.timer >= float(cmd.args["step_sec"]):
+		finish_current("waited")
+		return
+	if bool(cmd.args.get("chain_step", false)) and not cmd.args.has("step_sec"):
+		var lim: float = 6.0 if cmd.verb in ["position", "rearguard", "follow", "retreat"] else 3.0
+		if (bool(cmd.data.get("arrived", false)) and cmd.timer > 0.6) or cmd.timer >= lim:
+			finish_current("step done")
+			return
 	match cmd.verb:
+		"position":
+			_run_position(delta, player, cmd)
+		"rearguard":
+			_run_rearguard(delta, player, cmd)
+		"ranged":
+			_run_ranged(delta, player, cmd)
+		"circle":
+			_run_circle(delta, player, cmd)
+		"face":
+			if player != null:
+				set_facing(player.global_position - global_position)
+			_play(["Interact", "Idle"], 0.6, true)
+			_start_action("emote", 0.6, -1.0, Callable())
+			finish_current("looking")
 		"follow":
 			_run_follow(delta, player, cmd)
 		"hold":
@@ -689,6 +713,8 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 			spd = maxf(spd, profile.move_speed * 1.3)
 		_move_to(goal, spd, delta)
 	else:
+		if _cmd != null:
+			_cmd.data["arrived"] = true
 		_halt(delta)
 		var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else facing_direction
 		set_facing(_turn_toward(facing_direction, pf, 4.0 * delta))
@@ -697,6 +723,7 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 func _run_hold(delta: float, cmd: SquadCommand) -> void:
 	if not cmd.data.has("spot"):
 		cmd.data["spot"] = cmd.args.get("spot", global_position) as Vector3
+		cmd.args["spot"] = cmd.data["spot"]   # survives an interruption (rally / skill) -> resumes at the same spot
 		cmd.step = "holding " + String(cmd.args.get("lane", "")) if cmd.args.has("lane") else "holding"
 	var spot: Vector3 = cmd.data["spot"]
 	var near: EnemyAI = _nearest_enemy(global_position, float(cmd.args.get("engage_r", 3.5)))
@@ -706,6 +733,7 @@ func _run_hold(delta: float, cmd: SquadCommand) -> void:
 	if global_position.distance_to(spot) > 0.8:
 		_move_to(spot, profile.move_speed, delta)
 	else:
+		cmd.data["arrived"] = true
 		_halt(delta)
 
 
@@ -721,6 +749,7 @@ func _run_retreat_order(delta: float, player: Node3D, cmd: SquadCommand) -> void
 	if global_position.distance_to(goal) > 0.8:
 		_move_to(goal, profile.move_speed * 1.15, delta)
 	else:
+		cmd.data["arrived"] = true
 		_halt(delta)
 		var self_threat: EnemyAI = _nearest_enemy(global_position, 2.2)
 		if self_threat != null:
@@ -847,6 +876,9 @@ func _run_kite(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 ## Shared by plain kite and the kiter/lurer halves of combos. Returns nothing; posts combo events.
 func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bool) -> void:
+	if bool(cmd.data.get("released", false)):
+		finish_current("combo complete")
+		return
 	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
 	if e == null or not _enemy_ok(e):
 		var near_pos: Vector3 = global_position
@@ -934,7 +966,7 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 				cmd.step = "clear"
 				cmd.data["clear_t"] = 0.0
 				say_event("clear", 2, profile.line("combo_go"))
-			elif standalone and float(cmd.data["sustain_t"]) > 14.0:
+			elif standalone and float(cmd.data["sustain_t"]) > float(cmd.args.get("duration", 45.0)):
 				finish_current("kited")
 		"clear":
 			# Break off outward so the artillery can drop the payload on the cluster.
@@ -948,7 +980,11 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 			if float(cmd.data["clear_t"]) > 1.6:
 				cmd.step = "sustain_after"
 		"sustain_after":
+			# Wait for the payload, but never forever (the release signal may have been missed).
 			_halt(delta)
+			cmd.data["after_t"] = float(cmd.data.get("after_t", 0.0)) + delta
+			if float(cmd.data["after_t"]) > 3.0:
+				finish_current("combo window over")
 
 
 ## Report a failed tactic phase and fall back to a straight fight. In a combo the partner is still
@@ -965,8 +1001,20 @@ func _kite_fallback(cmd: SquadCommand, e: EnemyAI, why: String) -> void:
 
 func _circle_kite(delta: float, cmd: SquadCommand, e: EnemyAI) -> void:
 	var center: Vector3 = cmd.data.get("center", e.global_position)
-	# Drift the centre slowly toward the pack so the circle stays around the enemies chasing us.
-	center = center.lerp(_cluster_centroid(), clampf(0.4 * delta, 0.0, 1.0))
+	var lure: Variant = cmd.args.get("lure_to", null)
+	if lure == null and String(cmd.args.get("lure", "")) == "player":
+		var pl: Node3D = _player()
+		if pl != null:
+			lure = pl.global_position
+	if lure is Vector3:
+		# Bait: drag the chaser to the ambush / the squad and circle THERE, close enough for them to spring.
+		center = center.lerp(lure as Vector3, clampf(1.6 * delta, 0.0, 1.0))
+		if not cmd.data.has("lure_r"):
+			cmd.data["lure_r"] = true
+			cmd.data["radius"] = 3.2
+	else:
+		# Drift the centre slowly toward the pack so the circle stays around the enemies chasing us.
+		center = center.lerp(_cluster_centroid(), clampf(0.4 * delta, 0.0, 1.0))
 	cmd.data["center"] = center
 	var r: float = float(cmd.data.get("radius", KITE_RADIUS))
 	var dirn: float = float(cmd.data.get("dir", 1.0))
@@ -1244,11 +1292,15 @@ func _run_charger(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		"charging":
 			pass
 		"done":
-			_back_off(e, delta)
+			# Knocked down: pile in with the finisher until it's dead (max 10 s).
+			if cmd.combo_part == "solo_charge_finish":
+				return   # the solo version switches to its own finisher phase
 			if cmd.timer > 0.0 and not cmd.data.has("done_t"):
 				cmd.data["done_t"] = cmd.timer
-			if cmd.timer - float(cmd.data.get("done_t", cmd.timer)) > 1.0:
+			if not _enemy_ok(e) or cmd.timer - float(cmd.data.get("done_t", cmd.timer)) > 10.0:
 				finish_current("charged")
+				return
+			_fight(e, delta)
 
 
 func _run_finisher(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -1291,8 +1343,14 @@ func _run_finisher(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 			)
 			cmd.step = "done"
 		"done":
-			if _action.is_empty():
+			# Follow through: keep hitting it until it drops (max 10 s), don't wander off after one blow.
+			if not _action.is_empty():
+				return
+			if e == null or not _enemy_ok(e) or float(cmd.data.get("press_t", 0.0)) > 10.0:
 				finish_current("finished")
+				return
+			cmd.data["press_t"] = float(cmd.data.get("press_t", 0.0)) + delta
+			_fight(e, delta)
 
 
 func _run_trapper(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -1900,6 +1958,9 @@ func _run_surround(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	axis.y = 0.0
 	if axis.length_squared() < 0.01:
 		axis = Vector3.FORWARD
+	if String(cmd.args.get("side", "")) == "rear":
+		_sneak_attack(delta, cmd, e)
+		return
 	var ang: float = deg_to_rad(float(cmd.args.get("angle", 120.0)))
 	var slot: Vector3 = e.global_position + axis.normalized().rotated(Vector3.UP, ang) * maxf(1.4, profile.attack_range * 0.85)
 	if not bool(cmd.data.get("in_slot", false)) and global_position.distance_to(slot) > 1.0:
@@ -1911,6 +1972,46 @@ func _run_surround(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	cmd.data["in_slot"] = true
 	cmd.step = "attacking from " + String(cmd.args.get("side", "flank"))
 	_fight(e, delta)
+
+
+## Sneak attack / backstab: work round to the side the enemy is NOT facing (relative to where it is looking
+## right now — it turns while chasing a bait), swinging wide past its front, then strike its back. If it turns
+## on us, slip round again; if it targets us anyway, just fight. Ends when the target dies.
+func _sneak_attack(delta: float, cmd: SquadCommand, e: EnemyAI) -> void:
+	var ef: Vector3 = e.get_facing_direction()
+	ef.y = 0.0
+	ef = ef.normalized() if ef.length_squared() > 0.001 else Vector3.FORWARD
+	var rel: Vector3 = global_position - e.global_position
+	rel.y = 0.0
+	var dist: float = rel.length()
+	var behind_dot: float = rel.normalized().dot(ef) if dist > 0.01 else 0.0
+	var on_me: bool = e.get_current_target() == self
+	if on_me and dist < 3.5:
+		cmd.step = "spotted — fighting"
+		_fight(e, delta)
+		return
+	var reach: float = profile.attack_range
+	if behind_dot < -0.35 and dist <= reach + 0.2:
+		cmd.step = "backstabbing"
+		_engage_target = e
+		_combat_quiet = 0.0
+		_halt(delta)
+		set_facing(-rel)
+		if _attack_cd <= 0.0:
+			if not bool(cmd.data.get("called", false)):
+				cmd.data["called"] = true
+				say(["From behind!", "Didn't see me, did you?", "Back's open!"][_rng.randi() % 3], "sneak", 1)
+			_melee(e)
+		return
+	cmd.step = "sneaking behind"
+	var back: Vector3 = e.global_position - ef * maxf(1.2, reach * 0.8)
+	# In front of / beside it: go round on the side we're already on, wide, so we never walk across its face.
+	var goal: Vector3 = back
+	if behind_dot > -0.2:
+		var side: Vector3 = Vector3(-ef.z, 0.0, ef.x)
+		var s: float = 1.0 if rel.dot(side) >= 0.0 else -1.0
+		goal = e.global_position + side * s * 3.0 - ef * 0.8
+	_move_to(goal, profile.move_speed * 1.2, delta, false)
 
 
 ## Overwatch: hang back behind the player, never melee unless cornered, fire skills at clusters / threats.
@@ -2270,19 +2371,304 @@ func _run_jump(cmd: SquadCommand) -> void:
 
 func _run_emote(cmd: SquadCommand) -> void:
 	var kind: String = String(cmd.args.get("text", "cheer"))
+	var pl: Node3D = _player()
 	match kind:
 		"sit":
 			_play(["Sit_Floor_Down", "Sit_Floor_Idle"], 0.8, true)
 			_start_action("emote", 3.0, -1.0, Callable())
+		"lie":
+			_play(["Lie_Down", "Lie_Idle", "Death_A_Pose", "Sit_Floor_Down"], 0.8, true)
+			_start_action("emote", 3.5, -1.0, Callable())
+		"kneel":
+			_play(["Sit_Floor_Down", "PickUp", "Interact"], 0.8, true)
+			_start_action("emote", 2.0, -1.0, Callable())
 		"spin":
 			_start_action("spin", 1.2, -1.0, Callable())
-		"bow", "salute":
+		"backflip":
+			velocity.y = 7.5
+			_play(["Jump_Full_Long", "Jump_Full_Short", "Jump_Start"], 0.9, true)
+			_start_action("flip", 0.9, -1.0, Callable())
+		"bow", "salute", "nod":
 			_play(["Interact", "Use_Item"], 1.0, true)
 			_start_action("emote", 1.0, -1.0, Callable())
+		"point":
+			if pl != null:
+				var e: EnemyAI = _nearest_enemy(global_position, 25.0)
+				set_facing((e.global_position if e != null else pl.global_position) - global_position)
+			_play(["Throw", "Spellcast_Shoot", "Interact"], 0.9, true)
+			_start_action("emote", 0.9, -1.0, Callable())
+		"laugh", "clap":
+			if pl != null:
+				set_facing(pl.global_position - global_position)
+			_play(["Cheer", "Taunt", "Taunt_Longer"], 1.6, true)
+			_start_action("emote", 1.6, -1.0, Callable())
+		"shrug", "wave":
+			if pl != null:
+				set_facing(pl.global_position - global_position)
+			_play(["Interact", "Cheer", "Use_Item"], 1.2, true)
+			_start_action("emote", 1.2, -1.0, Callable())
+		"flex":
+			_play(["Taunt_Longer", "Taunt", "Cheer"], 1.4, true)
+			_start_action("emote", 1.4, -1.0, Callable())
 		_:
 			_play(["Cheer", "Taunt"], 1.4, true)
 			_start_action("emote", 1.4, -1.0, Callable())
+	if kind in ["laugh"]:
+		say(["Ha! Hahaha!", "Heh. Good one.", "Pfft— ha!"][_rng.randi() % 3], "emote", 0)
 	finish_current("emoted")
+
+
+# ------------------------------------------------------------------ positions, rear guard, ranged, circle
+
+## Stand at a spot relative to the player's facing and keep it as they move ("get behind me", "come in front",
+## "on my left", "stay close", "keep your distance"). Squad-mates given the same spot spread out sideways.
+## Defends itself if something gets in range, otherwise holds the spot.
+func _run_position(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if player == null:
+		_halt(delta)
+		return
+	var f: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
+	f.y = 0.0
+	f = f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
+	var r := Vector3(-f.z, 0.0, f.x)
+	var lane: float = [-1.0, 1.0, 0.0, -2.0, 2.0][slot_index % 5]
+	var spot: String = String(cmd.args.get("spot", "behind"))
+	var off: Vector3
+	match spot:
+		"front":
+			off = f * 3.0 + r * lane * 1.5
+		"left":
+			off = r * (2.4 + absf(lane) * 1.3) - f * (lane * 0.6)
+		"right":
+			off = -r * (2.4 + absf(lane) * 1.3) - f * (lane * 0.6)
+		"close":
+			off = r * (1.6 if slot_index % 2 == 0 else -1.6) - f * (0.3 + 0.9 * float(slot_index / 2))
+		"far":
+			off = (r * lane * 3.0 - f * 3.0).normalized() * 7.0 if lane != 0.0 else -f * 7.5
+		_:  # behind: staggered off the camera line (straight behind is the lens)
+			off = -f * (2.2 + 1.0 * float(slot_index / 2)) + r * (1.5 if slot_index % 2 == 0 else -1.5)
+	var goal: Vector3 = _valid_spot_near(player, player.global_position + off, r, cmd)
+	cmd.step = String(cmd.describe())
+	var threat: EnemyAI = _nearest_enemy(global_position, 2.2)
+	if threat != null:
+		_fight(threat, delta)
+		return
+	# Close enough counts as "in position" for a chain (squad-mates' personal space can keep us ~1 m off),
+	# and so does being pinned within 2.5 m for a second (blocked by someone standing in the spot).
+	if global_position.distance_to(goal) < 1.4:
+		cmd.data["arrived"] = true
+	elif global_position.distance_to(goal) < 2.5 and Vector2(velocity.x, velocity.z).length() < 0.5:
+		cmd.data["still_t"] = float(cmd.data.get("still_t", 0.0)) + delta
+		if float(cmd.data["still_t"]) > 1.0:
+			cmd.data["arrived"] = true
+	else:
+		cmd.data["still_t"] = 0.0
+	if global_position.distance_to(goal) > 0.8:
+		var spd: float = profile.move_speed * clampf(global_position.distance_to(goal) / 3.0, 0.5, 1.3)
+		if player is CharacterBody3D:
+			var pv: Vector3 = (player as CharacterBody3D).velocity
+			spd = maxf(spd, Vector2(pv.x, pv.z).length() * 1.1)
+		_move_to(goal, spd, delta, spot != "close")
+	else:
+		cmd.data["arrived"] = true
+		_halt(delta)
+		set_facing(_turn_toward(facing_direction, -f if spot == "far" else f, 6.0 * delta))
+
+
+## A requested spot that is off the floor / inside a wall (e.g. "behind me" on a narrow causeway) is moved:
+## first to the mirrored side, then pulled in toward the player until it's standable. Cached 0.25 s.
+func _valid_spot_near(player: Node3D, want: Vector3, r: Vector3, cmd: SquadCommand) -> Vector3:
+	var now: int = Time.get_ticks_msec()
+	if now - int(cmd.data.get("spot_ms", -1000)) < 250 and (cmd.data.get("spot_from", Vector3.INF) as Vector3).distance_to(player.global_position) < 0.4:
+		return cmd.data["spot_cache"] as Vector3
+	var pp: Vector3 = player.global_position
+	var lat: float = (want - pp).dot(r)
+	var mirrored: Vector3 = want - r * lat * 2.0
+	var out: Vector3 = pp + (want - pp) * 0.3
+	var found: bool = false
+	for base in [want, mirrored]:
+		for k in range(4):
+			var c: Vector3 = pp.lerp(base as Vector3, 1.0 - 0.2 * float(k))
+			if _spot_standable(c):
+				out = c
+				found = true
+				break
+		if found:
+			break
+	cmd.data["spot_ms"] = now
+	cmd.data["spot_from"] = pp
+	cmd.data["spot_cache"] = out
+	return out
+
+
+func _spot_standable(p: Vector3) -> bool:
+	if not is_inside_tree():
+		return true
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
+	var down := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 1.0, p + Vector3.DOWN * 1.8, mask, [get_rid()])
+	if space.intersect_ray(down).is_empty():
+		return false
+	var mid: Vector3 = p + Vector3.UP * 0.8
+	for dv in [Vector3(0.5, 0, 0), Vector3(-0.5, 0, 0), Vector3(0, 0, 0.5), Vector3(0, 0, -0.5)]:
+		var cq := PhysicsRayQueryParameters3D.create(mid, mid + (dv as Vector3), collision_mask, [get_rid()])
+		if not space.intersect_ray(cq).is_empty():
+			return false
+	return true
+
+
+## Rear guard: trail ~3.5 m behind the player looking BACK, intercept anything coming from behind (or closing
+## on the rear spot), never chase further than 9 m from the player.
+func _run_rearguard(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if player == null:
+		_halt(delta)
+		return
+	cmd.step = "guarding the rear"
+	var f: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
+	f.y = 0.0
+	f = f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
+	var r := Vector3(-f.z, 0.0, f.x)
+	var spot: Vector3 = _valid_spot_near(player, player.global_position - f * (3.6 + 0.6 * float(slot_index / 2)) + r * ([-1.8, 1.8, 0.0][slot_index % 3]), r, cmd)
+	var threat: EnemyAI = null
+	var best: float = INF
+	for e in _active_enemies(spot, 9.0):
+		var rel: Vector3 = e.global_position - player.global_position
+		rel.y = 0.0
+		var behind: bool = rel.normalized().dot(-f) > 0.2
+		var d: float = e.global_position.distance_to(spot)
+		if (behind or d < 4.0) and d < best and e.global_position.distance_to(player.global_position) < 10.0:
+			best = d
+			threat = e
+	if threat != null:
+		cmd.step = "rear contact"
+		if cmd.data.get("called", null) != threat:
+			cmd.data["called"] = threat
+			say(["Contact rear!", "Behind us!", "I've got the back!"][_rng.randi() % 3], "rear", 1)
+		_fight(threat, delta)
+		return
+	if global_position.distance_to(spot) > 0.9:
+		_move_to(spot, profile.move_speed * 1.1, delta)
+	else:
+		cmd.data["arrived"] = true
+		_halt(delta)
+		set_facing(_turn_toward(facing_direction, -f, 6.0 * delta))
+
+
+## Long-distance attack: keep 6-9 m from the target and pelt it with bolts (a thrown dagger / hex orb / stone,
+## tinted in the ally's colour). Without a named target it keeps picking the nearest enemy until the area is
+## clear. Backs off when something closes in.
+const RANGED_MIN: float = 5.5
+const RANGED_MAX: float = 9.5
+func _run_ranged(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			say_event("kill", 0)
+			if cmd.args.has("target") and not String(cmd.args.get("target", "")).is_empty() and String(cmd.args["target"]) != "nearest":
+				finish_current("target down")
+				return
+		var sel: String = String(cmd.args.get("target", ""))
+		e = _resolve_enemy(sel if not sel.is_empty() else "nearest", player)
+		if e == null or e.global_position.distance_to(global_position) > 28.0:
+			if not cmd.data.has("enemy"):
+				say("Nothing in range to shoot at.", "refuse", 1)
+			finish_current("no target" if not cmd.data.has("enemy") else "area clear")
+			return
+		cmd.data["enemy"] = e
+		if cmd.timer < 0.2:
+			say(["Lining it up.", "From here, then.", "Keep it busy, I'll pepper it."][_rng.randi() % 3], "ranged", 0)
+	_engage_target = e
+	_combat_quiet = 0.0
+	if _hazard_dodge(delta):
+		return
+	var to_e: Vector3 = e.global_position - global_position
+	to_e.y = 0.0
+	var d: float = to_e.length()
+	var close: EnemyAI = _nearest_enemy(global_position, 2.6)
+	if close != null and close.get_current_target() == self:
+		# Something is on us: back-step away from it (melee if cornered).
+		var away: Vector3 = global_position - close.global_position
+		away.y = 0.0
+		if _side_open(away.normalized()):
+			cmd.step = "backing off"
+			_move_dir(away.normalized(), profile.move_speed * 1.15, delta)
+			return
+		_fight(close, delta)
+		return
+	if d > RANGED_MAX:
+		cmd.step = "closing to range"
+		_move_to(e.global_position - to_e.normalized() * (RANGED_MAX - 1.5), profile.move_speed, delta)
+		return
+	if d < RANGED_MIN:
+		cmd.step = "opening range"
+		_move_dir(-to_e.normalized(), profile.move_speed, delta)
+		return
+	cmd.step = "shooting"
+	_halt(delta)
+	set_facing(to_e)
+	if _attack_cd <= 0.0:
+		_fire_bolt(e)
+
+
+func _fire_bolt(e: EnemyAI) -> void:
+	_attack_cd = profile.attack_cooldown * 1.35
+	var clips: Array[String] = ["Throw", "1H_Ranged_Shoot", "Spellcast_Shoot", "Spellcasting"]
+	if profile.role == "artillery":
+		clips = ["Spellcast_Shoot", "Spellcasting", "Throw"]
+	_play(clips, 0.5, true)
+	var dmg: int = int(round(float(profile.attack_damage) * 0.8 * (1.0 + _dmg_buff)))
+	_start_action("attack", 0.45, 0.2, func() -> void:
+		if not _enemy_ok(e):
+			return
+		var host: Node = GoreFXScript.host_for(self)
+		if host == null:
+			e.apply_damage(dmg, false, "ally_ranged", self)
+			return
+		var col: Color = profile.color
+		var mi := MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		sph.radius = 0.11
+		sph.height = 0.22
+		sph.radial_segments = 8
+		sph.rings = 4
+		mi.mesh = sph
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = col.lightened(0.35)
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = 3.0
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		host.add_child(mi)
+		var from: Vector3 = global_position + Vector3.UP * 1.35 + facing_direction * 0.4
+		mi.global_position = from
+		var to: Vector3 = e.global_position + Vector3.UP * 1.0
+		var t: float = clampf(from.distance_to(to) / 24.0, 0.08, 0.5)
+		var tw := mi.create_tween()
+		tw.tween_property(mi, "global_position", to, t)
+		tw.tween_callback(func() -> void:
+			if is_instance_valid(e) and _enemy_ok(e):
+				if e.apply_damage(dmg, false, "ally_ranged", self):
+					GoreFXScript.sparks(self, e.global_position + Vector3.UP, (to - from).normalized(), col, 12)
+					GameFeelScript.play_sound(self, "enemy_hit", e.global_position + Vector3.UP, -8.0, 1.2)
+					if e.is_dead:
+						say_event("kill", 0)
+			mi.queue_free())
+		GameFeelScript.play_sound(self, "whoosh_light", from, -10.0, 1.4))
+
+
+## Fun: jog laps around the player (~5 s), then back to whatever was next.
+func _run_circle(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if player == null or cmd.timer > float(cmd.args.get("step_sec", 5.0)):
+		finish_current("dizzy")
+		return
+	if cmd.timer < 0.05:
+		say(["Wheee!", "Round and round...", "Is this tactical? This doesn't feel tactical."][_rng.randi() % 3], "circle", 0)
+	cmd.step = "running circles"
+	var ang: float = cmd.timer * 1.9 + float(slot_index) * TAU / 3.0
+	var goal: Vector3 = player.global_position + Vector3(cos(ang), 0.0, sin(ang)) * 2.8
+	_move_to(goal, profile.move_speed * 1.2, delta, false)
 
 
 # ------------------------------------------------------------------ self-preservation / downed
@@ -2561,6 +2947,12 @@ func _process_action(delta: float) -> void:
 			var vis2: Node3D = get_node_or_null("VisualRoot") as Node3D
 			if vis2 != null:
 				vis2.rotation.y += TAU / 1.2 * delta
+		"flip":
+			var vis3: Node3D = get_node_or_null("VisualRoot") as Node3D
+			if vis3 != null:
+				vis3.rotation.x = -TAU * clampf(after / maxf(0.01, _action_dur), 0.0, 1.0)
+				if _action_timer <= 0.0:
+					vis3.rotation.x = 0.0
 		"channel":
 			if _action_data_track != null and is_instance_valid(_action_data_track) and _action_timer > 0.3 and _cast_ring != null:
 				var tp: Vector3 = _action_data_track.global_position + Vector3.UP * 0.06

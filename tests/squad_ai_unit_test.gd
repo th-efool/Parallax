@@ -138,6 +138,47 @@ func _run() -> void:
 	_check("parse_jump_count", int((jump[0] as Dictionary).get("count", 0)) == 3)
 	var multi: Array = SquadCommandParser.parse("Sera kite the brute then Ivo nuke", names)
 	_check("parse_multi_clause", multi.size() == 2 and (multi[1] as Dictionary).get("verb", "") == "nuke", str(multi))
+	# Chains / per-ally chains / movement / ranged / rear guard / fun / talk in ONE message.
+	var big: Array = SquadCommandParser.parse("Brannoc jump twice, Sera go behind me and shoot the caster, everyone else hold the rear", names, ctx)
+	var big_s: String = JSON.stringify(big)
+	_check("chain_mix_size", big.size() == 4, big_s)
+	if big.size() == 4:
+		_check("chain_mix_brannoc", (big[0] as Dictionary)["verb"] == "jump" and int((big[0] as Dictionary)["count"]) == 2 and (big[0] as Dictionary)["allies"] == ["Brannoc"], big_s)
+		_check("chain_mix_sera", (big[1] as Dictionary)["verb"] == "position" and (big[1] as Dictionary)["spot"] == "behind" and (big[2] as Dictionary)["verb"] == "ranged" and (big[2] as Dictionary)["allies"] == ["Sera"], big_s)
+		_check("chain_mix_rest", (big[3] as Dictionary)["verb"] == "rearguard" and (big[3] as Dictionary)["allies"] == ["Ivo"], big_s)
+	var more: Array = [
+		["Ivo come in front of me", "position", ["Ivo"], "front"],
+		["everyone get away from me", "position", ["all"], "far"],
+		["hold the rear Brannoc", "rearguard", ["Brannoc"], ""],
+		["Ivo do long distance attacks", "ranged", ["Ivo"], ""],
+		["Sera circle me", "circle", ["Sera"], ""],
+		["Brannoc look at me", "face", ["Brannoc"], ""],
+		["Ivo do a backflip", "emote", ["Ivo"], ""],
+		["Ivo tell me a joke", "chat", ["Ivo"], ""],
+		["hey Sera, how's it going?", "chat", ["Sera"], ""],
+	]
+	for cs2 in more:
+		var o2: Array = SquadCommandParser.parse(String(cs2[0]), names, ctx)
+		var d2: Dictionary = o2[0] if not o2.is_empty() else {}
+		var ok2: bool = d2.get("verb", "") == cs2[1] and (d2.get("allies", []) as Array) == (cs2[2] as Array)
+		if not String(cs2[3]).is_empty():
+			ok2 = ok2 and String(d2.get("spot", "")) == String(cs2[3])
+		_check("talk '%s'" % cs2[0], ok2, str(o2))
+	var dance: Array = SquadCommandParser.parse("Brannoc and Sera dance while Ivo laughs", names, ctx)
+	_check("multi_ally_split", dance.size() == 2 and (dance[0] as Dictionary)["allies"] == ["Brannoc", "Sera"] and (dance[1] as Dictionary)["verb"] == "emote" and (dance[1] as Dictionary)["allies"] == ["Ivo"], str(dance))
+	var wait: Array = SquadCommandParser.parse("wait 3 seconds then attack the brute", names, ctx)
+	_check("wait_then", wait.size() == 2 and int((wait[0] as Dictionary).get("step_sec", 0)) == 3 and (wait[1] as Dictionary)["verb"] == "attack", str(wait))
+	_check("guard_object_order", String((SquadCommandParser.parse("Brannoc guard Ivo and Sera", names)[0] as Dictionary).get("target", "")) == "Ivo")
+	var m4: Dictionary = SquadComms.tool_to_command("command_allies", {"allies": ["Sera"], "action": "position", "spot": "left"})
+	_check("map_position", m4.get("verb", "") == "position" and m4.get("spot", "") == "left", str(m4))
+	var m5: Dictionary = SquadComms.tool_to_command("command_allies", {"allies": ["Ivo"], "action": "wait", "seconds": 4})
+	_check("map_wait", m5.get("verb", "") == "hold" and int(m5.get("step_sec", 0)) == 4, str(m5))
+	var bs: Array = SquadCommandParser.parse("Sera bait the brute and run in circles, Brannoc sneak attack it", names, ctx)
+	_check("bait_and_sneak", bs.size() == 2 and (bs[0] as Dictionary)["verb"] == "kite" and String((bs[0] as Dictionary).get("target", "")) == "brute" \
+		and (bs[1] as Dictionary)["verb"] == "surround" and (bs[1] as Dictionary).get("side", "") == "rear" and String((bs[1] as Dictionary).get("target", "")) == "brute" \
+		and (bs[1] as Dictionary)["allies"] == ["Brannoc"], str(bs))
+	var lure: Array = SquadCommandParser.parse("Sera lure it to us", names, ctx)
+	_check("lure_to_player", not lure.is_empty() and (lure[0] as Dictionary)["verb"] == "kite" and (lure[0] as Dictionary).get("lure", "") == "player", str(lure))
 	var junk: Array = SquadCommandParser.parse("make me a sandwich", names)
 	_check("parse_confused", junk.size() == 1 and bool((junk[0] as Dictionary).get("confused", false)))
 

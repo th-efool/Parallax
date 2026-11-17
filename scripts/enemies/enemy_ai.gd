@@ -83,6 +83,12 @@ signal returning_home()
 @export var backstab_staggers: bool = true
 @export var taunt_threat_bonus: float = 60.0
 @export var default_taunt_lock: float = 3.0
+## Taunt FIXATION: a real taunt (lock >= 3 s) pins the enemy on the taunter until the taunter is down /
+## untargetable, someone else taunts it, it is made to forget (smoke bomb), or the taunter stays > 60 m away
+## for 5 s. While fixated the enemy ignores its home leash and its lose-sight range: it chases forever.
+## Short "nudge" taunts (< 3 s, e.g. the splash of an area taunt) still expire on their timer.
+@export var taunt_fixation: bool = true
+const FIXATION_BREAK_DIST: float = 60.0
 @export var retarget_interval: float = 0.3
 ## A challenger must beat the current target's threat by this factor to steal aggro.
 @export var retarget_hysteresis: float = 1.15
@@ -218,9 +224,12 @@ func _tick_timers(delta: float) -> void:
 	_poise_timer = maxf(0.0, _poise_timer - delta)
 	_reaggro_block = maxf(0.0, _reaggro_block - delta)
 	if _taunt_lock_timer > 0.0:
-		_taunt_lock_timer -= delta
-		if _taunt_lock_timer <= 0.0:
-			_taunt_lock_id = 0
+		if _fixated:
+			_tick_fixation(delta)
+		else:
+			_taunt_lock_timer -= delta
+			if _taunt_lock_timer <= 0.0:
+				_taunt_lock_id = 0
 	if _flinch_chain_timer > 0.0:
 		_flinch_chain_timer -= delta
 		if _flinch_chain_timer <= 0.0:
@@ -261,6 +270,43 @@ func is_enraged() -> bool:
 ## TAUNTED modifier: a taunt lock is pinning this enemy's target.
 func is_taunted() -> bool:
 	return _taunt_lock_timer > 0.0 and _taunt_lock_id != 0
+
+
+## True while fixated (taunted with no expiry) — the HUD / intel show it as "taunted".
+func is_fixated() -> bool:
+	return _fixated and is_taunted()
+
+
+## The node this enemy is locked onto by a taunt (null when none).
+func get_taunter() -> Node3D:
+	if not is_taunted():
+		return null
+	var o: Object = instance_from_id(_taunt_lock_id)
+	return o as Node3D if o != null and is_instance_valid(o) else null
+
+
+var _fixated: bool = false
+var _fixation_far_t: float = 0.0
+
+
+func _tick_fixation(delta: float) -> void:
+	var t: Node3D = get_taunter()
+	if t == null or not _is_valid_target(t):
+		_end_fixation()
+		return
+	if t.global_position.distance_to(global_position) > FIXATION_BREAK_DIST:
+		_fixation_far_t += delta
+		if _fixation_far_t > 5.0:
+			_end_fixation()
+	else:
+		_fixation_far_t = 0.0
+
+
+func _end_fixation() -> void:
+	_fixated = false
+	_taunt_lock_id = 0
+	_taunt_lock_timer = 0.0
+	_fixation_far_t = 0.0
 
 
 func is_stunned() -> bool:
@@ -315,8 +361,16 @@ func apply_taunt(source: Node3D, bonus: float = -1.0, lock_sec: float = -1.0) ->
 	var b: float = taunt_threat_bonus if bonus < 0.0 else bonus
 	var lock: float = default_taunt_lock if lock_sec < 0.0 else lock_sec
 	add_threat(source, b)
-	_taunt_lock_id = source.get_instance_id()
+	var sid: int = source.get_instance_id()
+	# A nudge never overrides an existing fixation on someone else.
+	if _fixated and _taunt_lock_id != sid and lock < 3.0:
+		return
+	_taunt_lock_id = sid
 	_taunt_lock_timer = lock
+	_fixated = taunt_fixation and lock >= 3.0
+	_fixation_far_t = 0.0
+	if current_state == State.FLEEING:
+		_transition_to(State.CHASE, 0.0)
 	_reaggro_block = 0.0
 	_set_target(source)
 	if current_state == State.IDLE or current_state == State.ALERT or current_state == State.RETURNING:
@@ -374,8 +428,7 @@ func forget(source: Node) -> void:
 	var id: int = source.get_instance_id()
 	_threat.erase(id)
 	if _taunt_lock_id == id:
-		_taunt_lock_id = 0
-		_taunt_lock_timer = 0.0
+		_end_fixation()
 	if target_player == source and current_state == State.CHASE:
 		_lose_target()
 	elif target_player == source:
@@ -584,8 +637,7 @@ func _select_target() -> void:
 		if lock_o != null and is_instance_valid(lock_o) and _is_valid_target(lock_o as Node3D):
 			_set_target(lock_o as Node3D)
 			return
-		_taunt_lock_id = 0
-		_taunt_lock_timer = 0.0
+		_end_fixation()
 	var cur: Node3D = get_current_target()
 	var cur_score: float = _target_score(cur) if cur != null else -1.0
 	var best: Node3D = cur
@@ -627,8 +679,7 @@ func _set_target(n: Node3D) -> void:
 
 func _clear_threat() -> void:
 	_threat.clear()
-	_taunt_lock_id = 0
-	_taunt_lock_timer = 0.0
+	_end_fixation()
 	target_player = null
 	if _squad != null:
 		_squad.set_enemy_target(self, null)

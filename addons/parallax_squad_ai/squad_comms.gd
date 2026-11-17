@@ -1,4 +1,4 @@
-class_name SquadComms
+﻿class_name SquadComms
 extends Node
 ## Hub between the player's words and the ally squad. Chat bar and push-to-talk BOTH end in
 ## `submit_utterance()`, so typed and spoken orders have identical outcomes.
@@ -144,7 +144,7 @@ func end_voice() -> void:
 		notify.emit("Didn't catch that — hold V while speaking.", "info")
 		return
 	_set_mic("transcribing")
-	var hint: String = "PARALLAX squad orders. Allies: %s. Words: kite, nuke, bodyguard, massacre, ceasefire, scatter, revive, lure, detonate, charge, finish." % ", ".join(_manager.get_ally_names() if _manager != null else [])
+	var hint: String = "PARALLAX squad orders. Allies: %s. Words: kite, nuke, bodyguard, massacre, ceasefire, scatter, revive, lure, detonate, charge, finish, rear guard, behind me, in front, long range, then." %", ".join(_manager.get_ally_names() if _manager != null else [])
 	_stt_req = client.transcribe(wav, hint)
 
 
@@ -174,13 +174,16 @@ static func tools() -> Array:
 	return [
 		{"type": "function", "function": {
 			"name": "command_allies",
-			"description": "Give an order to one or more allies. Call once per distinct order; several calls in parallel for multi-part orders.",
+			"description": "Give an order to one or more allies. Call once per distinct order. CHAINS: several calls for the SAME ally in one response run in sequence, in the order you list them (e.g. jump x2 -> position behind -> ranged E3). Different allies can get different chains in the same response.",
 			"parameters": {"type": "object", "properties": {
 				"allies": {"type": "array", "items": {"type": "string"}, "description": "Ally names from the roster, or [\"all\"]."},
-				"action": {"type": "string", "enum": ["follow", "hold", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "overwatch", "jump", "dance", "emote", "status", "stop", "auto_engage_on", "auto_engage_off"]},
-				"target": {"type": "string", "description": "Enemy: an ID from BATTLEFIELD (e.g. \"E3\") — always prefer IDs; or nearest/strongest/weakest; or 'ally:<Name>' = whatever that ally is fighting. bodyguard: an ally name, 'player' or 'objective'. revive: an ally name. interact: 'chest' or blank."},
+				"action": {"type": "string", "enum": ["follow", "hold", "wait", "position", "rearguard", "ranged", "sneak_attack", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "overwatch", "jump", "dance", "emote", "circle", "face", "status", "stop", "auto_engage_on", "auto_engage_off"]},
+				"target": {"type": "string", "description": "Enemy: an ID from BATTLEFIELD (e.g. \"E3\") — always prefer IDs; or nearest/strongest/weakest; or 'ally:<Name>' = whatever that ally is fighting. bodyguard: an ally name, 'player' or 'objective'. revive: an ally name. interact: 'chest' or blank. ranged: optional enemy (blank = keep shooting the nearest until clear)."},
+				"spot": {"type": "string", "enum": ["behind", "front", "left", "right", "close", "far"], "description": "position: where to stand relative to the player (far = keep your distance / get away)."},
+				"seconds": {"type": "integer", "description": "wait/hold: how long (1-30 s) before the next step of a chain."},
+				"lure_to_player": {"type": "boolean", "description": "kite only: bait the enemy back to the player/squad and circle there so the others can hit it."},
 				"count": {"type": "integer", "description": "Repetitions for jump (1-12)."},
-				"emote": {"type": "string", "enum": ["wave", "cheer", "sit", "bow", "salute", "spin", "flex"]}
+				"emote": {"type": "string", "enum": ["wave", "cheer", "sit", "bow", "salute", "spin", "flex", "laugh", "clap", "point", "kneel", "nod", "shrug", "backflip", "lie"]}
 			}, "required": ["allies", "action"]}}},
 		{"type": "function", "function": {
 			"name": "use_skill",
@@ -243,7 +246,7 @@ func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var focus: String = ("The player is mainly talking to %s.\n" % focus_ally.get_display_name()) if focus_ally != null else ""
 	return "You are the SQUAD DIRECTOR of PARALLAX, a dark-fantasy mirror-realm arena game. You command the player's squad of mirror-bound 'Echoes' and voice them.\n" \
 		+ "The player talks to you in completely natural language — any phrasing, slang, typos, half-sentences, voice transcripts. Work out what they mean; never require keywords. Ambiguous orders: choose the most sensible tactical reading.\n" \
-		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies.\n" \
+		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told.\n" \
 		+ focus \
 		+ "PERSONALITIES (flavour only):\n%s\n" % "\n".join(personas) \
 		+ "ROSTER (live):\n%s\n" % roster \
@@ -302,6 +305,8 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 	var tool_msgs: Array = []
 	var spoke: int = 0
 	var acted: Array[SquadAlly] = []
+	# One LLM turn = one batch: same-ally calls become a chain in call order.
+	_manager.begin_batch()
 	# Allies given a direct order this turn are excluded from any squad-wide strategy in the same turn.
 	var directly_ordered: Array[String] = []
 	for c0 in calls:
@@ -353,6 +358,7 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 					acted.append(a2)
 		tool_called.emit(String(args.get("ally", focus.get_display_name() if focus != null else "squad")), tname, args, res)
 		tool_msgs.append({"role": "tool", "tool_call_id": String(cd.get("id", "")), "content": res})
+	_manager.end_batch()
 	# Shared Director history (one conversation; per-ally memory lives in _histories / RECENT EVENTS).
 	_director_history.append({"role": "user", "content": String(rec["user_text"])})
 	var assistant: Dictionary = {"role": "assistant", "content": text if not text.is_empty() else null}
@@ -409,6 +415,19 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 				cmd["enabled"] = action == "auto_engage_on"
 			if action == "emote":
 				cmd["text"] = String(args.get("emote", "cheer"))
+			if action == "position":
+				cmd["spot"] = String(args.get("spot", "behind"))
+			if action == "sneak_attack":
+				cmd["verb"] = "surround"
+				cmd["side"] = "rear"
+				cmd["angle"] = 180.0
+			if action == "kite" and bool(args.get("lure_to_player", false)):
+				cmd["lure"] = "player"
+			if action == "wait":
+				cmd["verb"] = "hold"
+				cmd["step_sec"] = clampi(int(args.get("seconds", 3)), 1, 30)
+			elif action == "hold" and int(args.get("seconds", 0)) > 0:
+				cmd["step_sec"] = clampi(int(args.get("seconds", 0)), 1, 30)
 			if action == "take_aggro":
 				cmd["verb"] = "taunt"
 				cmd["area"] = true

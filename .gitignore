@@ -34,3 +34,6 @@ __pycache__/
 .env
 .env.*
 *.key
+
+# Baked editor snapshot of the runtime-generated level (regenerate: scripts/tools/bake_map_preview.gd)
+scenes/preview/

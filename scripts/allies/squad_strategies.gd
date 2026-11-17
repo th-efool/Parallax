@@ -1,4 +1,4 @@
-class_name SquadStrategies
+﻿class_name SquadStrategies
 extends RefCounted
 ## Squad-level strategy library. Each strategy is pure data: per-role command lists that the
 ## `AllySquadManager` expands onto whoever is alive (any ally count; roles fall back to `any`).
@@ -58,7 +58,7 @@ const LIST: Array = [
 			"any": [{"verb": "peel", "args": {}}]}},
 	{"id": "bait_and_ambush", "name": "Bait and Ambush", "desc": "The skirmisher drags the target back to the squad, which lies in wait and springs together.",
 		"aliases": ["bait and ambush", "ambush", "bait them", "lure them to us", "set a trap", "lie in wait"],
-		"roles": {"skirmisher": [{"verb": "kite", "args": {"target": "$target"}}],
+		"roles": {"skirmisher": [{"verb": "kite", "args": {"target": "$target", "lure_to": "$player_spot"}}],
 			"any": [{"verb": "ambush", "args": {"spot": "$player_spot", "radius": 4.5}}]}},
 	{"id": "guerrilla", "name": "Guerrilla", "desc": "Everyone hit-and-runs a different enemy: strike, sprint out, repeat.",
 		"aliases": ["guerrilla", "guerilla", "harass them all", "skirmish", "poke and run", "hit and fade"],
@@ -82,9 +82,9 @@ const LIST: Array = [
 	{"id": "distract_and_backstab", "name": "Distract and Backstab", "desc": "Vanguard taunts the target to turn it away, the skirmisher Shadowsteps into its back, artillery Chain Arcs it.",
 		"aliases": ["distract and backstab", "backstab it", "distract it", "stab it in the back", "get behind it"],
 		"roles": {"vanguard": [{"verb": "taunt", "args": {"target": "$target"}}, {"verb": "attack", "args": {"target": "$target"}}],
-			"skirmisher": [{"verb": "skill", "args": {"skill": "shadowstep", "target": "$target"}}, {"verb": "attack", "args": {"target": "$target"}}],
+			"skirmisher": [{"verb": "skill", "args": {"skill": "shadowstep", "target": "$target"}}, {"verb": "surround", "args": {"target": "$target", "side": "rear", "angle": 180.0}}],
 			"artillery": [{"verb": "skill", "args": {"skill": "chain_arc", "target": "$target"}}, {"verb": "attack", "args": {"target": "$target"}}],
-			"any": [{"verb": "attack", "args": {"target": "$target"}}]}},
+			"any": [{"verb": "surround", "args": {"target": "$target", "side": "rear", "angle": 180.0}}]}},
 	{"id": "kite_train", "name": "Kite Train", "desc": "The skirmisher grabs everyone's aggro and runs circles while artillery bombards and the vanguard guards the player.",
 		"aliases": ["kite train", "train them", "kite them all", "run them around", "conga line"],
 		"roles": {"skirmisher": [{"verb": "taunt", "args": {"area": true}}, {"verb": "kite", "args": {"target": "$target"}}],

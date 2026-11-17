@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 ## Windowed end-to-end test for the Conversational Squad AI (offline parser path — no API key needed).
 ## Run:  godot --path . -s res://tests/squad_ai_windowed_test.gd -- --shots=<absolute dir>
 ## Drives typed chat commands through the real chat-bar path (SquadCommsHUD.submit_chat_text), checks allies
@@ -26,7 +26,7 @@ func _initialize() -> void:
 			_shots = a.substr(8)
 	_main = (load("res://scenes/main/main.tscn") as PackedScene).instantiate()
 	root.add_child(_main)
-	create_timer(240.0).timeout.connect(func() -> void:
+	create_timer(330.0).timeout.connect(func() -> void:
 		print("[squad_test] WATCHDOG TIMEOUT")
 		_finish())
 	_run()
@@ -287,7 +287,7 @@ func _run() -> void:
 		var ai: EnemyAI = e as EnemyAI
 		if not ai.is_dead and ai.get_current_target() is SquadAlly:
 			pulled += 1
-	_check("take_aggro_pulls_off_player", pulled >= 1, "pulled %d" % pulled)
+	_check("take_aggro_pulls_off_player", pulled >= 1, "pulled %d; s1->%s s2->%s; %s" % [pulled, str((s1 as EnemyAI).get_current_target()), str((s2 as EnemyAI).get_current_target()), _states()])
 	_say("Sera, hit and run the nearest")
 	_say("Ivo, attack Sera's target")
 	await _wait(1.0)
@@ -427,6 +427,136 @@ func _run() -> void:
 	await _shot("09_cinematic")
 	_hud.set_cinematic(false)
 	_check("player_input_unlocked", not PlayerController.ui_input_locked)
+
+	# 11) One message, different chains per ally + movement + ranged + rear guard + talk.
+	await _reset_arena()
+	_teleport_player(Vector3(0, 0, -14))
+	_mgr.regroup(false)
+	await _wait(0.6)
+	_log.clear()
+	_say("Brannoc jump twice then hold the rear, Sera get behind me then shoot the skeleton, Ivo come in front of me")
+	await _wait(0.2)
+	var br: SquadAlly = _ally("Brannoc")
+	var se: SquadAlly = _ally("Sera")
+	var iv: SquadAlly = _ally("Ivo")
+	var br_chain: bool = br.current != null and br.current.verb == "jump" and br.queue.size() >= 1 and br.queue[0].verb == "rearguard"
+	var se_chain: bool = se.current != null and se.current.verb == "position" and se.queue.size() >= 1 and se.queue[0].verb == "ranged"
+	_check("chain_assigned_per_ally", br_chain and se_chain and iv.current != null and iv.current.verb == "position", _states() + " | " + " / ".join(_log))
+	var sk: EnemyBase = _spawn("skeleton", Vector3(0.0, 0, -3.0))
+	await _wait(3.5)
+	var pf: Vector3 = _player.get_facing_direction()
+	var iv_rel: float = (iv.global_position - _player.global_position).dot(pf)
+	_check("position_front", iv_rel > 1.2, "Ivo %.1f m ahead" % iv_rel)
+	_check("chain_advanced_brannoc", br.current != null and br.current.verb == "rearguard", _states())
+	var br_rel: float = (br.global_position - _player.global_position).dot(pf)
+	_check("rearguard_behind", br_rel < -1.5, "Brannoc %.1f m along facing" % br_rel)
+	var t_r: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t_r < 5000 and not (se.current != null and se.current.verb == "ranged" and se.global_position.distance_to(sk.global_position) > 4.0):
+		await process_frame
+	var sera_d: float = se.global_position.distance_to(sk.global_position)
+	_check("ranged_keeps_distance", se.current != null and se.current.verb == "ranged" and sera_d > 4.0, "Sera %s at %.1f m from target" % [se.get_state_text(), sera_d])
+	await _wait(5.0)
+	_check("ranged_damages", sk.is_dead or sk.health < sk.max_health, "skeleton hp %d/%d" % [sk.health, sk.max_health])
+	await _shot("15_chains")
+	_log.clear()
+	_say("hey Ivo, tell me a joke")
+	await _wait(0.3)
+	_check("small_talk_replies", _log_has("chat joke"), " / ".join(_log))
+
+	# 12) Auto-rally: a squad-mate at low HP with an enemy on them -> everyone else rushes to protect.
+	await _reset_arena()
+	_teleport_player(Vector3(0, 0, -14))
+	_mgr.regroup(false)
+	await _wait(0.5)
+	_say("everyone hold here")
+	await _wait(0.4)
+	var ward: SquadAlly = _ally("Sera")
+	_ally("Ivo")._skill_cd["mending_light"] = 60.0   # isolate the rally from Ivo's instant heal
+	ward._skill_cd["smoke_bomb"] = 60.0   # ...and from Sera vanishing in smoke
+	ward.global_position = Vector3(4.0, 0, -8.0)
+	var rally_foe: EnemyBase = _spawn("skeleton", Vector3(5.5, 0, -7.0))
+	rally_foe.max_health = 5000
+	rally_foe.health = 5000
+	await _wait(0.3)
+	(rally_foe as EnemyAI).apply_taunt(ward, -1.0, 6.0)
+	ward.health = int(ward.max_health * 0.15)
+	await _wait(1.2)
+	var rallying: int = 0
+	for a in _mgr.get_living():
+		if a != ward and a.current != null and a.current.verb == "bodyguard" and bool(a.current.data.get("rally", false)):
+			rallying += 1
+	_check("auto_rally_starts", rallying >= 2 and _mgr.is_rallying(), "%d helpers; %s" % [rallying, _states()])
+	await _wait(1.5)
+	var near_ward: int = 0
+	for a in _mgr.get_living():
+		if a != ward and a.global_position.distance_to(ward.global_position) < 5.0:
+			near_ward += 1
+	_check("auto_rally_rushes", near_ward >= 2, "%d helpers within 5 m" % near_ward)
+	await _shot("16_rally")
+	rally_foe.apply_damage(99999, true, "environmental", null)
+	ward.health = ward.max_health
+	await _wait(3.5)
+	var resumed: bool = true
+	for a in _mgr.get_living():
+		if a != ward and (a.current == null or a.current.verb != "hold"):
+			resumed = false
+	_check("auto_rally_ends_and_resumes", not _mgr.is_rallying() and resumed, _states())
+
+	# 13) Taunt fixation: a taunted enemy chases its taunter for good — past the old 4 s lock and past its leash.
+	await _reset_arena()
+	_teleport_player(Vector3(0, 0, -14))
+	_mgr.regroup(false)
+	await _wait(0.5)
+	var fx: EnemyBase = _spawn("skeleton", Vector3(0.0, 0, -6.0))
+	fx.max_health = 5000
+	fx.health = 5000
+	await _wait(0.3)
+	var taunter: SquadAlly = _ally("Brannoc")
+	(fx as EnemyAI).apply_taunt(taunter, -1.0, 4.0)
+	_say("Brannoc hold here")
+	await _wait(0.2)
+	# Walk the taunter well away from the enemy's home (leash 22 m) across the forecourt / causeway.
+	taunter.global_position = Vector3(-3.5, 0, -40.0)
+	_teleport_player(Vector3(-3.5, 0, -36.0))   # stay near him so his catch-up teleport never fires
+	if taunter.current != null:
+		taunter.current.args["spot"] = Vector3(-3.5, 0, -40.0)
+		taunter.current.data["spot"] = Vector3(-3.5, 0, -40.0)
+	await _wait(14.0)
+	var fx_d: float = fx.global_position.distance_to(taunter.global_position)
+	_check("taunt_fixation_persists", (fx as EnemyAI).is_fixated() and (fx as EnemyAI).get_current_target() == taunter, "fixated=%s target=%s" % [(fx as EnemyAI).is_fixated(), str((fx as EnemyAI).get_current_target())])
+	_check("taunted_enemy_chases_past_leash", fx_d < 8.0 and fx.global_position.distance_to((fx as EnemyAI).get_home_position()) > 22.0, "%.1f m from taunter, %.1f m from home" % [fx_d, fx.global_position.distance_to((fx as EnemyAI).get_home_position())])
+	fx.apply_damage(99999, true, "environmental", null)
+
+	# 14) Bait + sneak attack in one message: the bait keeps the enemy chasing it, the other gets behind it.
+	await _reset_arena()
+	_teleport_player(Vector3(0, 0, -14))
+	_mgr.regroup(false)
+	await _wait(0.5)
+	var bt: EnemyBase = _spawn("skeleton", Vector3(1.0, 0, -6.0))
+	bt.max_health = 3000
+	bt.health = 3000
+	await _wait(0.4)
+	_log.clear()
+	_say("Sera bait the skeleton and run in circles, Brannoc sneak attack it")
+	await _wait(0.3)
+	var bs_sera: SquadAlly = _ally("Sera")
+	var bs_bran: SquadAlly = _ally("Brannoc")
+	_check("bait_sneak_parsed", bs_sera.current != null and bs_sera.current.verb == "kite" and bs_bran.current != null and bs_bran.current.verb == "surround" and String(bs_bran.current.args.get("side", "")) == "rear", _states() + " | " + " / ".join(_log))
+	var hooked: int = 0
+	var behind_hits: int = 0
+	var hp0: int = bt.health
+	for i in range(30):
+		await _wait(0.5)
+		if (bt as EnemyAI).get_current_target() == bs_sera:
+			hooked += 1
+		var rel2: Vector3 = bs_bran.global_position - bt.global_position
+		rel2.y = 0.0
+		if rel2.length() < 3.0 and rel2.normalized().dot((bt as EnemyAI).get_facing_direction()) < -0.2:
+			behind_hits += 1
+	_check("bait_holds_enemy", hooked >= 24 and bs_sera.current != null and bs_sera.current.verb == "kite", "enemy on Sera %d/30 samples; Sera %s" % [hooked, bs_sera.get_state_text()])
+	_check("sneak_attack_from_behind", behind_hits >= 6 and bt.health < hp0, "Brannoc behind the enemy %d/30 samples; enemy hp %d -> %d" % [behind_hits, hp0, bt.health])
+	await _shot("17_bait_sneak")
+	bt.apply_damage(99999, true, "environmental", null)
 	_finish()
 
 

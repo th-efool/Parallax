@@ -106,6 +106,7 @@ func _bind_hud() -> void:
 
 func _physics_process(delta: float) -> void:
 	_watch_player()
+	_tick_rally(delta)
 	_tick_combos(delta)
 	_tick_banter(delta)
 	_roster_timer -= delta
@@ -123,6 +124,127 @@ func _watch_player() -> void:
 	if _player_was_dead and not dead:
 		regroup(true)
 	_player_was_dead = dead
+
+
+# ------------------------------------------------------------------ auto-rally (protect the wounded)
+
+## When the player or a squad-mate is low on health with enemies on them, every other able ally drops what it
+## is doing (stances, finite orders — not panic orders or a revive in progress) and rushes in to bodyguard
+## them until it's safe: HP back above `RALLY_SAFE_HP`, or no enemy within `RALLY_CLEAR_R` for 2.5 s. The
+## interrupted orders resume afterwards. `rally_enabled` can be toggled ("stop protecting" etc. via settings).
+const RALLY_PLAYER_HP: float = 0.35
+const RALLY_ALLY_HP: float = 0.40
+const RALLY_SAFE_HP: float = 0.55
+const RALLY_DANGER_R: float = 7.0
+const RALLY_CLEAR_R: float = 9.0
+var rally_enabled: bool = true
+var _rally_scan: float = 0.0
+var _rally: Dictionary = {}          # ward Node3D -> {"clear_t": float, "allies": Array[SquadAlly]}
+var _rally_cooldown: Dictionary = {} # ward Node3D -> seconds before it can trigger again
+
+
+func _tick_rally(delta: float) -> void:
+	for w in _rally_cooldown.keys():
+		_rally_cooldown[w] = float(_rally_cooldown[w]) - delta
+		if float(_rally_cooldown[w]) <= 0.0:
+			_rally_cooldown.erase(w)
+	_rally_scan -= delta
+	# Keep active rallies honest every frame-ish; look for new ones a few times a second.
+	for w2 in _rally.keys():
+		_update_rally(w2 as Node3D, delta)
+	if _rally_scan > 0.0 or not rally_enabled or _player == null:
+		return
+	_rally_scan = 0.3
+	var wards: Array[Node3D] = []
+	if _player is PlayerController:
+		var pc: PlayerController = _player as PlayerController
+		if pc.current_state != PlayerController.State.DEAD and float(pc.health) / float(maxi(1, pc.max_health)) < RALLY_PLAYER_HP:
+			wards.append(_player)
+	for a in get_living():
+		if a.get_health_ratio() < RALLY_ALLY_HP:
+			wards.append(a)
+	for w3 in wards:
+		if _rally.has(w3) or _rally_cooldown.has(w3):
+			continue
+		if _threats_on(w3, RALLY_DANGER_R).is_empty():
+			continue
+		_start_rally(w3)
+
+
+func _threats_on(ward: Node3D, radius: float) -> Array[EnemyAI]:
+	# Anything chasing the ward counts from further out (a wounded ally retreats while being chased).
+	var out: Array[EnemyAI] = []
+	for e in _active_enemies_near(ward.global_position, radius + 6.0):
+		var d: float = e.global_position.distance_to(ward.global_position)
+		if e.get_current_target() == ward or (e.is_aggroed() and d <= radius):
+			out.append(e)
+	return out
+
+
+func _ward_name(ward: Node3D) -> String:
+	if ward == _player:
+		return "player"
+	return (ward as SquadAlly).get_display_name() if ward is SquadAlly else ""
+
+
+func _start_rally(ward: Node3D) -> void:
+	var helpers: Array[SquadAlly] = []
+	for a in get_living():
+		if a == ward:
+			continue
+		var cur: SquadCommand = a.current
+		if cur != null and not cur.done:
+			if cur.priority >= SquadCommand.Priority.PANIC or cur.verb == "revive" or cur.combo_id != 0 or bool(cur.data.get("rally", false)):
+				continue
+			if cur.verb == "bodyguard" and String(cur.args.get("target", "")) == _ward_name(ward):
+				continue  # already guarding them
+		# ORDER priority (not mission): a fresh order from the player still takes over, and the rally resumes after.
+		var cmd := SquadCommand.make("bodyguard", {"target": _ward_name(ward)}, "auto")
+		cmd.priority = SquadCommand.Priority.ORDER
+		if cur != null and not cur.done:
+			a.enqueue(cur, true)   # resumes once the ward is safe
+		a.assign(cmd)
+		cmd.data["rally"] = true   # assign() resets data for non-combo commands
+		helpers.append(a)
+	if helpers.is_empty():
+		return
+	_rally[ward] = {"clear_t": 0.0, "allies": helpers}
+	var line: String = "You're hurt — everyone on you, now!" if ward == _player else "%s is hurt — protect %s!" % [(ward as SquadAlly).get_display_name(), (ward as SquadAlly).get_display_name()]
+	helpers[0].say(line, "rally", 2)
+	_log("auto", ", ".join(_names(helpers)), "rally to " + (_ward_name(ward)), "protecting")
+	_roster_dirty = true
+
+
+func _update_rally(ward: Node3D, delta: float) -> void:
+	var rec: Dictionary = _rally[ward] as Dictionary
+	var gone: bool = not is_instance_valid(ward) or (ward is SquadAlly and (ward as SquadAlly).is_downed) \
+		or (ward is PlayerController and (ward as PlayerController).current_state == PlayerController.State.DEAD)
+	var hp: float = 0.0
+	if not gone:
+		hp = (ward as SquadAlly).get_health_ratio() if ward is SquadAlly else float((ward as PlayerController).health) / float(maxi(1, (ward as PlayerController).max_health))
+		if _threats_on(ward, RALLY_CLEAR_R).is_empty():
+			rec["clear_t"] = float(rec["clear_t"]) + delta
+		else:
+			rec["clear_t"] = 0.0
+	var safe: bool = gone or hp >= RALLY_SAFE_HP or float(rec["clear_t"]) >= 2.5
+	if not safe:
+		return
+	for a in (rec["allies"] as Array):
+		var ally: SquadAlly = a as SquadAlly
+		if is_instance_valid(ally) and ally.current != null and bool(ally.current.data.get("rally", false)):
+			ally.finish_current("safe")
+	_rally.erase(ward)
+	if is_instance_valid(ward):
+		_rally_cooldown[ward] = 4.0
+	var helpers: Array = rec["allies"] as Array
+	if not gone and not helpers.is_empty() and is_instance_valid(helpers[0]):
+		(helpers[0] as SquadAlly).say("Clear. Back to it.", "rally_end", 1)
+	_log("auto", "squad", "rally over", "safe" if not gone else "ward down")
+	_roster_dirty = true
+
+
+func is_rallying() -> bool:
+	return not _rally.is_empty()
 
 
 var _banter_timer: float = 45.0
@@ -388,10 +510,120 @@ func pick_enemy_for(ally: SquadAlly, player: Node3D, radius: float, any: bool) -
 ## Main entry for parser / LLM tool calls. Returns a short human-readable result per command.
 func issue_commands(cmds: Array, source: String = "chat") -> Array[String]:
 	var results: Array[String] = []
+	begin_batch()
 	for c in cmds:
 		if c is Dictionary:
 			results.append(issue(c as Dictionary, source))
+	end_batch()
 	return results
+
+
+# ------------------------------------------------------------------ one message = one batch (chains)
+
+## Everything said in ONE message (typed, voice, or one LLM turn) is a batch: when the same ally gets several
+## orders in it, they run as a CHAIN in the order given ("jump twice, then get behind me, then shoot the
+## caster"). Stances inside a chain (position / hold / follow / rear guard ...) become timed steps that
+## complete on arrival (or after `step_sec`), so the next step can run; the last step keeps its normal
+## behaviour. Different allies get different chains from the same sentence.
+var _batch_depth: int = 0
+var _batch: Dictionary = {}          # SquadAlly -> Array[SquadCommand] in issue order
+const CHAIN_STEP_VERBS: Array[String] = ["follow", "hold", "position", "rearguard", "overwatch", "retreat"]
+
+
+func begin_batch() -> void:
+	if _batch_depth == 0:
+		_batch.clear()
+	_batch_depth += 1
+
+
+func end_batch() -> void:
+	_batch_depth = maxi(0, _batch_depth - 1)
+	if _batch_depth > 0:
+		return
+	for a in _batch.keys():
+		var ally: SquadAlly = a as SquadAlly
+		var chain: Array = _batch[a] as Array
+		if chain.size() < 2 or not is_instance_valid(ally) or ally.is_downed:
+			continue
+		for i in range(chain.size() - 1):
+			var c: SquadCommand = chain[i] as SquadCommand
+			if c.verb in CHAIN_STEP_VERBS:
+				c.args["chain_step"] = true
+				c.finite = true
+		var pending: Array = chain.filter(func(c2: SquadCommand) -> bool: return not c2.done)
+		if pending.is_empty():
+			continue
+		# Old stances are superseded by the new chain; older finite / mission orders wait after it.
+		var old: Array = ally.queue.filter(func(q: SquadCommand) -> bool: return not chain.has(q) and not q.stance)
+		var cur: SquadCommand = ally.current
+		var rest: Array = []
+		if cur != null and not cur.done and not chain.has(cur) and cur.is_mission() and cur.priority >= (pending[0] as SquadCommand).priority:
+			rest = pending   # mission lock: the whole chain waits behind it
+		else:
+			if cur != pending[0]:
+				ally.assign(pending[0] as SquadCommand)
+			rest = pending.slice(1)
+		ally.queue.clear()
+		for r in rest:
+			ally.queue.append(r as SquadCommand)
+		for o in old:
+			ally.queue.append(o as SquadCommand)
+		_log("chain", ally.get_display_name(), " → ".join(chain.map(func(c3: SquadCommand) -> String: return c3.describe())), "%d steps" % chain.size())
+	_batch.clear()
+	_roster_dirty = true
+
+
+func _batch_record(a: SquadAlly, cmd: SquadCommand) -> void:
+	if _batch_depth <= 0:
+		return
+	if not _batch.has(a):
+		_batch[a] = []
+	(_batch[a] as Array).append(cmd)
+
+
+## Small talk: the addressed ally (or the leader) answers in character; nobody moves.
+func _issue_chat(c: Dictionary, addressed: Array[SquadAlly], source: String) -> String:
+	var who: SquadAlly = null
+	for a in addressed:
+		if not a.is_downed:
+			who = a
+			break
+	if who == null:
+		who = _leader()
+	if who == null:
+		return "nobody to talk to"
+	var topic: String = String(c.get("topic", "generic"))
+	var line: String = who.profile.line("chat_" + topic, "")
+	if line.is_empty():
+		var pool: Array = CHAT_LINES.get(topic, CHAT_LINES["generic"]) as Array
+		line = String(pool[randi() % pool.size()])
+		line = line.replace("{name}", who.get_display_name()).replace("{role}", who.get_role())
+		if topic == "mood":
+			line = line.replace("{hp}", str(int(who.get_health_ratio() * 100.0)))
+	who.say(line, "chat", 1)
+	if topic in ["joke", "praise", "love"]:
+		who._play(["Cheer", "Interact"], 1.0, true)
+	_log(source, who.get_display_name(), "chat " + topic, "replied")
+	return "%s replied" % who.get_display_name()
+
+
+const CHAT_LINES: Dictionary = {
+	"greet": ["Hey. Still breathing, I see.", "Well met, again.", "Here. Always here.", "Oh — hi. Eyes up, though."],
+	"thanks": ["Anytime.", "Don't mention it. Really, don't.", "That's what the mirror made me for.", "You'd do the same. Probably."],
+	"praise": ["Ha! Told you I was worth summoning.", "Keep talking, I'm listening.", "We make a decent team, you and I.", "Don't get sentimental on me now."],
+	"joke": ["Why did the skeleton skip the fight? No guts.", "I asked the Warden for directions. He pointed. With an axe.", "Phantoms make terrible friends. They see right through you.", "My reflection is the better-looking one. Don't tell it."],
+	"intro": ["{name}. The {role}. Your echo, for better or worse.", "Name's {name}. I hit what you point at.", "{name} — {role}. The mirror spat me out next to you; here we are."],
+	"opinion": ["Let's take the loud ones first and the clever ones second.", "Honestly? Stay together and let me handle the flank.", "Kill the casters, then the brute. Then lunch.", "I'd go the Mirror — it shows you where they're weak."],
+	"mood": ["Running at about {hp} percent, and grumpy.", "I'm fine. Mostly. {hp} percent of fine.", "Better than the skeletons."],
+	"sing": ["♪ Glass and bone, glass and bone, nobody leaves the arena alone ♪", "♪ Oh the Warden's got a hammer and a terrible mood ♪", "Absolutely not. ...Fine. La la la. Happy?"],
+	"story": ["Once, a champion looked into the mirror and the mirror looked back. That's how we got here.", "Long story. Short version: arena, mirror, us. Keep walking."],
+	"love": ["...Focus on the fight.", "Aw. Same. Now duck.", "Careful, my reflection gets jealous."],
+	"sorry": ["Already forgotten.", "Happens. Don't do it again."],
+	"bored": ["Bored? There's a skeleton over there that disagrees.", "Want me to jump around? I can jump around."],
+	"bye": ["Don't go far.", "We'll be right here. Literally. We can't leave."],
+	"where": ["The arena between the realms. Reality on one side, the Mirror on the other.", "Somewhere the mirror wanted us. Keep heading north."],
+	"generic": ["Mm-hm. I'm listening.", "Right. And?", "Fair enough.", "If you say so, boss.", "Noted."],
+}
 
 
 func issue(c: Dictionary, source: String = "chat") -> String:
@@ -447,6 +679,8 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 			_cancel_combos_for(addressed)
 			_log(source, ", ".join(_names(addressed)), "stop", "cleared")
 			return "orders cancelled"
+		"chat":
+			return _issue_chat(c, addressed, source)
 		"split":
 			return _split_squad(addressed, source)
 		"strategy":
@@ -477,8 +711,13 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 	var outcomes: PackedStringArray = []
 	var first_spoken: bool = false
 	for a in addressed:
-		var res: String = _route(a, cmd.clone_for("") if addressed.size() > 1 else cmd)
+		var own: SquadCommand = cmd.clone_for("") if addressed.size() > 1 else cmd
+		var chained: bool = _batch_depth > 0 and _batch.has(a)
+		var res: String = _route(a, own)
+		_batch_record(a, own)
 		outcomes.append("%s %s" % [a.get_display_name(), res])
+		if chained:
+			continue   # later steps of a chain don't re-acknowledge
 		if res == "queued (mission lock)":
 			a.say_event("mission_lock", 1)
 		elif not first_spoken or verb in ["massacre", "ceasefire", "scatter"]:
@@ -523,6 +762,12 @@ func _issue_skill(c: Dictionary, source: String) -> String:
 		return "ally down"
 	var s: AllySkill = who.profile.find_skill(key)
 	var cmd := SquadCommand.make("skill", {"skill": s.id, "target": String(c.get("target", ""))}, source)
+	# Inside a chain ("jump, then smoke bomb") the skill is a step in order, not a cut-in.
+	if _batch_depth > 0 and _batch.has(who):
+		_batch_record(who, cmd)
+		_log(source, who.get_display_name(), "skill " + s.display_name, "chained")
+		return "%s: %s (chained)" % [who.get_display_name(), s.display_name]
+	_batch_record(who, cmd)
 	# Skills are instant: they cut in and the interrupted order resumes right after (never queue behind it).
 	var res: String = "assigned"
 	if who.current != null and not who.current.done and who.current.verb != "skill":
@@ -687,6 +932,13 @@ func spring_ambush(trigger: EnemyAI) -> void:
 		if a.current != null and a.current.verb == "ambush" and not bool(a.current.data.get("sprung", false)):
 			a.current.data["sprung"] = true
 			a.current.data["enemy"] = trigger
+		elif a.current != null and a.current.verb == "kite" and a.current.args.get("lure_to", null) is Vector3:
+			# The bait has done its job: turn and fight with the ambush.
+			var atk := SquadCommand.make("attack", {"target": intel.id_of(trigger) if intel != null else "nearest"}, "auto")
+			a.current.done = true   # replaced in place (whatever is queued after the bait still runs after the fight)
+			a.assign(atk)
+			atk.data["enemy"] = trigger
+			a.say(["Now! Get it!", "Delivered — hit it!", "Surprise!"][randi() % 3], "ambush", 2)
 	_log("event", "squad", "ambush sprung", intel.id_of(trigger) if intel != null else "")
 
 
@@ -998,7 +1250,8 @@ func combo_event(id: int, ally: SquadAlly, part: String, event: String, data: Di
 			if kind == "combo_kite_nuke" and parts.has("nuker"):
 				var nk: SquadCommand = rec.get("cmd_nuker", null) as SquadCommand
 				var nuker: SquadAlly = parts["nuker"] as SquadAlly
-				if nk != null and nuker.current == nk:
+				# Posted even if the nuker is briefly busy (a skill / rally cut in): it fires when it resumes.
+				if nk != null and not nk.done and is_instance_valid(nuker):
 					nk.data["go_pos"] = data.get("center", ally.global_position)
 					var kc: SquadCommand = rec.get("cmd_kiter", null) as SquadCommand
 					if kc != null and kc.data.has("enemy"):
@@ -1012,6 +1265,8 @@ func combo_event(id: int, ally: SquadAlly, part: String, event: String, data: Di
 		"released":
 			var kiter: SquadAlly = parts.get("kiter", null) as SquadAlly
 			var kc3: SquadCommand = rec.get("cmd_kiter", null) as SquadCommand
+			if kc3 != null:
+				kc3.data["released"] = true
 			if kiter != null and kc3 != null and kiter.current == kc3:
 				kiter.finish_current("combo complete")
 			combo_progress.emit(kind, "Nuke released!")
