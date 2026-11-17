@@ -65,17 +65,33 @@ static func make_flat_box(bg: Color, border: Color, border_w: int = 1, radius: i
 
 
 static func style_panel(panel: PanelContainer, pad_h: int = 28, pad_v: int = 24, radius: int = 10) -> void:
-	panel.add_theme_stylebox_override("panel", make_panel_box(PANEL_BG, BORDER_GOLD, radius, 2, pad_h, pad_v))
+	if panel is UIFrame:
+		(panel as UIFrame).pad_h = pad_h
+		(panel as UIFrame).pad_v = pad_v
+		return
+	panel.add_theme_stylebox_override("panel", make_panel_box(PANEL_BG, BORDER_GOLD, 0, 2, pad_h, pad_v))
+
+
+## Angular button: dark plate, gold left bar that thickens on hover/focus, brighter fill, hover sound + nudge.
+static func _btn_box(bg: Color, border: Color, bar_w: int, border_w: int = 1) -> StyleBoxFlat:
+	var b := make_flat_box(bg, border, border_w, 0, 18, 8)
+	b.border_width_left = bar_w
+	b.corner_detail = 1
+	return b
 
 
 static func style_button(btn: BaseButton, font_size: int = 18, min_height: float = 42.0) -> void:
 	btn.custom_minimum_size.y = maxf(btn.custom_minimum_size.y, min_height)
-	btn.add_theme_stylebox_override("normal", make_flat_box(BTN_BG_NORMAL, BORDER_SUBTLE, 1, 6))
-	btn.add_theme_stylebox_override("hover", make_flat_box(BTN_BG_HOVER, BORDER_GOLD, 2, 6))
-	btn.add_theme_stylebox_override("pressed", make_flat_box(BTN_BG_PRESSED, BORDER_GOLD, 2, 6))
-	btn.add_theme_stylebox_override("focus", make_flat_box(BTN_BG_HOVER, BORDER_GOLD, 2, 6))
-	btn.add_theme_stylebox_override("disabled", make_flat_box(BTN_BG_DISABLED, Color(0.25, 0.25, 0.30, 0.4), 1, 6))
+	btn.add_theme_stylebox_override("normal", _btn_box(BTN_BG_NORMAL, BORDER_SUBTLE, 3))
+	btn.add_theme_stylebox_override("hover", _btn_box(BTN_BG_HOVER, UITheme.GOLD_BRIGHT, 8, 1))
+	btn.add_theme_stylebox_override("pressed", _btn_box(BTN_BG_PRESSED, UITheme.GOLD_BRIGHT, 10, 1))
+	btn.add_theme_stylebox_override("focus", _btn_box(BTN_BG_HOVER, UITheme.GOLD_BRIGHT, 8, 1))
+	btn.add_theme_stylebox_override("disabled", _btn_box(BTN_BG_DISABLED, Color(0.25, 0.25, 0.30, 0.4), 2))
+	btn.add_theme_font_override("font", UITheme.display_font())
 	btn.add_theme_font_size_override("font_size", font_size)
+	if btn is Button:
+		(btn as Button).alignment = HORIZONTAL_ALIGNMENT_LEFT
+	UIFx.wire_button(btn)
 	btn.add_theme_color_override("font_color", GOLD_TEXT)
 	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.96, 0.82, 1.0))
 	btn.add_theme_color_override("font_pressed_color", Color(1.0, 0.98, 0.90, 1.0))
@@ -84,23 +100,64 @@ static func style_button(btn: BaseButton, font_size: int = 18, min_height: float
 
 
 static func style_title(lbl: Label, font_size: int = 30, color: Color = GOLD_TEXT) -> void:
+	lbl.add_theme_font_override("font", UITheme.display_font())
 	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.04, 0.95))
+	lbl.add_theme_color_override("font_shadow_color", Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.28))
+	lbl.add_theme_constant_override("shadow_offset_x", 0)
+	lbl.add_theme_constant_override("shadow_offset_y", 0)
+	lbl.add_theme_constant_override("shadow_outline_size", 10)
 	lbl.add_theme_constant_override("outline_size", 4)
 
 
 static func style_label(lbl: Label, font_size: int = 17, color: Color = MUTED_TEXT) -> void:
+	lbl.add_theme_font_override("font", UITheme.body_font())
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", color)
+
+
+## Italic flavour-text label (quotes, taglines).
+static func style_flavor(lbl: Label, font_size: int = 20, color: Color = MUTED_TEXT) -> void:
+	lbl.add_theme_font_override("font", UITheme.flavor_font())
 	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_color_override("font_color", color)
 
 
 static func style_divider(parent: Node) -> void:
-	var sep := ColorRect.new()
-	sep.custom_minimum_size = Vector2(0, 2)
-	sep.color = Color(BORDER_GOLD.r, BORDER_GOLD.g, BORDER_GOLD.b, 0.35)
-	sep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(sep)
+	parent.add_child(UIDivider.new())
+
+
+## Full-screen vignette + grain + embers overlay (non-interactive). Add last so it sits on top.
+static func add_atmosphere(parent: Control, vignette: float = 0.65, motes: float = 0.6) -> ColorRect:
+	var r := ColorRect.new()
+	r.name = "AtmosphereOverlay"
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	enforce_full_rect(r)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://assets/shaders/ui/ui_vignette_grain.gdshader") as Shader
+	mat.set_shader_parameter("vignette", vignette)
+	mat.set_shader_parameter("motes", motes)
+	r.material = mat
+	parent.add_child(r)
+	return r
+
+
+## Full-screen amber|cyan mirror-crack tint. realm_mix 0 = Reality, 1 = Mirror.
+static func add_mirror_crack(parent: Control, realm_mix: float = 0.5, tint: float = 0.22) -> ColorRect:
+	var r := ColorRect.new()
+	r.name = "MirrorCrackOverlay"
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	enforce_full_rect(r)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://assets/shaders/ui/ui_mirror_crack.gdshader") as Shader
+	mat.set_shader_parameter("realm_mix", realm_mix)
+	mat.set_shader_parameter("tint_strength", tint)
+	r.material = mat
+	parent.add_child(r)
+	return r
 
 
 static func build_centered_modal(
@@ -114,12 +171,14 @@ static func build_centered_modal(
 	margin_pad: int = 24
 ) -> Dictionary:
 	enforce_full_rect(parent)
+	UITheme.apply(parent)
 
 	var bg := ColorRect.new()
 	bg.name = dimmer_name
 	bg.color = Color(DIMMER_RGB.r, DIMMER_RGB.g, DIMMER_RGB.b, dimmer_alpha)
 	enforce_full_rect(bg)
 	parent.add_child(bg)
+	add_mirror_crack(parent, 0.5, 0.20)
 
 	var margin := MarginContainer.new()
 	margin.name = panel_name + "Margin"
@@ -136,13 +195,14 @@ static func build_centered_modal(
 	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(center)
 
-	var panel := PanelContainer.new()
+	var panel := UIFrame.new()
 	panel.name = panel_name
 	panel.custom_minimum_size = target_size
 	style_panel(panel, pad_h, pad_v)
 	center.add_child(panel)
 
 	bind_responsive_panel(parent, panel, target_size, float(margin_pad))
+	add_atmosphere(parent, 0.7, 0.5)
 
 	return {
 		"dimmer": bg,

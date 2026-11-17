@@ -80,9 +80,9 @@ func _build_default_ui() -> void:
 
 	var title_lbl := Label.new()
 	title_lbl.name = "LeaderboardTitle"
-	title_lbl.text = "HALL OF CHAMPIONS — TOP 5"
+	title_lbl.text = "HALL OF CHAMPIONS"
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	MenuStyle.style_title(title_lbl, 28)
+	MenuStyle.style_title(title_lbl, 34)
 	vbox.add_child(title_lbl)
 
 	MenuStyle.style_divider(vbox)
@@ -122,7 +122,8 @@ func _build_default_ui() -> void:
 		row_lbl.name = "Row_%d" % (i + 1)
 		row_lbl.text = "#%d  ---  ------  --:--  -" % (i + 1)
 		row_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		MenuStyle.style_label(row_lbl, 20, MenuStyle.GOLD_TEXT if i == 0 else MenuStyle.MUTED_TEXT)
+		MenuStyle.style_label(row_lbl, 26 if i == 0 else 22, [Color(1.0, 0.86, 0.38), Color(0.82, 0.86, 0.92), Color(0.82, 0.55, 0.34), MenuStyle.MUTED_TEXT, MenuStyle.MUTED_TEXT][i])
+		row_lbl.add_theme_font_override("font", UITheme.display_font() if i < 3 else UITheme.body_font())
 		rows_vbox.add_child(row_lbl)
 
 	var back_btn := Button.new()

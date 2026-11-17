@@ -205,10 +205,17 @@ func _build_default_ui() -> void:
 
 	var title_lbl := Label.new()
 	title_lbl.name = "PauseTitleLabel"
-	title_lbl.text = "PAUSED"
+	title_lbl.text = "THE ARENA WAITS"
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	MenuStyle.style_title(title_lbl, 30)
+	MenuStyle.style_title(title_lbl, 32)
 	vbox.add_child(title_lbl)
+
+	var flavor_lbl := Label.new()
+	flavor_lbl.name = "PauseFlavorLabel"
+	flavor_lbl.text = "Time holds its breath."
+	flavor_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_flavor(flavor_lbl, 20, MenuStyle.MUTED_TEXT)
+	vbox.add_child(flavor_lbl)
 
 	MenuStyle.style_divider(vbox)
 

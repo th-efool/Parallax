@@ -1,4 +1,4 @@
-# PARALLAX — Scoring, Leaderboard, HUD, Menus & Art/Audio Direction
+﻿# PARALLAX — Scoring, Leaderboard, HUD, Menus & Art/Audio Direction
 
 > Encapsulates GDD Sections 8, 9, and 10.
 
@@ -76,6 +76,14 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
    - **Gameplay & Save Tab**: Mouse Sensitivity slider, Invert Look Y-Axis toggle, Camera FOV slider (`55..95°`), Camera Shake Intensity slider (`0..1`), Combat Hit-Stop toggle, `Clear Active Checkpoint Save (Confirm)`, and `Reset Local Top-5 Leaderboard (Confirm)`.
    - **Bottom Action Bar**: `Apply & Save`, `Restore All Defaults`, `Back`.
 
+### 2.2b UI Kit — "The Cracked Mirror" (Phase 1 of UI overhaul, 2026-11-17)
+- `scripts/ui/ui_theme.gd` (`UITheme`): palette consts, `display_font()` (Cinzel) / `flavor_font()` (Cormorant italic) / `body_font()` (Rajdhani). Drop OFL files named in `FONT_*_PATHS` into `assets/fonts/`; until then it falls back to system serif/sans. `UITheme.get_theme()` = shared Theme (sliders, tabs, scrollbars, LineEdit); `UITheme.apply(ctrl)`.
+- `ui_frame.gd` (`UIFrame`): chamfered gold-keyline panel, drop-in `PanelContainer` (`pad_h`/`pad_v`, `accent`, `glow`). `ui_divider.gd` (`UIDivider`): rule with centre gem. `ui_fx.gd` (`UIFx`): `wire_button` (hover nudge + `ui_click`/`ui_confirm`), `pop`, `stagger_in`, `fade_in`, `shake`, `count_up`.
+- `MenuStyle` keeps its old API but now builds `UIFrame` modals, angular buttons (left gold bar), display-font titles, plus `style_flavor`, `add_mirror_crack`, `add_atmosphere`.
+- Shaders `assets/shaders/ui/`: `ui_mirror_crack` (amber|cyan seam, `realm_mix`), `ui_vignette_grain` (vignette, grain, embers), `ui_panel_shimmer` (gold sheen sweep; not yet used).
+- HUD (Phase 3): bars/chips/interact plate are painted via each control's `draw` signal in `hud_controller.gd` (`_paint_bar`/`_paint_chip`/`_paint_plate`; `_wire_visuals()` applies fonts + hooks, works on generated or scene HUDs). Ghost-bar/flash/sweep state is animated in `_animate_visuals`; `ComboTimerBar` + `MergedLabel` added under existing clusters.
+- Roadmap: Title (full-bleed) -> HUD -> Results -> Pause/Death -> Leaderboard -> Options.
+
 ### 2.3 Required Player Feedback Cues
 - **Shift Success**: `0.15–0.25 s` subtle screen-edge ripple + lighting color lerp + crisp glass-harmonic SFX.
 - **Shift Rejected**: Short realm chip shake/red-amber pulse + low muted thud/rejection tone.
@@ -130,3 +138,4 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
 - **Enemies**: each `EnemyBase` gets a `Voice` `AudioStreamPlayer3D` (Warden: unit 9, range 70 m; others: unit 4, range 30 m). Kind = Warden / ShieldedGuard (`guard`) / PhantomTwin (`phantom`) / anything else (`skeleton`). `alerted` -> `attack` bark; `attack_telegraphed` -> `attack` (55%); `damaged` -> `hurt` (70%, Warden 45%) + impact layers (`hit_flesh` always, plus `hit_bone` for skeletons and `hit_metal` for guard/Warden); `died` -> `death` + 3D `body_fall`; Warden `boss_phase_changed` -> `warden_roar`. Idle growls every 5–11 s while active and visible.
 - **Ambience**: `FireCrackle` 3D loop (range 14 m) attached to every `BrazierLight*`; `RoomTone` (cavern) fades in at `52 < Z < 104` (rampart, gallery and tower). Rain, wind and thunder volume follow `WeatherDirector` profiles.
 - **Realm**: shifting to Mirror also plays `world/mirror_whisper`; the Mirror Plane shatter and realm merge add `world/glass_shatter`.
+

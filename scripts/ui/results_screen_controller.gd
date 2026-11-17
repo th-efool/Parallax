@@ -77,6 +77,7 @@ func populate_from_summary(summary: Dictionary) -> void:
 
 	visible = true
 	_sync_ui_nodes()
+	_play_reveal.call_deferred()
 	results_presented.emit(summary)
 
 
@@ -140,7 +141,7 @@ func press_main_menu() -> void:
 
 
 func _build_default_ui() -> void:
-	var modal := MenuStyle.build_centered_modal(self, "ResultsDimmer", "ResultsPanel", Vector2(560, 520), 0.88, 32, 26)
+	var modal := MenuStyle.build_centered_modal(self, "ResultsDimmer", "ResultsPanel", Vector2(580, 640), 0.88, 32, 22)
 	var panel: PanelContainer = modal["panel"] as PanelContainer
 
 	var scroll := ScrollContainer.new()
@@ -158,10 +159,17 @@ func _build_default_ui() -> void:
 
 	var title_lbl := Label.new()
 	title_lbl.name = "ResultsTitleLabel"
-	title_lbl.text = "RUN COMPLETE"
+	title_lbl.text = "JUDGEMENT"
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	MenuStyle.style_title(title_lbl, 32)
+	MenuStyle.style_title(title_lbl, 36)
 	vbox.add_child(title_lbl)
+
+	var epithet := Label.new()
+	epithet.name = "RankEpithetLabel"
+	epithet.text = "The mirror has judged you."
+	epithet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	MenuStyle.style_flavor(epithet, 22, MenuStyle.MUTED_TEXT)
+	vbox.add_child(epithet)
 
 	MenuStyle.style_divider(vbox)
 
@@ -244,9 +252,47 @@ func _add_stat_row(grid: GridContainer, label_text: String, initial_val: String,
 	v.name = node_name
 	v.text = initial_val
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	MenuStyle.style_title(v, 24 if highlight else 20, MenuStyle.GOLD_TEXT)
+	MenuStyle.style_title(v, 56 if highlight else 22, MenuStyle.GOLD_TEXT)
+	v.add_theme_font_override("font", UITheme.display_font() if highlight else UITheme.body_font())
 	grid.add_child(v)
 	return get_path_to(v)
+
+
+const RANK_EPITHETS: Dictionary = {
+	"S": "Flawless. Even the mirror bows.",
+	"A": "A champion walks out alive.",
+	"B": "The arena remembers your name.",
+	"C": "Survived. The mirror is not impressed.",
+}
+const RANK_COLORS: Dictionary = {
+	"S": Color(1.0, 0.86, 0.38), "A": Color(0.55, 0.88, 1.0), "B": Color(0.80, 0.84, 0.92), "C": Color(0.78, 0.55, 0.38),
+}
+
+
+func _play_reveal() -> void:
+	var score_lbl: Label = get_node_or_null(score_label_path) as Label
+	var rank_lbl: Label = get_node_or_null(rank_label_path) as Label
+	var epi: Label = find_child("RankEpithetLabel", true, false) as Label
+	if score_lbl != null:
+		UIFx.count_up(score_lbl, maxi(0, final_score), 1.1, "%06d")
+	var col: Color = RANK_COLORS.get(final_rank, MenuStyle.GOLD_TEXT)
+	if epi != null:
+		epi.text = String(RANK_EPITHETS.get(final_rank, RANK_EPITHETS["C"]))
+		epi.add_theme_color_override("font_color", col)
+	if rank_lbl != null:
+		rank_lbl.add_theme_color_override("font_color", col)
+		rank_lbl.add_theme_color_override("font_shadow_color", Color(col.r, col.g, col.b, 0.55))
+		rank_lbl.modulate.a = 0.0
+		rank_lbl.pivot_offset = rank_lbl.size * 0.5
+		var tw: Tween = rank_lbl.create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		tw.tween_interval(1.0)
+		tw.tween_callback(func() -> void:
+			rank_lbl.pivot_offset = rank_lbl.size * 0.5
+			rank_lbl.scale = Vector2(2.6, 2.6)
+			rank_lbl.modulate.a = 1.0
+			if AudioManager.instance != null:
+				AudioManager.instance.play_sfx("shift_rejected" if final_rank == "C" else "ui_confirm", -2.0))
+		tw.tween_property(rank_lbl, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _on_run_finalized(summary: Dictionary) -> void:

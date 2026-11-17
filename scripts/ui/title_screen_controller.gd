@@ -1,4 +1,4 @@
-class_name TitleScreenController
+﻿class_name TitleScreenController
 extends Control
 ## Title screen controller (GDD Section 9.2 + Pass 9 Save/Continue):
 ## Displays PARALLAX branding, tagline "Same arena. Different rules.", handles Continue / Start / Leaderboard / Options / Quit,
@@ -33,6 +33,9 @@ const OPENING_QUOTE_TEXT: String = "They built a mirror to preserve champions. I
 
 var quote_overlay_visible: bool = false
 var quote_timer: float = 0.0
+var _crack_rect: ColorRect = null
+var _menu_items: Array[Button] = []
+var _mirror_side: bool = false
 
 
 func _ready() -> void:
@@ -53,6 +56,9 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if visible and not quote_overlay_visible and event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_Q:
+		_toggle_realm_glimpse()
+		return
 	if not visible or not quote_overlay_visible:
 		return
 	if (event is InputEventKey and event.is_pressed()) or (event is InputEventMouseButton and event.is_pressed()):
@@ -87,6 +93,9 @@ func press_start() -> void:
 		quote_overlay_visible = true
 		quote_timer = minf(quote_duration, 5.0)
 		_sync_ui_nodes()
+		var qo: CanvasItem = get_node_or_null(quote_overlay_path) as CanvasItem
+		if qo != null:
+			UIFx.fade_in(qo, 0.8)
 		opening_quote_started.emit(OPENING_QUOTE_TEXT)
 	else:
 		_complete_start_sequence()
@@ -144,88 +153,107 @@ func _complete_start_sequence() -> void:
 
 
 func _build_default_ui() -> void:
-	var modal := MenuStyle.build_centered_modal(self, "TitleBackground", "TitlePanel", Vector2(520, 490), 0.96, 36, 32)
-	var panel: PanelContainer = modal["panel"] as PanelContainer
+	UITheme.apply(self)
+	var bg := ColorRect.new()
+	bg.name = "TitleBackground"
+	bg.color = Color(MenuStyle.DIMMER_RGB.r, MenuStyle.DIMMER_RGB.g, MenuStyle.DIMMER_RGB.b, 0.93)
+	MenuStyle.enforce_full_rect(bg)
+	add_child(bg)
+	_crack_rect = MenuStyle.add_mirror_crack(self, 0.62, 0.30)
 
-	var scroll := ScrollContainer.new()
-	scroll.name = "TitleScroll"
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
+	var margin := MarginContainer.new()
+	margin.name = "TitleMargin"
+	MenuStyle.enforce_full_rect(margin)
+	margin.add_theme_constant_override("margin_left", 96)
+	margin.add_theme_constant_override("margin_right", 48)
+	margin.add_theme_constant_override("margin_top", 48)
+	margin.add_theme_constant_override("margin_bottom", 36)
+	add_child(margin)
 
-	var vbox := VBoxContainer.new()
-	vbox.name = "TitleVBox"
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 12)
-	scroll.add_child(vbox)
+	var column := VBoxContainer.new()
+	column.name = "TitleVBox"
+	column.custom_minimum_size = Vector2(420, 0)
+	column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 10)
+	margin.add_child(column)
 
 	var t_lbl := Label.new()
 	t_lbl.name = "TitleLabel"
 	t_lbl.text = TITLE_TEXT
-	t_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	MenuStyle.style_title(t_lbl, 46)
-	vbox.add_child(t_lbl)
+	MenuStyle.style_title(t_lbl, 92, Color(1.0, 0.93, 0.74))
+	t_lbl.add_theme_constant_override("shadow_outline_size", 22)
+	t_lbl.add_theme_color_override("font_shadow_color", Color(0.95, 0.62, 0.22, 0.38))
+	column.add_child(t_lbl)
 	title_label_path = get_path_to(t_lbl)
+
+	var sub_lbl := Label.new()
+	sub_lbl.name = "SubtitleLabel"
+	sub_lbl.text = "A  MIRROR-REALM  COMBAT  GAME"
+	MenuStyle.style_label(sub_lbl, 16, UITheme.GOLD)
+	sub_lbl.add_theme_constant_override("outline_size", 0)
+	column.add_child(sub_lbl)
 
 	var tag_lbl := Label.new()
 	tag_lbl.name = "TaglineLabel"
 	tag_lbl.text = TAGLINE_TEXT
-	tag_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tag_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	MenuStyle.style_label(tag_lbl, 18, MenuStyle.MUTED_TEXT)
-	vbox.add_child(tag_lbl)
+	MenuStyle.style_flavor(tag_lbl, 26, Color(0.80, 0.84, 0.94))
+	column.add_child(tag_lbl)
 	tagline_label_path = get_path_to(tag_lbl)
 
-	MenuStyle.style_divider(vbox)
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 14)
+	column.add_child(spacer)
+	MenuStyle.style_divider(column)
 
-	var cont_btn := Button.new()
-	cont_btn.name = "ContinueButton"
-	cont_btn.text = "Continue Saved Run"
-	MenuStyle.style_button(cont_btn, 19, 46.0)
-	vbox.add_child(cont_btn)
-	continue_button_path = get_path_to(cont_btn)
+	var specs: Array = [
+		["ContinueButton", "Continue Saved Run", "continue_button_path"],
+		["StartButton", "Start New Run", "start_button_path"],
+		["LeaderboardButton", "Hall of Champions", "leaderboard_button_path"],
+		["OptionsButton", "Options & Controls", "options_button_path"],
+		["QuitButton", "Quit", "quit_button_path"],
+	]
+	_menu_items.clear()
+	for spec: Array in specs:
+		var b := Button.new()
+		b.name = spec[0]
+		b.text = spec[1]
+		MenuStyle.style_button(b, 22, 52.0)
+		column.add_child(b)
+		set(spec[2], get_path_to(b))
+		_menu_items.append(b)
+	(get_node(quit_button_path) as Button).add_theme_color_override("font_color", Color(0.70, 0.62, 0.62))
 
-	var start_btn := Button.new()
-	start_btn.name = "StartButton"
-	start_btn.text = "Start New Run"
-	MenuStyle.style_button(start_btn, 19, 46.0)
-	vbox.add_child(start_btn)
-	start_button_path = get_path_to(start_btn)
+	var hint := Label.new()
+	hint.name = "RealmHintLabel"
+	hint.text = "Press  Q  to glimpse the Mirror"
+	MenuStyle.style_flavor(hint, 18, Color(0.55, 0.60, 0.72))
+	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 40)
+	add_child(hint)
 
-	var lb_btn := Button.new()
-	lb_btn.name = "LeaderboardButton"
-	lb_btn.text = "Leaderboard"
-	MenuStyle.style_button(lb_btn, 19, 46.0)
-	vbox.add_child(lb_btn)
-	leaderboard_button_path = get_path_to(lb_btn)
+	var ver := Label.new()
+	ver.name = "VersionLabel"
+	ver.text = "PARALLAX  ·  IGDC BUILD"
+	MenuStyle.style_label(ver, 13, Color(0.45, 0.47, 0.55))
+	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 28)
+	add_child(ver)
 
-	var opts_btn := Button.new()
-	opts_btn.name = "OptionsButton"
-	opts_btn.text = "Options & Controls"
-	MenuStyle.style_button(opts_btn, 19, 46.0)
-	vbox.add_child(opts_btn)
-	options_button_path = get_path_to(opts_btn)
-
-	var quit_btn := Button.new()
-	quit_btn.name = "QuitButton"
-	quit_btn.text = "Quit"
-	MenuStyle.style_button(quit_btn, 19, 46.0)
-	vbox.add_child(quit_btn)
-	quit_button_path = get_path_to(quit_btn)
+	MenuStyle.add_atmosphere(self, 0.8, 0.9)
 
 	var quote_card := PanelContainer.new()
 	quote_card.name = "QuoteOverlay"
 	quote_card.visible = false
 	MenuStyle.enforce_full_rect(quote_card)
-	quote_card.add_theme_stylebox_override("panel", MenuStyle.make_panel_box(Color(0.03, 0.035, 0.055, 0.98), MenuStyle.BORDER_GOLD, 0, 0, 0, 0))
+	quote_card.add_theme_stylebox_override("panel", MenuStyle.make_panel_box(Color(0.02, 0.022, 0.035, 1.0), MenuStyle.BORDER_GOLD, 0, 0, 0, 0))
 	add_child(quote_card)
 	quote_overlay_path = get_path_to(quote_card)
 
 	var q_margin := MarginContainer.new()
 	MenuStyle.enforce_full_rect(q_margin)
-	q_margin.add_theme_constant_override("margin_left", 64)
-	q_margin.add_theme_constant_override("margin_right", 64)
+	q_margin.add_theme_constant_override("margin_left", 160)
+	q_margin.add_theme_constant_override("margin_right", 160)
 	q_margin.add_theme_constant_override("margin_top", 48)
 	q_margin.add_theme_constant_override("margin_bottom", 48)
 	quote_card.add_child(q_margin)
@@ -234,8 +262,10 @@ func _build_default_ui() -> void:
 	q_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	q_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	q_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	q_vbox.add_theme_constant_override("separation", 22)
 	q_margin.add_child(q_vbox)
 
+	q_vbox.add_child(UIDivider.new())
 	var q_lbl := Label.new()
 	q_lbl.name = "QuoteLabel"
 	q_lbl.text = OPENING_QUOTE_TEXT
@@ -243,9 +273,38 @@ func _build_default_ui() -> void:
 	q_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	q_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	q_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	MenuStyle.style_title(q_lbl, 24, MenuStyle.GOLD_TEXT)
+	MenuStyle.style_flavor(q_lbl, 38, Color(0.96, 0.90, 0.74))
 	q_vbox.add_child(q_lbl)
 	quote_label_path = get_path_to(q_lbl)
+	q_vbox.add_child(UIDivider.new())
+
+	call_deferred("_play_intro")
+
+
+func _play_intro() -> void:
+	var items: Array = []
+	for b: Button in _menu_items:
+		if b.visible:
+			items.append(b)
+	UIFx.stagger_in(items, 0.08, 0.45)
+	if _crack_rect != null:
+		_crack_rect.modulate.a = 0.0
+		var tw: Tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		tw.tween_property(_crack_rect, "modulate:a", 1.0, 1.4)
+	var title_node: Control = get_node_or_null(title_label_path) as Control
+	if title_node != null:
+		UIFx.fade_in(title_node, 0.9)
+
+
+func _toggle_realm_glimpse() -> void:
+	if _crack_rect == null or _crack_rect.material == null:
+		return
+	_mirror_side = not _mirror_side
+	var mat: ShaderMaterial = _crack_rect.material as ShaderMaterial
+	var tw: Tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("realm_mix", v), float(mat.get_shader_parameter("realm_mix")), 0.18 if _mirror_side else 0.82, 0.45).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	if AudioManager.instance != null:
+		AudioManager.instance.play_sfx("shift_to_mirror" if _mirror_side else "shift_to_reality", -6.0)
 
 
 func _bind_buttons() -> void:

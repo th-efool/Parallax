@@ -46,11 +46,24 @@ func _build_default_ui() -> void:
 
 	var lbl := Label.new()
 	lbl.name = "DeathBannerLabel"
-	lbl.text = "SHATTERED — RETURNING TO CHECKPOINT"
+	lbl.text = "SHATTERED"
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	MenuStyle.style_title(lbl, 30, Color(0.95, 0.36, 0.30, 1.0))
-	center.add_child(lbl)
+	MenuStyle.style_title(lbl, 64, Color(0.95, 0.36, 0.30, 1.0))
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(box)
+	box.add_child(lbl)
+	var sub := Label.new()
+	sub.name = "DeathFlavorLabel"
+	sub.text = "The mirror remembers."
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MenuStyle.style_flavor(sub, 24, Color(0.85, 0.70, 0.68))
+	box.add_child(sub)
+	var vig := MenuStyle.add_atmosphere(self, 1.0, 0.0)
+	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func bind_player(player: Node) -> void:

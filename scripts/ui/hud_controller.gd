@@ -72,6 +72,34 @@ var _pulse_mat: ShaderMaterial = null
 var _pulse_timer: float = 0.0
 var _ui_built: bool = false
 
+# --- Visual-state (Phase 3 restyle): ghost bars, flashes, chip sweeps, combo bar, popups ---
+const GOLD := Color(0.784, 0.659, 0.376)
+const GOLD_HI := Color(1.0, 0.92, 0.70)
+const REALITY_COL := Color(0.902, 0.600, 0.220)
+const MIRROR_COL := Color(0.200, 0.710, 1.000)
+const MERGED_COL := Color(0.68, 0.45, 1.0)
+const COMBO_WINDOW_SEC: float = 4.0
+var _hp_bar: ProgressBar = null
+var _boss_bar: ProgressBar = null
+var _hp_ghost: float = 1.0
+var _hp_ratio: float = 1.0
+var _hp_ghost_delay: float = 0.0
+var _hp_flash: float = 0.0
+var _boss_ghost: float = 1.0
+var _boss_ghost_delay: float = 0.0
+var _chip_sweep: Dictionary = {"reality": 1.0, "mirror": 1.0}
+var _last_realm_key: String = ""
+var _merged_label: Label = null
+var _score_lbl: Label = null
+var _combo_lbl: Label = null
+var _combo_bar: ProgressBar = null
+var _combo_mult: int = 1
+var _combo_left: float = 0.0
+var _last_score: int = 0
+var _last_toast_text: String = ""
+var _toast_label: Label = null
+var _root_ctrl: Control = null
+
 
 func _exit_tree() -> void:
 	var store: Node = _get_leaderboard_store()
@@ -91,9 +119,155 @@ func _ready() -> void:
 		_build_styled_hud_tree()
 	else:
 		_discover_styled_nodes()
+	_wire_visuals()
 	bind_singletons()
 	refresh_input_prompts()
 	_sync_ui_nodes()
+
+
+func _style_hud_label(lbl: Label, display: bool, size: int) -> void:
+	if lbl == null:
+		return
+	lbl.add_theme_font_override("font", UITheme.display_font() if display else UITheme.body_font())
+	lbl.add_theme_font_size_override("font_size", size)
+
+
+func _empty_box(pad_h: int = 0, pad_v: int = 0) -> StyleBoxEmpty:
+	var sb := StyleBoxEmpty.new()
+	sb.content_margin_left = pad_h
+	sb.content_margin_right = pad_h
+	sb.content_margin_top = pad_v
+	sb.content_margin_bottom = pad_v
+	return sb
+
+
+## Applies fonts, custom-drawn frames, combo bar, merged label, toast banner. Idempotent; works for
+## both the generated tree and a scene-authored HUD (uses the *_path exports / known node names).
+func _wire_visuals() -> void:
+	_root_ctrl = get_node_or_null("RootControl") as Control
+	if _root_ctrl == null:
+		return
+	# --- Fonts ---
+	_style_hud_label(get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as Label, true, 30)
+	_style_hud_label(_section_title_label, true, 16)
+	_style_hud_label(get_node_or_null(hp_label_path) as Label, false, 17)
+	_style_hud_label(get_node_or_null(shift_key_label_path) as Label, false, 14)
+	_style_hud_label(get_node_or_null(timer_label_path) as Label, false, 19)
+	_style_hud_label(_reality_pill_label, false, 17)
+	_style_hud_label(_mirror_pill_label, false, 17)
+	_style_hud_label(get_node_or_null(interact_prompt_path) as Label, false, 18)
+	_style_hud_label(get_node_or_null(boss_label_path) as Label, true, 20)
+	var boss_lbl: Label = get_node_or_null(boss_label_path) as Label
+	if boss_lbl != null:
+		boss_lbl.add_theme_color_override("font_outline_color", Color(0.35, 0.04, 0.06, 0.9))
+		boss_lbl.add_theme_constant_override("outline_size", 5)
+	_score_lbl = get_node_or_null(score_label_path) as Label
+	_combo_lbl = get_node_or_null(combo_label_path) as Label
+	_style_hud_label(_score_lbl, false, 26)
+	_style_hud_label(_combo_lbl, false, 20)
+
+	# --- Health + boss bars (painted by _paint_bar) ---
+	_hp_bar = get_node_or_null(hp_bar_path) as ProgressBar if not hp_bar_path.is_empty() else null
+	_boss_bar = get_node_or_null(boss_bar_path) as ProgressBar if not boss_bar_path.is_empty() else null
+	for entry: Array in [[_hp_bar, false], [_boss_bar, true]]:
+		var pb: ProgressBar = entry[0] as ProgressBar
+		if pb == null:
+			continue
+		pb.add_theme_stylebox_override("background", StyleBoxEmpty.new())
+		pb.add_theme_stylebox_override("fill", StyleBoxEmpty.new())
+		if not pb.has_meta("hud_painted"):
+			pb.set_meta("hud_painted", true)
+			var boss_flag: bool = bool(entry[1])
+			pb.draw.connect(func() -> void: _paint_bar(pb, boss_flag))
+	if _hp_bar != null:
+		_hp_bar.custom_minimum_size = Vector2(290, 20)
+	if _boss_bar != null:
+		_boss_bar.custom_minimum_size = Vector2(560, 22)
+	if _stamina_bar != null:
+		var st_fill := StyleBoxFlat.new()
+		st_fill.bg_color = Color(0.82, 0.76, 0.58, 0.95)
+		_stamina_bar.add_theme_stylebox_override("fill", st_fill)
+
+	# --- Realm chips (painted by _paint_chip) ---
+	for entry2: Array in [[_reality_pill_panel, "reality"], [_mirror_pill_panel, "mirror"]]:
+		var cp: PanelContainer = entry2[0] as PanelContainer
+		if cp == null:
+			continue
+		cp.add_theme_stylebox_override("panel", _empty_box(34, 6))
+		cp.custom_minimum_size = Vector2(138, 36)
+		if not cp.has_meta("hud_painted"):
+			cp.set_meta("hud_painted", true)
+			var kind: String = String(entry2[1])
+			cp.draw.connect(func() -> void: _paint_chip(cp, kind))
+			cp.resized.connect(func() -> void: cp.pivot_offset = cp.size * 0.5)
+	# "REALMS MERGED" split label under the chips.
+	var key_row: Node = get_node_or_null("RootControl/TopCenterRealmCluster")
+	if key_row != null and _merged_label == null:
+		_merged_label = key_row.get_node_or_null("MergedLabel") as Label
+		if _merged_label == null:
+			_merged_label = Label.new()
+			_merged_label.name = "MergedLabel"
+			_merged_label.text = "◆ REALMS MERGED ◆"
+			_merged_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_merged_label.visible = false
+			_merged_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_merged_label.add_theme_color_override("font_color", Color(0.86, 0.72, 1.0))
+			_merged_label.add_theme_color_override("font_outline_color", Color(0.25, 0.1, 0.4, 0.9))
+			_merged_label.add_theme_constant_override("outline_size", 4)
+			key_row.add_child(_merged_label)
+		_style_hud_label(_merged_label, true, 14)
+
+	# --- Combo timeout bar ---
+	var tr: Node = get_node_or_null("RootControl/TopRightPanel")
+	if tr != null and _combo_bar == null:
+		_combo_bar = tr.get_node_or_null("ComboTimerBar") as ProgressBar
+		if _combo_bar == null:
+			_combo_bar = ProgressBar.new()
+			_combo_bar.name = "ComboTimerBar"
+			_combo_bar.custom_minimum_size = Vector2(150, 4)
+			_combo_bar.size_flags_horizontal = Control.SIZE_SHRINK_END
+			_combo_bar.show_percentage = false
+			_combo_bar.value = 0.0
+			_combo_bar.modulate.a = 0.0
+			_combo_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var cbg := StyleBoxFlat.new()
+			cbg.bg_color = Color(0, 0, 0, 0.45)
+			_combo_bar.add_theme_stylebox_override("background", cbg)
+			tr.add_child(_combo_bar)
+			tr.move_child(_combo_bar, _combo_lbl.get_index() + 1 if _combo_lbl != null else tr.get_child_count() - 1)
+		_style_combo()
+
+	# --- Keycap look for action labels ---
+	for act: String in _action_slots.keys():
+		var klbl: Label = (_action_slots[act] as Dictionary).get("key") as Label
+		if klbl != null:
+			klbl.add_theme_stylebox_override("normal", _keycap_style())
+			klbl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_style_hud_label(klbl, false, 14)
+		var vlbl: Label = (_action_slots[act] as Dictionary).get("verb") as Label
+		_style_hud_label(vlbl, false, 12)
+
+	# --- Interact plate (chamfered, painted) ---
+	if _interact_panel != null:
+		_interact_panel.add_theme_stylebox_override("panel", _empty_box(22, 7))
+		if not _interact_panel.has_meta("hud_painted"):
+			_interact_panel.set_meta("hud_painted", true)
+			_interact_panel.draw.connect(func() -> void: _paint_plate(_interact_panel))
+
+	# --- Toast banner ---
+	_toast_label = get_node_or_null(toast_label_path) as Label
+	if _toast_label != null:
+		_style_hud_label(_toast_label, true, 24)
+		var tb := StyleBoxFlat.new()
+		tb.bg_color = Color(0.03, 0.03, 0.05, 0.82)
+		tb.border_color = GOLD
+		tb.border_width_top = 2
+		tb.border_width_bottom = 2
+		tb.content_margin_top = 6
+		tb.content_margin_bottom = 6
+		_toast_label.add_theme_stylebox_override("normal", tb)
+		_toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_toast_label.visible = not active_toast_text.is_empty()
 
 
 func _process(delta: float) -> void:
@@ -114,6 +288,8 @@ func _process(delta: float) -> void:
 		if toast_timer <= 0.0:
 			active_toast_text = ""
 			_sync_ui_nodes()
+
+	_animate_visuals(delta)
 
 	if is_instance_valid(_player_ref):
 		if _player_ref.has_method("is_currently_airborne"):
@@ -299,9 +475,17 @@ func _on_settings_changed(_new_settings: Dictionary) -> void:
 
 
 func _on_player_health_changed(current_hp: int, max_hp: int) -> void:
+	var prev_ratio: float = _hp_ratio
 	displayed_hp = maxi(0, current_hp)
 	displayed_max_hp = maxi(1, max_hp)
 	hp_text = "%d / %d" % [displayed_hp, displayed_max_hp]
+	_hp_ratio = clampf(float(displayed_hp) / float(displayed_max_hp), 0.0, 1.0)
+	if _hp_ratio < prev_ratio - 0.001:
+		_hp_flash = 0.28
+		_hp_ghost = maxf(_hp_ghost, prev_ratio)
+		_hp_ghost_delay = 0.45
+	else:
+		_hp_ghost = maxf(_hp_ghost if _hp_ratio < _hp_ghost else _hp_ratio, _hp_ratio)
 	_sync_ui_nodes()
 
 
@@ -317,7 +501,17 @@ func _on_realm_changed(new_realm: int) -> void:
 		active_realm_chip = "MIRROR" if new_realm == RealmManager.Realm.MIRROR else "REALITY"
 	mark_tutorial_completed("q_shift")
 	_trigger_realm_pulse(new_realm == RealmManager.Realm.MIRROR)
+	_start_chip_sweep()
 	_sync_ui_nodes()
+
+
+func _start_chip_sweep() -> void:
+	var key: String = "mirror" if active_realm_chip == "MIRROR" else ("merged" if active_realm_chip == "REALMS MERGED" else "reality")
+	if key == "merged":
+		_chip_sweep["reality"] = 0.0
+		_chip_sweep["mirror"] = 0.0
+	else:
+		_chip_sweep[key] = 0.0
 
 
 func _on_shift_rejected(reason: String) -> void:
@@ -325,6 +519,10 @@ func _on_shift_rejected(reason: String) -> void:
 	shift_rejection_flash_timer = 0.35
 	active_toast_text = "SHIFT LOCKED"
 	toast_timer = 0.9
+	if _reality_pill_panel != null and _mirror_pill_panel != null and is_inside_tree():
+		for p: PanelContainer in [_reality_pill_panel, _mirror_pill_panel]:
+			p.pivot_offset = p.size * 0.5
+			UIFx.shake(p, 14.0, 0.3)
 	_sync_ui_nodes()
 
 
@@ -333,17 +531,73 @@ func _on_realms_merged() -> void:
 	active_toast_text = "REALMS MERGED"
 	toast_timer = 2.5
 	_trigger_realm_pulse(true)
+	_start_chip_sweep()
 	_sync_ui_nodes()
 
 
 func _on_score_changed(new_score: int, _delta: int, _event_type: String) -> void:
 	score_text = "SCORE %06d" % maxi(0, new_score)
+	var gained: int = new_score - _last_score
+	_last_score = new_score
+	if gained > 0 and _score_lbl != null and is_inside_tree() and _delta != 0:
+		_score_lbl.pivot_offset = Vector2(_score_lbl.size.x, _score_lbl.size.y * 0.5)
+		UIFx.pop(_score_lbl, 1.18, 0.22)
+		_spawn_score_popup(gained)
 	_sync_ui_nodes()
 
 
-func _on_combo_changed(multiplier: int, _hits: int, _time_remaining: float) -> void:
-	combo_text = "COMBO x%d" % maxi(1, multiplier)
+func _spawn_score_popup(amount: int) -> void:
+	if _root_ctrl == null or _score_lbl == null:
+		return
+	var pop := Label.new()
+	pop.text = "+%d" % amount
+	pop.add_theme_font_override("font", UITheme.body_font())
+	pop.add_theme_font_size_override("font_size", 20)
+	pop.add_theme_color_override("font_color", GOLD_HI)
+	pop.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	pop.add_theme_constant_override("outline_size", 4)
+	pop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pop.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_root_ctrl.add_child(pop)
+	var origin: Vector2 = _score_lbl.global_position + Vector2(-78.0, 2.0)
+	pop.global_position = origin
+	pop.size = Vector2(70, 24)
+	var tw: Tween = pop.create_tween().set_parallel(true)
+	tw.tween_property(pop, "global_position:y", origin.y + 26.0, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(pop, "modulate:a", 0.0, 0.9).set_delay(0.3)
+	tw.chain().tween_callback(pop.queue_free)
+
+
+func _on_combo_changed(multiplier: int, hits: int, time_remaining: float) -> void:
+	var m: int = maxi(1, multiplier)
+	combo_text = "COMBO x%d" % m
+	if m > _combo_mult and _combo_lbl != null and is_inside_tree():
+		_combo_lbl.pivot_offset = Vector2(_combo_lbl.size.x, _combo_lbl.size.y * 0.5)
+		UIFx.pop(_combo_lbl, 1.3, 0.25)
+	_combo_mult = m
+	_combo_left = time_remaining if (hits > 0 and time_remaining > 0.0) else 0.0
+	_style_combo()
 	_sync_ui_nodes()
+
+
+func _style_combo() -> void:
+	if _combo_lbl == null:
+		return
+	var col: Color = Color(0.92, 0.70, 0.30)
+	var glow: float = 0.0
+	if _combo_mult >= 3:
+		col = Color(1.0, 0.45, 0.25)
+		glow = 0.85
+	elif _combo_mult == 2:
+		col = Color(1.0, 0.80, 0.34)
+		glow = 0.5
+	_combo_lbl.add_theme_color_override("font_color", col)
+	_combo_lbl.add_theme_color_override("font_outline_color", Color(col.r, col.g, col.b, glow * 0.7))
+	_combo_lbl.add_theme_constant_override("outline_size", int(glow * 7.0))
+	if _combo_bar != null:
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = col
+		_combo_bar.add_theme_stylebox_override("fill", fill)
 
 
 func _on_no_hit_awarded(_encounter_id: String, bonus_points: int) -> void:
@@ -381,7 +635,13 @@ func _on_encounter_cleared(encounter_id: String, _section_id: int) -> void:
 
 func _on_boss_health_changed(current_hp: int, max_hp: int) -> void:
 	var m_hp: int = maxi(1, max_hp)
+	var prev_pct: float = boss_hp_percent
 	boss_hp_percent = clampf((float(current_hp) / float(m_hp)) * 100.0, 0.0, 100.0)
+	if boss_hp_percent < prev_pct - 0.01:
+		_boss_ghost = maxf(_boss_ghost, prev_pct / 100.0)
+		_boss_ghost_delay = 0.5
+	else:
+		_boss_ghost = boss_hp_percent / 100.0
 	boss_bar_visible = current_hp > 0
 	_sync_ui_nodes()
 
@@ -429,6 +689,7 @@ func _sync_ui_nodes() -> void:
 	_set_label_text(boss_label_path, boss_label_text)
 	_set_label_text(toast_label_path, active_toast_text)
 	_set_label_text(attack_prompt_path, attack_prompt_text)
+	_sync_toast_banner()
 
 	if _section_title_label != null:
 		_section_title_label.text = section_name_text
@@ -483,51 +744,15 @@ func _sync_realm_pills() -> void:
 	var is_mirror: bool = (active_realm_chip == "MIRROR")
 	var is_merged: bool = (active_realm_chip == "REALMS MERGED")
 
+	# Chips are painted by _paint_chip() via the panel's draw signal; just request a redraw.
 	if _reality_pill_panel != null:
-		var r_active: bool = (not is_mirror) or is_merged
-		var r_style := StyleBoxFlat.new()
-		r_style.corner_radius_top_left = 4
-		r_style.corner_radius_top_right = 4
-		r_style.corner_radius_bottom_left = 4
-		r_style.corner_radius_bottom_right = 4
-		r_style.content_margin_left = 14
-		r_style.content_margin_right = 14
-		r_style.content_margin_top = 6
-		r_style.content_margin_bottom = 6
-		if shift_rejection_flash_timer > 0.0:
-			r_style.bg_color = Color(0.45, 0.12, 0.12, 0.90)
-			r_style.border_color = Color(1.0, 0.35, 0.30, 1.0)
-			r_style.set_border_width_all(2)
-		elif r_active:
-			r_style.bg_color = Color(0.55, 0.35, 0.10, 0.90)
-			r_style.border_color = Color(0.98, 0.76, 0.34, 1.0)
-			r_style.set_border_width_all(2)
-		else:
-			r_style.bg_color = Color(0.06, 0.07, 0.10, 0.76)
-			r_style.border_color = Color(0.36, 0.34, 0.30, 0.55)
-			r_style.set_border_width_all(1)
-		_reality_pill_panel.add_theme_stylebox_override("panel", r_style)
-
+		_reality_pill_panel.queue_redraw()
 	if _mirror_pill_panel != null:
-		var m_active: bool = is_mirror or is_merged
-		var m_style := StyleBoxFlat.new()
-		m_style.corner_radius_top_left = 4
-		m_style.corner_radius_top_right = 4
-		m_style.corner_radius_bottom_left = 4
-		m_style.corner_radius_bottom_right = 4
-		m_style.content_margin_left = 14
-		m_style.content_margin_right = 14
-		m_style.content_margin_top = 6
-		m_style.content_margin_bottom = 6
-		if m_active:
-			m_style.bg_color = Color(0.08, 0.38, 0.58, 0.92)
-			m_style.border_color = Color(0.32, 0.86, 1.0, 1.0)
-			m_style.set_border_width_all(2)
-		else:
-			m_style.bg_color = Color(0.06, 0.07, 0.10, 0.76)
-			m_style.border_color = Color(0.36, 0.38, 0.44, 0.55)
-			m_style.set_border_width_all(1)
-		_mirror_pill_panel.add_theme_stylebox_override("panel", m_style)
+		_mirror_pill_panel.queue_redraw()
+	if _merged_label != null:
+		_merged_label.visible = is_merged
+	if _crest_badge != null:
+		_crest_badge.highlighted = false
 
 	if _reality_pill_label != null:
 		_reality_pill_label.modulate = Color(1.0, 0.96, 0.86, 1.0) if (not is_mirror or is_merged) else Color(0.68, 0.66, 0.62, 0.78)
@@ -535,12 +760,232 @@ func _sync_realm_pills() -> void:
 		_mirror_pill_label.modulate = Color(0.88, 0.97, 1.0, 1.0) if (is_mirror or is_merged) else Color(0.68, 0.70, 0.76, 0.78)
 
 	var accent: Color = Color(0.32, 0.84, 1.0, 0.95) if is_mirror else Color(0.80, 0.66, 0.42, 0.94)
+	if is_merged:
+		accent = Color(MERGED_COL.r, MERGED_COL.g, MERGED_COL.b, 0.95)
 	if _crest_badge != null:
 		_crest_badge.border_color = accent
 	if _swap_badge != null:
 		_swap_badge.border_color = accent
 	if _weapon_badge != null:
 		_weapon_badge.border_color = accent
+
+
+func _sync_toast_banner() -> void:
+	if _toast_label == null:
+		return
+	var has_text: bool = not active_toast_text.is_empty()
+	_toast_label.visible = has_text
+	if has_text and active_toast_text != _last_toast_text and _toast_label.is_inside_tree():
+		_toast_label.modulate.a = 0.0
+		_toast_label.offset_left = -380.0
+		_toast_label.offset_right = 140.0
+		var tw: Tween = _toast_label.create_tween().set_parallel(true)
+		tw.tween_property(_toast_label, "offset_left", -260.0, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_toast_label, "offset_right", 260.0, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_toast_label, "modulate:a", 1.0, 0.2)
+	_last_toast_text = active_toast_text
+
+
+func _animate_visuals(delta: float) -> void:
+	var dirty_hp: bool = false
+	if _hp_flash > 0.0:
+		_hp_flash = maxf(0.0, _hp_flash - delta)
+		dirty_hp = true
+	if _hp_ghost_delay > 0.0:
+		_hp_ghost_delay = maxf(0.0, _hp_ghost_delay - delta)
+	elif _hp_ghost > _hp_ratio:
+		_hp_ghost = maxf(_hp_ratio, _hp_ghost - delta * 0.55)
+		dirty_hp = true
+	if _hp_ratio > 0.0 and _hp_ratio < 0.25:
+		dirty_hp = true
+	if dirty_hp and _hp_bar != null:
+		_hp_bar.queue_redraw()
+		if _crest_badge != null:
+			_crest_badge.highlighted = _hp_ratio > 0.0 and _hp_ratio < 0.25 and fmod(Time.get_ticks_msec() / 1000.0, 0.8) < 0.4
+
+	if _boss_ghost_delay > 0.0:
+		_boss_ghost_delay = maxf(0.0, _boss_ghost_delay - delta)
+	elif _boss_ghost > boss_hp_percent / 100.0:
+		_boss_ghost = maxf(boss_hp_percent / 100.0, _boss_ghost - delta * 0.35)
+		if _boss_bar != null:
+			_boss_bar.queue_redraw()
+
+	for key: String in ["reality", "mirror"]:
+		var v: float = float(_chip_sweep[key])
+		if v < 1.0:
+			_chip_sweep[key] = minf(1.0, v + delta / 0.55)
+			var panel: PanelContainer = _reality_pill_panel if key == "reality" else _mirror_pill_panel
+			if panel != null:
+				panel.queue_redraw()
+	if shift_rejection_flash_timer > 0.0:
+		if _reality_pill_panel != null:
+			_reality_pill_panel.queue_redraw()
+		if _mirror_pill_panel != null:
+			_mirror_pill_panel.queue_redraw()
+
+	if _combo_bar != null:
+		if _combo_left > 0.0:
+			_combo_left = maxf(0.0, _combo_left - delta)
+		_combo_bar.value = clampf(_combo_left / COMBO_WINDOW_SEC, 0.0, 1.0) * 100.0
+		_combo_bar.modulate.a = 1.0 if _combo_left > 0.0 else 0.0
+
+
+## Parallelogram polygon: top edge [l+c, r], bottom edge [l, r-c], filled to fraction f (0..1).
+func _para(r: Rect2, c: float, f: float) -> PackedVector2Array:
+	var l: float = r.position.x
+	var t: float = r.position.y
+	var rr: float = r.end.x
+	var b: float = r.end.y
+	var xt: float = (l + c) + f * (rr - l - c)
+	var xb: float = l + f * (rr - c - l)
+	return PackedVector2Array([Vector2(l + c, t), Vector2(xt, t), Vector2(xb, b), Vector2(l, b)])
+
+
+func _paint_bar(bar: ProgressBar, is_boss: bool) -> void:
+	var s: Vector2 = bar.size
+	if s.x < 12.0 or s.y < 4.0:
+		return
+	var c: float = minf(s.y * 0.9, 12.0)
+	var frame := Rect2(Vector2(1, 1), s - Vector2(2, 2))
+	var inner := frame.grow(-2.5)
+	var ratio: float
+	var ghost: float
+	if is_boss:
+		ratio = clampf(boss_hp_percent / 100.0, 0.0, 1.0)
+		ghost = _boss_ghost
+	else:
+		ratio = _hp_ratio
+		ghost = _hp_ghost
+	bar.draw_colored_polygon(_para(frame, c, 1.0), Color(0.045, 0.030, 0.040, 0.92))
+	# Ghost (recent damage) bar.
+	if ghost > ratio + 0.002:
+		bar.draw_colored_polygon(_para(inner, c, clampf(ghost, 0.0, 1.0)), Color(0.96, 0.92, 0.88, 0.85))
+	# Main fill: darker lower half, brighter top half.
+	if ratio > 0.002:
+		var top_col: Color = Color(0.96, 0.24, 0.22) if not is_boss else Color(0.92, 0.18, 0.24)
+		var bot_col: Color = Color(0.60, 0.08, 0.11)
+		var low_pulse: float = 0.0
+		if not is_boss and ratio < 0.25:
+			low_pulse = 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 8.0)
+			top_col = top_col.lerp(Color(1.0, 0.55, 0.45), low_pulse * 0.6)
+		bar.draw_colored_polygon(_para(inner, c, ratio), bot_col)
+		var half := Rect2(inner.position, Vector2(inner.size.x, inner.size.y * 0.5))
+		bar.draw_colored_polygon(_para(half, c * 0.5, ratio), top_col)
+	# Segment ticks every 25% (boss: phase pip at 50%).
+	var ticks: PackedFloat32Array = PackedFloat32Array([0.5]) if is_boss else PackedFloat32Array([0.25, 0.5, 0.75])
+	for tk: float in ticks:
+		var xt: float = (inner.position.x + c) + tk * (inner.end.x - inner.position.x - c)
+		var xb: float = inner.position.x + tk * (inner.end.x - c - inner.position.x)
+		bar.draw_line(Vector2(xt, inner.position.y), Vector2(xb, inner.end.y), Color(0, 0, 0, 0.55), 1.5)
+	# Damage flash.
+	if not is_boss and _hp_flash > 0.0:
+		bar.draw_colored_polygon(_para(frame, c, 1.0), Color(1, 1, 1, _hp_flash / 0.28 * 0.55))
+	# Gold frame.
+	var outline: PackedVector2Array = _para(frame, c, 1.0)
+	outline.append(outline[0])
+	var frame_col: Color = GOLD
+	if not is_boss and ratio > 0.0 and ratio < 0.25:
+		frame_col = GOLD.lerp(Color(1.0, 0.3, 0.25), 0.6)
+	bar.draw_polyline(outline, frame_col, 2.0, true)
+	if is_boss:
+		# Ornate end caps: gems at both ends of the frame.
+		for gp: Vector2 in [Vector2(frame.position.x + 2.0, s.y * 0.5), Vector2(frame.end.x - 2.0, s.y * 0.5)]:
+			bar.draw_colored_polygon(PackedVector2Array([gp + Vector2(0, -7), gp + Vector2(7, 0), gp + Vector2(0, 7), gp + Vector2(-7, 0)]), GOLD_HI)
+
+
+func _paint_chip(panel: PanelContainer, kind: String) -> void:
+	var s: Vector2 = panel.size
+	if s.x < 20.0:
+		return
+	var is_mirror: bool = (active_realm_chip == "MIRROR")
+	var is_merged: bool = (active_realm_chip == "REALMS MERGED")
+	var active: bool = is_merged or (is_mirror if kind == "mirror" else not is_mirror)
+	var accent: Color = MIRROR_COL if kind == "mirror" else REALITY_COL
+	var c: float = 9.0
+	var r := Rect2(Vector2(1, 1), s - Vector2(2, 2))
+	var poly := PackedVector2Array([
+		Vector2(r.position.x + c, r.position.y), Vector2(r.end.x - c, r.position.y), Vector2(r.end.x, r.position.y + c),
+		Vector2(r.end.x, r.end.y - c), Vector2(r.end.x - c, r.end.y), Vector2(r.position.x + c, r.end.y),
+		Vector2(r.position.x, r.end.y - c), Vector2(r.position.x, r.position.y + c),
+	])
+	var rejected: bool = shift_rejection_flash_timer > 0.0
+	var fill: Color = Color(0.05, 0.055, 0.085, 0.80)
+	var border: Color = Color(0.40, 0.38, 0.34, 0.55)
+	if rejected:
+		fill = Color(0.42, 0.08, 0.08, 0.90)
+		border = Color(1.0, 0.32, 0.28)
+	elif active:
+		fill = Color(accent.r * 0.34, accent.g * 0.34, accent.b * 0.34, 0.92)
+		border = accent.lerp(GOLD_HI, 0.25)
+	panel.draw_colored_polygon(poly, fill)
+	if active and not rejected:
+		# Soft inner glow along the bottom.
+		panel.draw_colored_polygon(PackedVector2Array([
+			Vector2(r.position.x + 2, r.end.y - 9), Vector2(r.end.x - 2, r.end.y - 9),
+			Vector2(r.end.x - c, r.end.y - 1), Vector2(r.position.x + c, r.end.y - 1)]), Color(accent.r, accent.g, accent.b, 0.22))
+	# Light sweep on switch.
+	var sw: float = float(_chip_sweep[kind])
+	if sw < 1.0 and active:
+		var cx: float = lerpf(-20.0, s.x + 20.0, sw)
+		var band := PackedVector2Array([
+			Vector2(clampf(cx - 8, r.position.x, r.end.x), r.position.y + 1), Vector2(clampf(cx + 14, r.position.x, r.end.x), r.position.y + 1),
+			Vector2(clampf(cx + 4, r.position.x, r.end.x), r.end.y - 1), Vector2(clampf(cx - 18, r.position.x, r.end.x), r.end.y - 1)])
+		if absf(band[0].x - band[1].x) > 0.5 or absf(band[2].x - band[3].x) > 0.5:
+			panel.draw_colored_polygon(band, Color(1, 1, 1, 0.45 * (1.0 - sw)))
+	var pl: PackedVector2Array = poly.duplicate()
+	pl.append(poly[0])
+	panel.draw_polyline(pl, border, 2.0 if active else 1.0, true)
+	# Sun / moon glyph on the left.
+	var gc := Vector2(20.0, s.y * 0.5)
+	var gcol: Color = (GOLD_HI if active else Color(0.55, 0.54, 0.52, 0.8))
+	if kind == "reality":
+		panel.draw_circle(gc, 4.2, gcol)
+		for i in 8:
+			var a: float = TAU * float(i) / 8.0
+			panel.draw_line(gc + Vector2(cos(a), sin(a)) * 6.5, gc + Vector2(cos(a), sin(a)) * 9.0, gcol, 1.6, true)
+	else:
+		panel.draw_circle(gc, 7.0, gcol)
+		panel.draw_circle(gc + Vector2(3.4, -2.2), 6.2, fill if active else Color(0.05, 0.055, 0.085, 0.95))
+
+
+func _paint_plate(panel: PanelContainer) -> void:
+	var s: Vector2 = panel.size
+	if s.x < 20.0:
+		return
+	var c: float = 9.0
+	var r := Rect2(Vector2(1, 1), s - Vector2(2, 2))
+	var poly := PackedVector2Array([
+		Vector2(r.position.x + c, r.position.y), Vector2(r.end.x - c, r.position.y), Vector2(r.end.x, r.position.y + c),
+		Vector2(r.end.x, r.end.y - c), Vector2(r.end.x - c, r.end.y), Vector2(r.position.x + c, r.end.y),
+		Vector2(r.position.x, r.end.y - c), Vector2(r.position.x, r.position.y + c),
+	])
+	panel.draw_colored_polygon(poly, Color(0.045, 0.05, 0.075, 0.92))
+	var pl: PackedVector2Array = poly.duplicate()
+	pl.append(poly[0])
+	panel.draw_polyline(pl, GOLD, 2.0, true)
+	panel.draw_polyline(_inset_outline(r.grow(-5.0), c - 4.0), Color(GOLD.r, GOLD.g, GOLD.b, 0.3), 1.0, true)
+
+
+func _inset_outline(r: Rect2, c: float) -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(r.position.x + c, r.position.y), Vector2(r.end.x - c, r.position.y), Vector2(r.end.x, r.position.y + c),
+		Vector2(r.end.x, r.end.y - c), Vector2(r.end.x - c, r.end.y), Vector2(r.position.x + c, r.end.y),
+		Vector2(r.position.x, r.end.y - c), Vector2(r.position.x, r.position.y + c), Vector2(r.position.x + c, r.position.y),
+	])
+
+
+func _keycap_style() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.11, 0.11, 0.15, 0.95)
+	sb.border_color = Color(GOLD.r, GOLD.g, GOLD.b, 0.85)
+	sb.set_border_width_all(1)
+	sb.border_width_bottom = 3
+	sb.set_corner_radius_all(3)
+	sb.content_margin_left = 7
+	sb.content_margin_right = 7
+	sb.content_margin_top = 1
+	sb.content_margin_bottom = 1
+	return sb
 
 
 func _update_action_slot(action_name: String, key_str: String) -> void:
@@ -616,9 +1061,11 @@ func _build_styled_hud_tree() -> void:
 	header_band.offset_bottom = 52.0
 	header_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var header_bg := StyleBoxFlat.new()
-	header_bg.bg_color = Color(0.03, 0.03, 0.05, 0.72)
-	header_bg.border_width_bottom = 1
-	header_bg.border_color = Color(0.55, 0.45, 0.28, 0.35)
+	header_bg.bg_color = Color(0.03, 0.03, 0.05, 0.62)
+	header_bg.border_width_bottom = 2
+	header_bg.border_color = Color(0.784, 0.659, 0.376, 0.55)
+	header_bg.shadow_color = Color(0, 0, 0, 0.45)
+	header_bg.shadow_size = 8
 	header_band.add_theme_stylebox_override("panel", header_bg)
 	root.add_child(header_band)
 
@@ -650,10 +1097,10 @@ func _build_styled_hud_tree() -> void:
 	rule_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header_hbox.add_child(rule_wrap)
 
-	var rule_line := ColorRect.new()
-	rule_line.custom_minimum_size = Vector2(260, 1.5)
-	rule_line.color = Color(0.76, 0.64, 0.42, 0.65)
-	rule_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rule_line := UIDivider.new()
+	rule_line.name = "HeaderRule"
+	rule_line.custom_minimum_size = Vector2(340, 14)
+	rule_line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	rule_wrap.add_child(rule_line)
 
 	_section_title_label = Label.new()

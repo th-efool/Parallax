@@ -85,6 +85,22 @@ func _draw() -> void:
 			c + Vector2(0.0, -ri),
 		])
 		draw_polyline(inner_pts, Color(b_col.r, b_col.g, b_col.b, 0.36), 1.0, true)
+		# Outer echo outline + glow when active, and gems at the four tips.
+		var ro: float = r + 3.5
+		var echo := PackedVector2Array([
+			c + Vector2(0.0, -ro), c + Vector2(ro, 0.0), c + Vector2(0.0, ro), c + Vector2(-ro, 0.0), c + Vector2(0.0, -ro),
+		])
+		draw_polyline(echo, Color(b_col.r, b_col.g, b_col.b, 0.5 if highlighted else 0.18), 1.0, true)
+		if highlighted:
+			for gi in 3:
+				var rg: float = r + 5.0 + float(gi) * 3.0
+				draw_polyline(PackedVector2Array([
+					c + Vector2(0.0, -rg), c + Vector2(rg, 0.0), c + Vector2(0.0, rg), c + Vector2(-rg, 0.0), c + Vector2(0.0, -rg),
+				]), Color(b_col.r, b_col.g, b_col.b, 0.16 / float(gi + 1)), 2.0, true)
+		var gem_c := Color(1.0, 0.92, 0.70, 0.95)
+		for tip: Vector2 in [Vector2(0.0, -r), Vector2(r, 0.0), Vector2(0.0, r), Vector2(-r, 0.0)]:
+			var gp: Vector2 = c + tip
+			draw_colored_polygon(PackedVector2Array([gp + Vector2(0, -3), gp + Vector2(3, 0), gp + Vector2(0, 3), gp + Vector2(-3, 0)]), gem_c)
 
 	_draw_icon(c, r * 0.56, i_col, b_col)
 
