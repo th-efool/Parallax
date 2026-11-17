@@ -398,6 +398,11 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 func _route(a: SquadAlly, cmd: SquadCommand) -> String:
 	if a.is_downed and cmd.verb != "revive":
 		return "is down"
+	# A new stance supersedes any stance still waiting in the queue (no stale follow/hold/ceasefire pile-up).
+	if cmd.stance:
+		for q in a.queue.duplicate():
+			if (q as SquadCommand).stance:
+				a.queue.erase(q)
 	var cur: SquadCommand = a.current
 	if cmd.verb == "massacre" or cmd.verb == "ceasefire":
 		a.clear_queue()
@@ -556,7 +561,10 @@ func _start_combo(kind: String, args: Dictionary, addressed: Array[SquadAlly], s
 	var spec: Array = COMBO_PARTS[kind]
 	var rec: Dictionary = {"id": id, "kind": kind, "parts": {}, "t": 0.0, "args": args, "planted_t": -1.0, "source": source}
 	var used: Array = []
-	for p in spec:
+	# Fill the scarcest half first (e.g. only one ally can nuke) so substitution never wastes a specialist.
+	var ordered: Array = spec.duplicate()
+	ordered.sort_custom(func(x: Array, y: Array) -> bool: return _scarcity(String(x[1])) < _scarcity(String(y[1])))
+	for p in ordered:
 		var part: String = String(p[0])
 		var who: SquadAlly = _pick_for(String(p[1]), String(p[2]), used, addressed)
 		if who != null:
@@ -591,6 +599,20 @@ func _start_combo(kind: String, args: Dictionary, addressed: Array[SquadAlly], s
 		txt += " (solo fallback)"
 	combo_progress.emit(kind, txt)
 	return txt
+
+
+## Parts nobody specialises in are filled last (anyone can stand in); otherwise rarest ability first.
+func _scarcity(ability: String) -> int:
+	var n: int = _capable_count(ability)
+	return 99 if n == 0 else n
+
+
+func _capable_count(ability: String) -> int:
+	var n: int = 0
+	for a in get_living():
+		if a.profile.has_ability(ability):
+			n += 1
+	return n
 
 
 func _lure_point() -> Vector3:

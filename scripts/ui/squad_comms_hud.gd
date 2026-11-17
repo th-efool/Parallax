@@ -222,6 +222,7 @@ func set_cinematic(on: bool) -> void:
 	for a in get_tree().get_nodes_in_group("squad_ally"):
 		for c in (a as Node).get_children():
 			if c is Label3D or (c is MeshInstance3D and (c as MeshInstance3D).mesh is TorusMesh):
+				(c as Node3D).set_meta("cinematic_hidden", on)
 				(c as Node3D).visible = not on
 
 
@@ -297,7 +298,7 @@ func _draw() -> void:
 		_draw_log(Vector2(s.x - 470.0, s.y * 0.30))
 	if not _chat_open and SquadAIConfig.chat_allowed():
 		var hint: String = "ENTER  orders" + ("   ·   V  talk" if SquadAIConfig.voice_allowed() else "") + "   ·   L  log   ·   F10  cinematic"
-		_text(UITheme.body_font(), Vector2(28.0, s.y * 0.30 - 14.0), hint, 15, Color(0.85, 0.82, 0.74, 0.7), 2)
+		_text(UITheme.body_font(), Vector2(28.0, s.y * 0.30 - 14.0), hint, 16, Color(0.95, 0.9, 0.78, 0.92), 4)
 
 
 # ------------------------------------------------------------------ drawing
@@ -404,8 +405,23 @@ func _draw_log(origin: Vector2) -> void:
 		var line: String = tag + (who + ": " if who != "YOU" and not who.is_empty() and src != "combo" else "") + what
 		if not res.is_empty() and who != "YOU":
 			line += "  → " + res
-		_text(body, Vector2(origin.x + 14.0, y), line.left(62), 15, col, 2)
+		_text(body, Vector2(origin.x + 14.0, y), _fit(body, line, 15, r.size.x - 28.0), 15, col, 2)
 		y += 24.0
+
+
+## Truncates `t` with an ellipsis so it fits `max_w` pixels at `fsize`.
+func _fit(font: Font, t: String, fsize: int, max_w: float) -> String:
+	if font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x <= max_w:
+		return t
+	var lo: int = 0
+	var hi: int = t.length()
+	while lo < hi:
+		var mid: int = (lo + hi + 1) / 2
+		if font.get_string_size(t.left(mid) + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x <= max_w:
+			lo = mid
+		else:
+			hi = mid - 1
+	return t.left(lo) + "…"
 
 
 func _draw_mic() -> void:

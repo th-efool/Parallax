@@ -71,9 +71,9 @@ func interrupt() -> void:
 		client.cancel(_req)
 	_req = -1
 	_pending = PackedVector2Array()
-	if _playback != null:
-		_playback.clear_buffer()
+	# Stopping the player discards its generator buffer (clear_buffer() errors while the stream is active).
 	_player.stop()
+	_playback = null
 	if not _current.is_empty():
 		line_finished.emit(String(_current["speaker"]))
 	_current = {}

@@ -15,6 +15,8 @@ signal tts_chunk(request_id: int, pcm: PackedByteArray)
 signal tts_finished(request_id: int)
 signal request_failed(request_id: int, kind: String, message: String)
 
+const CONNECT_TIMEOUT_SEC: float = 8.0
+
 var _jobs: Array[Job] = []
 var _seq: int = 0
 
@@ -177,6 +179,10 @@ func _process(_delta: float) -> void:
 ## Returns true when the job is over (success, failure or cancel).
 func _step(j: Job) -> bool:
 	if j.cancelled:
+		return true
+	# Refused / unroutable hosts can sit in CONNECTING for a long time on Windows: give up fast.
+	if j.stage == "connect" and Time.get_ticks_msec() - j.started_ms > int(CONNECT_TIMEOUT_SEC * 1000.0):
+		request_failed.emit(j.id, j.kind, "Cannot reach the AI endpoint (connect timeout).")
 		return true
 	if Time.get_ticks_msec() - j.started_ms > int(SquadAIConfig.request_timeout_sec * 1000.0) and j.stage != "body":
 		request_failed.emit(j.id, j.kind, "Request timed out.")

@@ -1031,7 +1031,7 @@ func _update_state_icon() -> void:
 		_state_icon.name = "StateIcon"
 		_state_icon.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		_state_icon.no_depth_test = true
-		_state_icon.pixel_size = 0.012
+		_state_icon.pixel_size = 0.009
 		_state_icon.font_size = 44
 		_state_icon.outline_size = 10
 		_state_icon.outline_modulate = Color(0.02, 0.02, 0.04, 0.9)
@@ -1060,7 +1060,10 @@ func _update_state_icon() -> void:
 		col = Color(1.0, 0.3, 0.2)
 	_state_icon.text = txt
 	_state_icon.modulate = col
-	_state_icon.visible = not txt.is_empty() and is_active and not is_dead
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	var near_cam: bool = cam != null and cam.global_position.distance_to(_state_icon.global_position) < 4.0
+	_state_icon.visible = not txt.is_empty() and is_active and not is_dead and not near_cam \
+		and not bool(_state_icon.get_meta("cinematic_hidden", false))
 
 
 func _on_enemy_reset() -> void:

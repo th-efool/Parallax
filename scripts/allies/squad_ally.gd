@@ -209,7 +209,7 @@ func _build_body() -> void:
 	_name_label = Label3D.new()
 	_name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_name_label.no_depth_test = true
-	_name_label.pixel_size = 0.0075
+	_name_label.pixel_size = 0.0058
 	_name_label.font_size = 26
 	_name_label.outline_size = 7
 	_name_label.outline_modulate = Color(0.02, 0.02, 0.04, 0.9)
@@ -259,6 +259,11 @@ func _refresh_label() -> void:
 	_name_label.text = "%s\n%s" % [profile.ally_name.to_upper(), bar if not is_downed else "DOWN — revive"]
 	var c: Color = profile.color
 	_name_label.modulate = Color(c.r, c.g, c.b, 0.95) if not is_downed else Color(1.0, 0.35, 0.3, 0.95)
+	# Hide the tag when the ally is right next to the camera (it would fill the screen); the HUD roster
+	# still shows everything. Cinematic mode hides it via the meta flag.
+	var cam: Camera3D = get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam != null and not bool(_name_label.get_meta("cinematic_hidden", false)):
+		_name_label.visible = cam.global_position.distance_to(_name_label.global_position) > 4.2
 
 
 func _sync_realm_mask() -> void:
@@ -325,8 +330,17 @@ func assign(cmd: SquadCommand) -> void:
 func enqueue(cmd: SquadCommand, front: bool = false) -> void:
 	if front:
 		queue.push_front(cmd)
-	else:
+	elif cmd.stance:
 		queue.append(cmd)
+	else:
+		# Finite orders / missions run before any resumable stance (a stance never finishes on its own and
+		# would otherwise block everything queued behind it).
+		var at: int = queue.size()
+		for i in range(queue.size()):
+			if queue[i].stance:
+				at = i
+				break
+		queue.insert(at, cmd)
 	while queue.size() > 6:
 		queue.pop_back()
 
@@ -491,7 +505,8 @@ func _formation_point(player: Node3D) -> Vector3:
 	if player.has_method("get_facing_direction"):
 		f = player.call("get_facing_direction")
 	var r := Vector3(-f.z, 0.0, f.x)
-	var offsets: Array[Vector2] = [Vector2(-1.9, 1.7), Vector2(1.9, 1.7), Vector2(0.0, 3.0), Vector2(-2.8, 3.4), Vector2(2.8, 3.4), Vector2(0.0, 4.6)]
+	# Flanking wedge kept out of the over-the-right-shoulder camera's centre line (x = side, y = behind).
+	var offsets: Array[Vector2] = [Vector2(-2.5, 0.3), Vector2(2.7, 0.8), Vector2(-2.2, 2.4), Vector2(3.4, 2.6), Vector2(-4.0, 1.2), Vector2(4.6, 1.0)]
 	var o: Vector2 = offsets[slot_index % offsets.size()]
 	return player.global_position - f * o.y + r * o.x
 
@@ -720,7 +735,7 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 			if bool(cmd.data.get("clear", false)):
 				cmd.step = "clear"
 				cmd.data["clear_t"] = 0.0
-				say_event("combo_go", 2)
+				say_event("clear", 2, profile.line("combo_go"))
 			elif standalone and float(cmd.data["sustain_t"]) > 14.0:
 				finish_current("kited")
 		"clear":
@@ -971,7 +986,7 @@ func _run_nuker(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				cmd.step = "casting"
 				var gp: Vector3 = cmd.data["go_pos"]
 				_post_combo(cmd, "casting", {})
-				say_event("combo_ready", 2)
+				say_event("nuke", 2, profile.line("combo_go"))
 				begin_nuke(gp, func() -> void:
 					_post_combo(cmd, "released", {})
 				, cmd.data.get("track", null) as Node3D)
@@ -1003,7 +1018,7 @@ func _run_charger(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				_back_off(e, delta)
 			else:
 				cmd.step = "charging"
-				say_event("combo_go", 2)
+				say_event("charge", 2, profile.line("combo_go"))
 				start_charge(e, func(hit: bool) -> void:
 					if hit:
 						cmd.step = "done"
@@ -1050,7 +1065,7 @@ func _run_finisher(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				_move_to(behind, profile.move_speed * 1.5, delta, false)
 				return
 			set_facing(e.global_position - global_position)
-			say_event("combo_go", 2)
+			say_event("finish", 2, profile.line("combo_go"))
 			_play(["Dualwield_Melee_Attack_Chop", "2H_Melee_Attack_Chop", "1H_Melee_Attack_Jump_Chop", "1H_Melee_Attack_Chop"], 0.5, true)
 			_start_action("attack", 0.55, 0.28, func() -> void:
 				if _enemy_ok(e):
@@ -1078,7 +1093,7 @@ func _run_trapper(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 			_start_action("channel", 0.8, 0.75, func() -> void:
 				plant_mine(p)
 				_post_combo(cmd, "planted", {"point": p})
-				say_event("combo_ready", 2)
+				say_event("sigil", 2, profile.line("combo_ready"))
 			)
 			cmd.step = "armed"
 		"armed":
@@ -1096,7 +1111,7 @@ func _run_trapper(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				_play(["Spellcast_Shoot"], 0.4, true)
 				var hits: int = detonate_mine()
 				_post_combo(cmd, "detonated", {"hits": hits})
-				say_event("combo_go", 2)
+				say_event("detonate", 2, profile.line("combo_go"))
 				finish_current("detonated")
 	if player == null:
 		return
