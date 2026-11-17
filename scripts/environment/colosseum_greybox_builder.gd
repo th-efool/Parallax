@@ -852,7 +852,9 @@ func _attach_enemy_hp_bar(enemy: EnemyBase, height_offset: float) -> void:
 	lbl.position = Vector3(0.0, height_offset, 0.0)
 	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lbl.no_depth_test = true
-	lbl.pixel_size = 0.0085
+	# Fixed screen size: a world-scaled bar filled the screen whenever an enemy stood next to the camera.
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0008
 	lbl.font_size = 24
 	lbl.outline_size = 6
 	lbl.outline_modulate = Color(0.05, 0.05, 0.08, 0.95)

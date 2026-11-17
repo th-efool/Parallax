@@ -191,9 +191,18 @@ func _update_camera(dt: float) -> void:
 		_pivot.position.y = _base_pivot_y + (_smooth_y - py)
 
 
+## Damped spring, sub-stepped at <= 1/120 s. A single explicit step is unstable once dt > ~2/sqrt(k)
+## (~0.11 s for the twist spring): a load hitch or a heavy combat frame made the twist angle diverge and the
+## character spin in place. Sub-stepping keeps it stable for any frame time; NaN/inf resets to rest.
 func _spring(value: float, vel: float, target: float, stiffness: float, damping: float, dt: float) -> Vector2:
-	vel += ((target - value) * stiffness - vel * damping) * dt
-	value += vel * dt
+	var remaining: float = minf(dt, 0.1)
+	while remaining > 0.0:
+		var h: float = minf(remaining, 1.0 / 120.0)
+		vel += ((target - value) * stiffness - vel * damping) * h
+		value += vel * h
+		remaining -= h
+	if is_nan(value) or is_inf(value) or is_nan(vel) or is_inf(vel):
+		return Vector2(target, 0.0)
 	return Vector2(value, vel)
 
 
@@ -203,11 +212,14 @@ func _update_body(delta: float) -> void:
 	var st: int = int(_pc.current_state)
 	var hvel: Vector3 = Vector3(_pc.velocity.x, 0.0, _pc.velocity.z)
 	var fwd: Vector3 = _pc.get_facing_direction()
-	var accel: Vector3 = (hvel - _prev_hvel) / delta
+	# Derivatives over a floored dt: hit-stop frames (time_scale 0.03) would otherwise turn tiny deltas into
+	# enormous accelerations / yaw rates.
+	var safe_dt: float = maxf(delta, 1.0 / 240.0)
+	var accel: Vector3 = (hvel - _prev_hvel) / safe_dt
 	_prev_hvel = hvel
 
 	var yaw: float = _pc.get_visual_yaw()
-	var yaw_rate: float = wrapf(yaw - _prev_yaw, -PI, PI) / delta
+	var yaw_rate: float = clampf(wrapf(yaw - _prev_yaw, -PI, PI) / safe_dt, -20.0, 20.0)
 	_prev_yaw = yaw
 
 	var lean_t: float = 0.0
@@ -249,6 +261,10 @@ func _update_body(delta: float) -> void:
 	r = _spring(_twist, _twist_v, twist_t, 260.0, 17.0, delta)
 	_twist = r.x
 	_twist_v = r.y
+	# Hard limits: procedural body motion is a flourish, never a full turn.
+	_lean = clampf(_lean, -0.7, 0.8)
+	_bank = clampf(_bank, -0.6, 0.6)
+	_twist = clampf(_twist, -1.0, 1.0)
 	r = _spring(_squash, _squash_v, 0.0, 260.0, 11.0, delta)
 	_squash = clampf(r.x, -0.38, 0.32)
 	_squash_v = r.y

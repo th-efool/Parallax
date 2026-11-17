@@ -589,7 +589,56 @@ func _formation_point(player: Node3D) -> Vector3:
 	# Flanking wedge kept out of the over-the-right-shoulder camera's centre line (x = side, y = behind).
 	var offsets: Array[Vector2] = [Vector2(-2.5, 0.3), Vector2(2.7, 0.8), Vector2(-2.2, 2.4), Vector2(3.4, 2.6), Vector2(-4.0, 1.2), Vector2(4.6, 1.0)]
 	var o: Vector2 = offsets[slot_index % offsets.size()]
-	return player.global_position - f * o.y + r * o.x
+	var want: Vector3 = player.global_position - f * o.y + r * o.x
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _form_cache_ms < 200 and _form_cache_from.distance_to(player.global_position) < 0.4:
+		return _form_cache_pos
+	_form_cache_ms = now_ms
+	_form_cache_from = player.global_position
+	_form_cache_pos = _formation_resolve(player, want, f, r)
+	return _form_cache_pos
+
+
+var _form_cache_ms: int = -1000
+var _form_cache_from: Vector3 = Vector3.INF
+var _form_cache_pos: Vector3 = Vector3.ZERO
+
+
+func _formation_resolve(player: Node3D, want: Vector3, f: Vector3, r: Vector3) -> Vector3:
+	# Spatial check: a slot inside a wall / over a ledge / on top of a squad-mate is pulled in toward the
+	# player until it is free (keeps formation sane on narrow causeways and in corridors).
+	for k in range(5):
+		var cand: Vector3 = player.global_position.lerp(want, 1.0 - 0.2 * float(k))
+		if _slot_free(cand, player):
+			return cand
+	return player.global_position - f * 1.6 + r * (0.9 if slot_index % 2 == 0 else -0.9)
+
+
+func _slot_free(p: Vector3, player: Node3D) -> bool:
+	if not is_inside_tree():
+		return true
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
+	var down := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 1.0, p + Vector3.DOWN * 1.8, mask, [get_rid()])
+	if space.intersect_ray(down).is_empty():
+		return false
+	# Never park in the player's view: too close to the camera, or on the camera->player sight line.
+	if _camera_blocking_at(p, player):
+		return false
+	# Wall clearance: a slot hugging a railing / wall makes the ally grind along it while following.
+	var mid: Vector3 = p + Vector3.UP * 0.8
+	for dv in [Vector3(0.65, 0, 0), Vector3(-0.65, 0, 0), Vector3(0, 0, 0.65), Vector3(0, 0, -0.65)]:
+		var cq := PhysicsRayQueryParameters3D.create(mid, mid + (dv as Vector3), collision_mask, [get_rid()])
+		if not space.intersect_ray(cq).is_empty():
+			return false
+	var from: Vector3 = player.global_position + Vector3.UP * 0.9
+	var los := PhysicsRayQueryParameters3D.create(from, p + Vector3.UP * 0.9, collision_mask, [get_rid()])
+	if not space.intersect_ray(los).is_empty():
+		return false
+	for a in get_tree().get_nodes_in_group("squad_ally"):
+		if a != self and a is SquadAlly and (a as SquadAlly).global_position.distance_to(p) < 1.2:
+			return false
+	return true
 
 
 func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
@@ -2507,10 +2556,9 @@ func _move_to(goal: Vector3, speed: float, delta: float, avoid_allies: bool = tr
 	if d < 0.05:
 		_halt(delta)
 		return
-	var dir: Vector3 = to / d
-	if avoid_allies:
-		dir = (dir + _separation() * 0.9).normalized()
-	_move_dir(dir, minf(speed, d * 4.0), delta)
+	# Arrival: ease in over the last metre and a half instead of slamming into the spot.
+	var arrive: float = clampf(d / 1.5, 0.25, 1.0)
+	_steer_toward_dir(to / d, speed * arrive, delta, avoid_allies, d)
 
 
 func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
@@ -2518,24 +2566,128 @@ func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
 	if d.length_squared() < 0.0001:
 		_halt(delta)
 		return
-	d = d.normalized()
-	# Edge / hazard probe: never step off a ledge; try fanning around it.
-	if not _floor_ahead(d):
-		var found: bool = false
-		for a in [0.6, -0.6, 1.2, -1.2, 1.8, -1.8]:
-			var alt: Vector3 = d.rotated(Vector3.UP, a)
-			if _floor_ahead(alt):
-				d = alt
-				found = true
-				break
-		if not found:
-			_halt(delta)
-			return
-	var cur := Vector3(velocity.x, 0.0, velocity.z).move_toward(d * speed, 30.0 * delta)
+	_steer_toward_dir(d.normalized(), speed, delta, true, 99.0)
+
+
+# ------------------------------------------------------------------ context steering (spatial awareness)
+
+const STEER_DIRS: int = 12
+const STEER_REFRESH: float = 0.06
+const SPACE_ALLY: float = 1.5      # personal space from squad-mates
+const SPACE_PLAYER: float = 1.8    # never crowd / block the player
+const SPACE_ENEMY: float = 1.1     # don't body-block into enemies (except the one we're fighting)
+const WALL_LOOK: float = 1.6       # wall look-ahead (scaled up with speed)
+
+var _steer_dir: Vector3 = Vector3.ZERO
+var _steer_timer: float = 0.0
+var _steer_speed_k: float = 1.0
+var _steer_last_goal_dist: float = 99.0
+
+
+## Context steering: score STEER_DIRS headings by interest (toward the goal) minus danger (walls, ledges,
+## squad-mates, the player and the camera corridor behind them, enemies and their strike cones), pick the
+## best, smooth it over time, and slow down when detouring or crowded. Replaces straight-line + separation
+## movement that ran allies into each other and into walls.
+func _steer_toward_dir(desired: Vector3, speed: float, delta: float, social: bool, goal_dist: float) -> void:
+	_steer_timer -= delta
+	_steer_last_goal_dist = goal_dist
+	if _steer_timer <= 0.0 or _steer_dir == Vector3.ZERO:
+		_steer_timer = STEER_REFRESH
+		var pick: Dictionary = _context_pick(desired, speed, social, goal_dist)
+		_steer_dir = pick["dir"] as Vector3
+		_steer_speed_k = float(pick["speed_k"])
+	if _steer_dir == Vector3.ZERO:
+		_halt(delta)
+		return
+	var cur_v := Vector3(velocity.x, 0.0, velocity.z)
+	var target_v: Vector3 = _steer_dir * speed * _steer_speed_k
+	if social:
+		target_v += _personal_space_push() * 2.2
+	var cur := cur_v.move_toward(target_v, 26.0 * delta)
 	velocity.x = cur.x
 	velocity.z = cur.z
-	set_facing(_turn_toward(facing_direction, d, 10.0 * delta))
+	var face: Vector3 = _steer_dir if cur.length() > 0.5 else desired
+	set_facing(_turn_toward(facing_direction, face, 10.0 * delta))
 	_apply_gravity_and_move(delta)
+
+
+func _context_pick(desired: Vector3, speed: float, social: bool, goal_dist: float) -> Dictionary:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var wall_mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
+	var look: float = clampf(WALL_LOOK * (0.6 + speed / 6.0), 1.0, 2.6)
+	var me: Vector3 = global_position
+	# Gather neighbours once.
+	var others: Array = []   # [pos, radius, weight]
+	if social:
+		for a in get_tree().get_nodes_in_group("squad_ally"):
+			if a != self and a is SquadAlly and not (a as SquadAlly).is_downed:
+				others.append([(a as Node3D).global_position, SPACE_ALLY, 1.0])
+	var player: Node3D = _player()
+	var pf := Vector3.FORWARD
+	if player != null:
+		others.append([player.global_position, SPACE_PLAYER, 1.4])
+		if player.has_method("get_facing_direction"):
+			pf = player.call("get_facing_direction")
+	var windups: Array[EnemyAI] = []
+	for e in _active_enemies(me, 6.0):
+		if e != _engage_target or goal_dist > 2.5:
+			others.append([e.global_position, SPACE_ENEMY, 0.8])
+		if e.current_state == EnemyAI.State.WINDUP:
+			windups.append(e)
+	var best_score: float = -INF
+	var best_dir := Vector3.ZERO
+	var best_danger: float = 1.0
+	var prev: Vector3 = _steer_dir
+	for i in range(STEER_DIRS):
+		var ang: float = TAU * float(i) / float(STEER_DIRS)
+		var dir := Vector3(sin(ang), 0.0, cos(ang))
+		var interest: float = dir.dot(desired)
+		# Slight preference to keep the previous heading (prevents left/right dithering).
+		if prev != Vector3.ZERO:
+			interest += 0.15 * maxf(0.0, dir.dot(prev))
+		var danger: float = 0.0
+		# Walls / obstacles (waist height) within the look-ahead.
+		var q := PhysicsRayQueryParameters3D.create(me + Vector3.UP * 0.8, me + Vector3.UP * 0.8 + dir * look, wall_mask, [get_rid()])
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty():
+			var hd: float = me.distance_to(hit["position"] as Vector3)
+			danger = maxf(danger, clampf(1.15 - hd / look, 0.0, 1.0))
+		# Personal space: squad-mates, player, enemies.
+		for o in others:
+			var rel: Vector3 = (o[0] as Vector3) - me
+			rel.y = 0.0
+			var dl: float = rel.length()
+			var rad: float = float(o[1])
+			if dl < rad * 1.6 and dl > 0.01:
+				var toward: float = dir.dot(rel / dl)
+				if toward > 0.0:
+					danger = maxf(danger, toward * clampf(1.0 - (dl - rad * 0.5) / rad, 0.0, 1.0) * float(o[2]))
+		# Camera awareness: don't walk onto the real camera->player sight line or into the lens.
+		if player != null and _camera_blocking_at(me + dir * 1.0, player):
+			danger = maxf(danger, 0.5)
+		# Strike cones of enemies winding up.
+		for e in windups:
+			var to_e: Vector3 = e.global_position - (me + dir * 0.8)
+			to_e.y = 0.0
+			if to_e.length() < e.attack_range + 0.8 and e.get_facing_direction().dot(-to_e.normalized()) > 0.45:
+				danger = maxf(danger, 0.85)
+		var score: float = interest - danger * 1.6
+		if score > best_score:
+			# Ledges: only probe floor for a candidate that could win (keeps ray count low).
+			if not _floor_ahead(dir):
+				continue
+			best_score = score
+			best_dir = dir
+			best_danger = danger
+	if best_dir == Vector3.ZERO:
+		return {"dir": Vector3.ZERO, "speed_k": 0.0}
+	# Detours and crowded spots slow us down; a clear straight line runs at full speed.
+	var align: float = clampf(best_dir.dot(desired), 0.0, 1.0)
+	var speed_k: float = clampf(0.45 + 0.55 * align, 0.35, 1.0) * (1.0 - 0.45 * best_danger)
+	# Almost there but the spot is occupied/blocked: just stop instead of jittering against it.
+	if goal_dist < 1.2 and best_danger > 0.55:
+		return {"dir": Vector3.ZERO, "speed_k": 0.0}
+	return {"dir": best_dir, "speed_k": speed_k}
 
 
 ## Yaw-only turn (Vector3.slerp on near-parallel vectors trips Basis axis normalisation errors).
@@ -2547,9 +2699,81 @@ func _turn_toward(cur: Vector3, target: Vector3, t: float) -> Vector3:
 
 
 func _halt(delta: float) -> void:
-	velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
-	velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
+	# Standing still still keeps personal space: step aside when a squad-mate or the player walks into us.
+	var push: Vector3 = _personal_space_push()
+	if push.length_squared() > 0.0025 and _floor_ahead(push.normalized(), 0.5):
+		var tv: Vector3 = push * 2.4
+		velocity.x = move_toward(velocity.x, tv.x, 20.0 * delta)
+		velocity.z = move_toward(velocity.z, tv.z, 20.0 * delta)
+	else:
+		velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
 	_apply_gravity_and_move(delta)
+
+
+func _side_open(dir: Vector3) -> bool:
+	if not is_inside_tree():
+		return false
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var from: Vector3 = global_position + Vector3.UP * 0.8
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 1.1, collision_mask, [get_rid()])
+	return space.intersect_ray(q).is_empty() and _floor_ahead(dir, 0.9)
+
+
+## True when standing at `p` would block the view: within 2 m of the camera, or within 1 m of the segment
+## from the camera to the player's chest.
+func _camera_blocking_at(p: Vector3, player: Node3D) -> bool:
+	var cam: Camera3D = get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null or player == null:
+		return false
+	var c: Vector3 = cam.global_position
+	var flat_p := Vector3(p.x, 0.0, p.z)
+	var flat_c := Vector3(c.x, 0.0, c.z)
+	if flat_p.distance_to(flat_c) < 2.0:
+		return true
+	var a: Vector3 = flat_c
+	var b := Vector3(player.global_position.x, 0.0, player.global_position.z)
+	var ab: Vector3 = b - a
+	var t: float = clampf((flat_p - a).dot(ab) / maxf(0.0001, ab.length_squared()), 0.0, 1.0)
+	return t < 0.92 and flat_p.distance_to(a + ab * t) < 1.0
+
+
+## Push vector (0..~1.5) away from anyone inside our personal space (allies 1.25 m, player 1.45 m) and
+## off the camera sight line.
+func _personal_space_push() -> Vector3:
+	var push := Vector3.ZERO
+	var me: Vector3 = global_position
+	var pl: Node3D = _player()
+	if pl != null and _camera_blocking_at(me, pl):
+		var cam: Camera3D = get_viewport().get_camera_3d()
+		var line: Vector3 = pl.global_position - cam.global_position
+		line.y = 0.0
+		var side := Vector3(-line.z, 0.0, line.x).normalized()
+		var rel: Vector3 = me - pl.global_position
+		var first: Vector3 = side * (1.0 if rel.dot(side) >= 0.0 else -1.0)
+		# Only step aside into open floor; on a narrow causeway with railings both sides, accept the line.
+		for cand in [first, -first]:
+			if _side_open(cand as Vector3):
+				push += (cand as Vector3) * 0.9
+				break
+	var p: Node3D = _player()
+	if p != null:
+		var d: Vector3 = me - p.global_position
+		d.y = 0.0
+		var l: float = d.length()
+		if l < 1.45:
+			push += (d / l if l > 0.01 else Vector3(1, 0, 0)) * (1.45 - l) / 1.45 * 1.2
+	for a in get_tree().get_nodes_in_group("squad_ally"):
+		if a == self or not (a is SquadAlly) or (a as SquadAlly).is_downed:
+			continue
+		var d2: Vector3 = me - (a as Node3D).global_position
+		d2.y = 0.0
+		var l2: float = d2.length()
+		if l2 < 1.25:
+			# Deterministic tie-break when exactly overlapping so both don't pick the same side.
+			var nd: Vector3 = d2 / l2 if l2 > 0.01 else Vector3(1, 0, 0).rotated(Vector3.UP, float(slot_index) * 2.1)
+			push += nd * (1.25 - l2) / 1.25
+	return push
 
 
 func _apply_gravity_and_move(delta: float) -> void:

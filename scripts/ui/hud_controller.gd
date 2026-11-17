@@ -154,6 +154,8 @@ func _apply_readability_pass() -> void:
 	# Squad comms (roster, mic, chat bar, subtitles, command log) live in this same shared HUD.
 	if _root_ctrl.get_node_or_null("SquadCommsHUD") == null:
 		_root_ctrl.add_child(SquadCommsHUD.new())
+	if _root_ctrl.get_node_or_null("ChainCounter") == null:
+		_root_ctrl.add_child(ChainCounter.new())
 	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
 	if brand != null:
 		brand.visible = false

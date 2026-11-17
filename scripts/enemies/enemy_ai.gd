@@ -845,7 +845,9 @@ func _process_windup(delta: float, target: Node3D) -> void:
 		var to_p: Vector3 = target.global_position - global_position
 		to_p.y = 0.0
 		if to_p.length_squared() > 0.01:
-			set_facing_direction(get_facing_direction().slerp(to_p.normalized(), clampf(8.0 * delta, 0.0, 1.0)))
+			var cf: Vector3 = get_facing_direction()
+			var ya: float = lerp_angle(atan2(cf.x, cf.z), atan2(to_p.x, to_p.z), clampf(8.0 * delta, 0.0, 1.0))
+			set_facing_direction(Vector3(sin(ya), 0.0, cos(ya)))
 	if _state_timer <= 0.0:
 		_begin_attack_strike()
 
@@ -1021,9 +1023,16 @@ func _update_hit_lean(delta: float) -> void:
 		return
 	if _model_base_scale == Vector3.ZERO:
 		_model_base_scale = model.scale
-	# Critically-damped-ish spring back to upright.
-	_lean_v += (-_lean * 150.0 - _lean_v * 13.0) * delta
-	_lean += _lean_v * delta
+	# Critically-damped-ish spring back to upright, sub-stepped so frame hitches can't make it diverge.
+	var remaining: float = minf(delta, 0.1)
+	while remaining > 0.0:
+		var h: float = minf(remaining, 1.0 / 120.0)
+		_lean_v += (-_lean * 150.0 - _lean_v * 13.0) * h
+		_lean += _lean_v * h
+		remaining -= h
+	if is_nan(_lean.x) or is_nan(_lean.y):
+		_lean = Vector2.ZERO
+		_lean_v = Vector2.ZERO
 	_lean = _lean.clamp(Vector2(-0.6, -0.5), Vector2(0.6, 0.5))
 	var squash: float = 0.0
 	if current_state == State.WINDUP:

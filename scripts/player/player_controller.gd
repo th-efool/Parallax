@@ -55,24 +55,45 @@ signal finisher_executed(finisher_name: String)
 ## Per-attack timing & feel. Clip times are seconds into the KayKit clip (contact = blade peak speed,
 ## measured from the rig's hand.r velocity). `lunge` = metres travelled when no target is magnetised.
 const ATTACK_DEFS: Dictionary = {
+	# --- LMB chain (5 distinct moves). Tap in rhythm (just as the cancel window opens) for FLOW: faster
+	# wind-up, more damage, rising whoosh. Pause ~0.3 s mid-chain then tap for the Rising Arc branch.
 	"light_1": {
 		"clip": "1H_Melee_Attack_Slice_Horizontal", "clip_start": 0.04, "clip_contact": 0.28, "clip_end": 0.80,
-		"windup": 0.11, "active": 0.10, "recovery": 0.26, "cancel": 0.30,
-		"lunge": 1.0, "reach": 2.35, "arc": 120.0, "knockback": 3.2,
-		"hitstop": 0.050, "trauma": 0.16, "twist": -0.6, "fov_kick": 1.5, "trail": 1.0,
+		"windup": 0.10, "active": 0.09, "recovery": 0.24, "cancel": 0.18,
+		"lunge": 1.0, "reach": 2.35, "arc": 120.0, "knockback": 3.0,
+		"hitstop": 0.045, "trauma": 0.14, "twist": -0.6, "fov_kick": 1.5, "trail": 1.0, "display": "SLICE",
 	},
 	"light_2": {
 		"clip": "1H_Melee_Attack_Slice_Diagonal", "clip_start": 0.10, "clip_contact": 0.42, "clip_end": 0.82,
-		"windup": 0.11, "active": 0.10, "recovery": 0.26, "cancel": 0.30,
-		"lunge": 1.1, "reach": 2.35, "arc": 120.0, "knockback": 3.6,
-		"hitstop": 0.055, "trauma": 0.18, "twist": 0.6, "fov_kick": 1.5, "trail": 1.0,
+		"windup": 0.09, "active": 0.09, "recovery": 0.24, "cancel": 0.18,
+		"lunge": 1.1, "reach": 2.35, "arc": 120.0, "knockback": 3.4,
+		"hitstop": 0.050, "trauma": 0.16, "twist": 0.6, "fov_kick": 1.5, "trail": 1.0, "display": "BACKHAND",
 	},
 	"light_3": {
+		"clip": "1H_Melee_Attack_Stab", "clip_start": 0.10, "clip_contact": 0.40, "clip_end": 0.85,
+		"windup": 0.08, "active": 0.08, "recovery": 0.26, "cancel": 0.20,
+		"lunge": 2.1, "reach": 2.7, "arc": 50.0, "line": 3.4, "knockback": 4.5,
+		"hitstop": 0.060, "trauma": 0.20, "twist": 0.0, "fov_kick": 3.0, "trail": 1.1, "display": "THRUST",
+	},
+	"light_4": {
+		"clip": "2H_Melee_Attack_Spin", "clip_start": 0.42, "clip_contact": 0.98, "clip_end": 1.60,
+		"windup": 0.10, "active": 0.22, "recovery": 0.28, "cancel": 0.25,
+		"lunge": 0.8, "reach": 2.6, "arc": 360.0, "knockback": 5.5,
+		"hitstop": 0.060, "trauma": 0.28, "twist": 0.0, "fov_kick": 3.5, "trail": 1.3, "ring": 2.4, "display": "WHIRL",
+	},
+	"light_5": {
 		"clip": "1H_Melee_Attack_Chop", "clip_start": 0.16, "clip_contact": 0.50, "clip_end": 0.98,
-		"windup": 0.17, "active": 0.10, "recovery": 0.36, "cancel": 0.40,
-		"lunge": 1.7, "reach": 2.6, "arc": 90.0, "knockback": 7.5,
-		"hitstop": 0.090, "trauma": 0.42, "twist": 0.0, "fov_kick": -3.0, "trail": 1.25,
-		"finisher": true, "crack": 2.2,
+		"windup": 0.16, "active": 0.10, "recovery": 0.38, "cancel": 0.42,
+		"lunge": 2.0, "reach": 2.7, "arc": 100.0, "knockback": 8.5,
+		"hitstop": 0.100, "trauma": 0.48, "twist": 0.0, "fov_kick": -4.0, "trail": 1.5,
+		"finisher": true, "crack": 2.6, "display": "SKYFALL",
+	},
+	"light_rise": {
+		"clip": "2H_Melee_Attack_Slice", "clip_start": 0.12, "clip_contact": 0.48, "clip_end": 1.00,
+		"windup": 0.12, "active": 0.12, "recovery": 0.30, "cancel": 0.28,
+		"lunge": 1.3, "reach": 2.6, "arc": 160.0, "knockback": 5.0,
+		"hitstop": 0.080, "trauma": 0.30, "twist": -0.4, "fov_kick": 2.0, "trail": 1.3,
+		"staggers": true, "display": "RISING ARC",
 	},
 	"heavy": {
 		"clip": "2H_Melee_Attack_Chop", "clip_start": 0.22, "clip_contact": 0.75, "clip_end": 1.40,
@@ -145,8 +166,16 @@ const FINISHER_BY_INPUT: Dictionary = {"light": "fin_rend", "heavy": "fin_sunder
 @export var perfect_dodge_slowmo_time: float = 0.55
 
 @export_group("Combat Tuning")
-@export var light_combo_damages: PackedInt32Array = PackedInt32Array([25, 25, 35])
+@export var light_combo_damages: PackedInt32Array = PackedInt32Array([20, 22, 26, 30, 44])
 @export var light_combo_reset_window: float = 0.90
+## LMB rhythm ("FLOW"): a tap landing in [cancel - early, cancel + late] of the current swing chains faster.
+@export var flow_window_early: float = 0.10
+@export var flow_window_late: float = 0.28
+@export var flow_windup_scale: float = 0.62
+@export var flow_damage_mult: float = 1.15
+## Idle gap mid-chain (seconds) after which the next tap is the Rising Arc branch instead of the next step.
+@export var pause_branch_delay: float = 0.28
+@export var rising_arc_damage: int = 30
 @export var heavy_attack_damage: int = 60
 @export var landing_attack_damage: int = 60
 @export var landing_attack_radius: float = 2.6
@@ -231,6 +260,10 @@ var _finisher_target: Node3D = null
 var _multi_tick: int = 0
 var _ally_ward_hp: int = 0
 var _ally_ward_until_ms: int = 0
+var _flow_tap: bool = false
+var _flow_streak: int = 0
+var _since_attack_end: float = 99.0
+var _presses_this_swing: int = 0
 
 
 func _ready() -> void:
@@ -427,10 +460,13 @@ func _physics_process(delta: float) -> void:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
 	if _landing_recover_timer > 0.0:
 		_landing_recover_timer = maxf(0.0, _landing_recover_timer - delta)
+	if current_state == State.LOCOMOTION:
+		_since_attack_end += delta
 	if _combo_window_timer > 0.0 and current_state == State.LOCOMOTION:
 		_combo_window_timer = maxf(0.0, _combo_window_timer - delta)
 		if _combo_window_timer <= 0.0:
 			combo_step = 0
+			_flow_streak = 0
 
 	match current_state:
 		State.DODGE:
@@ -462,6 +498,10 @@ func _poll_action_inputs(delta: float) -> void:
 		return
 	if Input.is_action_just_pressed("light_attack"):
 		_buffer("light")
+		# Rhythm read happens at press time: FLOW needs ONE clean tap per swing landing in the window.
+		# Mashing (several presses during the same swing) still chains through the buffer, just without FLOW.
+		_presses_this_swing += 1
+		_flow_tap = current_state == State.LIGHT_ATTACK and _presses_this_swing == 1 and _is_flow_timing()
 	if Input.is_action_just_pressed("heavy_attack"):
 		_buffer("heavy")
 	if Input.is_action_just_pressed("dodge"):
@@ -534,12 +574,39 @@ func get_attack_total_duration(attack_name: String) -> float:
 func start_light_attack() -> bool:
 	if not _can_start_attack():
 		return false
+	var chained: bool = current_state == State.LIGHT_ATTACK or current_state == State.HEAVY_ATTACK
+	var flow: bool = chained and _flow_tap
+	_flow_tap = false
+	# Pause branch: mid-chain, idle a beat, then tap -> Rising Arc (stagger), and the chain carries on after it.
+	if not chained and combo_step > 0 and _combo_window_timer > 0.0 and _since_attack_end >= pause_branch_delay and current_attack_name != "light_rise":
+		_flow_streak = 0
+		_combo_window_timer = light_combo_reset_window
+		_begin_attack("light_rise", rising_arc_damage, true, State.LIGHT_ATTACK, {"chain_step": combo_step, "branch": "pause"})
+		return true
 	var step_idx: int = clampi(combo_step, 0, light_combo_damages.size() - 1)
 	var attack_name: String = "light_%d" % (step_idx + 1)
 	combo_step = (step_idx + 1) % light_combo_damages.size()
 	_combo_window_timer = light_combo_reset_window
-	_begin_attack(attack_name, int(light_combo_damages[step_idx]), false, State.LIGHT_ATTACK)
+	_flow_streak = _flow_streak + 1 if flow else 0
+	var dmg: int = int(light_combo_damages[step_idx])
+	var mods: Dictionary = {"chain_step": step_idx + 1, "flow": flow, "flow_streak": _flow_streak}
+	if flow:
+		dmg = int(round(float(dmg) * flow_damage_mult))
+		mods["windup_scale"] = flow_windup_scale
+		mods["trail"] = float(get_attack_def(attack_name).get("trail", 1.0)) * 1.35
+	_begin_attack(attack_name, dmg, false, State.LIGHT_ATTACK, mods)
 	return true
+
+
+## Is "now" a rhythm tap for the current swing? (just before / just after its cancel point)
+func _is_flow_timing() -> bool:
+	if current_attack.is_empty() or not current_attack_name.begins_with("light"):
+		return false
+	var w: float = float(current_attack.get("windup", 0.1))
+	var a: float = float(current_attack.get("active", 0.1))
+	var r: float = float(current_attack.get("recovery", 0.2))
+	var cancel_at: float = w + a + r * float(current_attack.get("cancel", 0.35))
+	return _attack_elapsed >= cancel_at - flow_window_early and _attack_elapsed <= cancel_at + flow_window_late
 
 
 func start_heavy_attack() -> bool:
@@ -562,12 +629,18 @@ func _can_start_attack() -> bool:
 	return (current_state == State.LIGHT_ATTACK or current_state == State.HEAVY_ATTACK) and _in_cancel_window()
 
 
-func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State) -> void:
+func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State, mods: Dictionary = {}) -> void:
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		hb.end_swing()
 	current_attack_name = attack_name
-	current_attack = get_attack_def(attack_name)
+	_presses_this_swing = 0
+	current_attack = get_attack_def(attack_name).duplicate()
+	if mods.has("windup_scale"):
+		current_attack["windup"] = float(current_attack.get("windup", 0.1)) * float(mods["windup_scale"])
+	for k in mods.keys():
+		if k != "windup_scale":
+			current_attack[k] = mods[k]
 	_attack_damage = damage
 	_attack_heavy = heavy
 	_attack_elapsed = 0.0
@@ -591,7 +664,7 @@ func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State) 
 	velocity.x = 0.0
 	velocity.z = 0.0
 
-	var total: float = get_attack_total_duration(attack_name)
+	var total: float = float(current_attack.get("windup", 0.1)) + float(current_attack.get("active", 0.1)) + float(current_attack.get("recovery", 0.2))
 	_set_state(state, total)
 	_set_attack_phase(AttackPhase.WINDUP)
 	var timing: Dictionary = current_attack.duplicate()
@@ -628,7 +701,10 @@ func _process_attack_state(delta: float) -> void:
 		var to_t: Vector3 = current_target.global_position - global_position
 		to_t.y = 0.0
 		if to_t.length_squared() > 0.01:
-			set_facing_direction(get_facing_direction().slerp(to_t.normalized(), clampf(12.0 * delta, 0.0, 1.0)))
+			# Yaw-only turn (Vector3.slerp between near-opposite vectors is numerically fragile).
+			var cur_f: Vector3 = get_facing_direction()
+			var yaw_a: float = lerp_angle(atan2(cur_f.x, cur_f.z), atan2(to_t.x, to_t.z), clampf(12.0 * delta, 0.0, 1.0))
+			set_facing_direction(Vector3(sin(yaw_a), 0.0, cos(yaw_a)))
 
 	var fwd: Vector3 = get_facing_direction()
 	if _attack_elapsed < w:
@@ -699,9 +775,11 @@ func _process_attack_state(delta: float) -> void:
 
 	if _state_timer <= 0.0:
 		_abort_attack()
+		_since_attack_end = 0.0
 		_combo_window_timer = light_combo_reset_window if current_state == State.LIGHT_ATTACK else 0.0
-		if current_attack_name == "light_3" or current_state == State.HEAVY_ATTACK:
+		if current_attack_name == "light_5" or current_state == State.HEAVY_ATTACK:
 			combo_step = 0
+			_flow_streak = 0
 		_set_state(State.LOCOMOTION, 0.0)
 
 
@@ -715,6 +793,13 @@ func _enter_strike() -> void:
 	if current_attack_name.begins_with("light_"):
 		step_num = int(current_attack_name.substr(6))
 	attack_executed.emit(current_attack_name, step_num, _attack_damage, _attack_heavy)
+	# FLOW strike: rising-pitch whoosh per chain step + a little FOV punch so rhythm reads physically.
+	if bool(current_attack.get("flow", false)):
+		var cs: int = int(current_attack.get("chain_step", 1))
+		GameFeelScript.play_sound(self, "whoosh_light", global_position + Vector3.UP, -5.0, 1.0 + 0.07 * float(cs))
+		var rig: Node = get_node_or_null("PlayerFeelRig")
+		if rig != null and rig.has_method("kick_fov"):
+			rig.call("kick_fov", 1.5 + 0.4 * float(cs))
 	if current_attack.has("crack"):
 		_spawn_ground_crack(float(current_attack["crack"]))
 	if current_attack.has("ring"):
@@ -839,7 +924,7 @@ func is_finisher_window_open() -> bool:
 	return _finisher_window_end_ms > Time.get_ticks_msec()
 
 
-## A critical hit: the chain enders (light_3 / heavy / heavy_spin) always crit; other light hits crit at `crit_chance_light`.
+## A critical hit: the chain enders (light_5 / heavy / heavy_spin) always crit; other light hits crit at `crit_chance_light`.
 func _try_open_finisher_window(target: Node3D) -> void:
 	if is_finisher_window_open() or Time.get_ticks_msec() < _finisher_cooldown_end_ms:
 		return
