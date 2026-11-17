@@ -3,10 +3,11 @@ extends SceneTree
 ## The live game still builds the level in code (GrandJourneyBuilder / AmbientLife); this is a read-only
 ## snapshot for looking around, measuring and planning. Re-run after changing the builder:
 ##   godot --path . -s res://scripts/tools/bake_map_preview.gd
-## Output: res://scenes/preview/map_preview.scn  (gitignored, regenerate any time)
+## Output: res://scenes/main/map_preview.scn, next to main.tscn (gitignored, regenerate any time).
+## main.tscn stays light; open this scene in the editor to look at the whole level.
 
-const OUT_DIR: String = "res://scenes/preview"
-const OUT_PATH: String = "res://scenes/preview/map_preview.scn"
+const OUT_DIR: String = "res://scenes/main"
+const OUT_PATH: String = "res://scenes/main/map_preview.scn"
 
 var _main: Node = null
 
@@ -19,6 +20,8 @@ func _initialize() -> void:
 
 func _bake() -> void:
 	# The level is built by MainController at run start; the bake builds it itself, same steps.
+	for _w in range(5):
+		await process_frame
 	var lvl: Node = _main.get_node_or_null("LevelRoot")
 	if lvl != null and lvl.has_method("build_greybox_progressive"):
 		await lvl.call("build_greybox_progressive")

@@ -1,4 +1,4 @@
-# Godot 4+ specific ignores
+﻿# Godot 4+ specific ignores
 .godot/
 
 # Godot-specific ignores
@@ -36,4 +36,4 @@ __pycache__/
 *.key
 
 # Baked editor snapshot of the runtime-generated level (regenerate: scripts/tools/bake_map_preview.gd)
-scenes/preview/
+scenes/main/map_preview.scn
