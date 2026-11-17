@@ -718,6 +718,8 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 		outcomes.append("%s %s" % [a.get_display_name(), res])
 		if chained:
 			continue   # later steps of a chain don't re-acknowledge
+		if source.ends_with("+llm"):
+			continue   # the Director already voices its own `say` line for this order (no second, canned ack)
 		if res == "queued (mission lock)":
 			a.say_event("mission_lock", 1)
 		elif not first_spoken or verb in ["massacre", "ceasefire", "scatter"]:

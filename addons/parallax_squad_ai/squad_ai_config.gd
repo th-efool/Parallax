@@ -50,11 +50,16 @@ static var tts_enabled: bool = true
 static var show_command_log: bool = false
 static var show_subtitles: bool = true
 static var request_timeout_sec: float = 25.0
-## Cap on voiced lines per minute (protects free-tier quotas); extra lines stay subtitle-only.
+## Legacy (unused since 2026-11-18): the TTS player no longer drops lines per minute; a cloud failure switches
+## the session to system voices instead (see voice_engine).
 static var tts_per_minute: int = 5
-## Canned event lines (skill callouts, acks) are voiced only at/above this priority; Director replies always are.
-## 2 = panic acks, combo calls, downed. Keeps free-tier TTS quotas for the lines that matter.
-static var voice_min_event_priority: int = 2
+## Ally lines at/above this priority are voiced. 1 = every real line (acks, callouts, replies); 0 = chatter.
+static var voice_min_event_priority: int = 1
+## auto (cloud while it works, then OS voices for the rest of the session) | cloud | system | off
+static var voice_engine: String = "auto"
+const VOICE_ENGINES: Array[String] = ["auto", "cloud", "system", "off"]
+## Idle lines, banter and kill/engage barks (priority 0). Off: allies only speak when it matters.
+static var ambient_chatter: bool = false
 
 
 static func ensure_loaded() -> void:
@@ -72,6 +77,10 @@ static func ensure_loaded() -> void:
 		tts_enabled = bool(cf.get_value("comms", "tts_enabled", tts_enabled))
 		show_command_log = bool(cf.get_value("comms", "show_command_log_v2", show_command_log))
 		show_subtitles = bool(cf.get_value("comms", "show_subtitles", show_subtitles))
+		voice_engine = String(cf.get_value("comms", "voice_engine", voice_engine))
+		ambient_chatter = bool(cf.get_value("comms", "ambient_chatter", ambient_chatter))
+	if not VOICE_ENGINES.has(voice_engine):
+		voice_engine = "auto"
 	if not MODES.has(mode):
 		mode = "both"
 	if not PROVIDERS.has(provider_pref):
@@ -141,6 +150,8 @@ static func save() -> void:
 	cf.set_value("comms", "tts_enabled", tts_enabled)
 	cf.set_value("comms", "show_command_log_v2", show_command_log)
 	cf.set_value("comms", "show_subtitles", show_subtitles)
+	cf.set_value("comms", "voice_engine", voice_engine)
+	cf.set_value("comms", "ambient_chatter", ambient_chatter)
 	cf.save(PATH)
 
 
@@ -258,6 +269,7 @@ static func chat_allowed() -> bool:
 ## Test hook: force offline (ignores every key source for this session).
 static func force_offline() -> void:
 	ensure_loaded()
+	voice_engine = "off"   # automated tests stay silent (no OS speech during windowed runs)
 	provider_pref = "openai"
 	_env_keys["openai"] = ""
 	_file_keys["openai"] = ""

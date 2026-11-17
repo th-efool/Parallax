@@ -90,7 +90,8 @@ func transcribe(wav_bytes: PackedByteArray, prompt_hint: String = "") -> int:
 ## `voice` = provider voice id; `style` = natural-language delivery hint.
 func speak_stream(text: String, voice: String, style: String = "") -> int:
 	if SquadAIConfig.provider() == "gemini":
-		var prompt: String = text if style.is_empty() else "%s Say: %s" % [style, text]
+		var pace: String = "Speak at a brisk, natural conversational pace — never slow or drawn out."
+		var prompt: String = ("%s Say: %s" % [pace, text]) if style.is_empty() else ("%s %s Say: %s" % [style, pace, text])
 		var body: Dictionary = {
 			"contents": [{"role": "user", "parts": [{"text": prompt}]}],
 			"generationConfig": {
@@ -115,8 +116,8 @@ func speak_stream(text: String, voice: String, style: String = "") -> int:
 		"voice": voice,
 		"response_format": "pcm",
 	}
-	if not style.is_empty() and SquadAIConfig.tts_model().contains("gpt-4o"):
-		b2["instructions"] = style
+	if SquadAIConfig.tts_model().contains("gpt-4o"):
+		b2["instructions"] = (style + " " if not style.is_empty() else "") + "Speak at a brisk, natural conversational pace."
 	return _start("tts", SquadAIConfig.base_url() + "/audio/speech", JSON.stringify(b2).to_utf8_buffer(), "application/json", _bearer())
 
 

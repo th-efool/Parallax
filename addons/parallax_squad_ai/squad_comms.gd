@@ -49,6 +49,9 @@ func _ready() -> void:
 	tts.name = "TTS"
 	add_child(tts)
 	tts.bind_client(client)
+	# Subtitles follow the voice: shown when a line is actually heard, or right away if it won't be voiced.
+	tts.line_started.connect(_on_voice_line)
+	tts.line_dropped.connect(_on_voice_line)
 	client.text_delta.connect(_on_text_delta)
 	client.chat_completed.connect(_on_chat_completed)
 	client.transcribed.connect(_on_transcribed)
@@ -246,7 +249,7 @@ func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var focus: String = ("The player is mainly talking to %s.\n" % focus_ally.get_display_name()) if focus_ally != null else ""
 	return "You are the SQUAD DIRECTOR of PARALLAX, a dark-fantasy mirror-realm arena game. You command the player's squad of mirror-bound 'Echoes' and voice them.\n" \
 		+ "The player talks to you in completely natural language — any phrasing, slang, typos, half-sentences, voice transcripts. Work out what they mean; never require keywords. Ambiguous orders: choose the most sensible tactical reading.\n" \
-		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told.\n" \
+		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told. (11) Every `say` line must describe ONLY what that ally was ordered to do in THIS response (or answer the player's question) — never announce a plan, target or skill you did not issue as a tool call, never narrate other allies, no lore or filler. Default to ONE speaker; use two only when the player addressed several allies.\n" \
 		+ focus \
 		+ "PERSONALITIES (flavour only):\n%s\n" % "\n".join(personas) \
 		+ "ROSTER (live):\n%s\n" % roster \
@@ -288,10 +291,6 @@ func _on_text_delta(id: int, delta: String) -> void:
 		return
 	var rec: Dictionary = _pending[id]
 	rec["text"] = String(rec["text"]) + delta
-	var ally: SquadAlly = rec["ally"] as SquadAlly
-	if ally == null or not is_instance_valid(ally):
-		return
-	subtitle.emit(ally.get_display_name(), String(rec["text"]), ally.profile.color, false)
 
 
 func _on_chat_completed(id: int, text: String, calls: Array) -> void:
@@ -341,8 +340,7 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 			if who != null and not line.is_empty():
 				if who.is_downed:
 					line = "(weakly) " + line
-				subtitle.emit(who.get_display_name(), line, who.profile.color, true)
-				_voice(who, line, 1)
+				_voice(who, line, 1)   # subtitle is emitted by _on_voice_line when the line plays (or is dropped)
 				_remember(who.get_display_name(), "said: " + line)
 				spoke += 1
 				res = "spoken"
@@ -383,7 +381,6 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 	if spoke == 0 and speaker != null:
 		if spoken.is_empty():
 			spoken = speaker.profile.line("ack", "On it.") if not calls.is_empty() else speaker.profile.line("confused", "Say again?")
-		subtitle.emit(speaker.get_display_name(), spoken, speaker.profile.color, true)
 		_voice(speaker, spoken, 1)
 		_remember(speaker.get_display_name(), "said: " + spoken)
 	text_response.emit(speaker.get_display_name() if speaker != null else "squad", spoken if spoke == 0 else "(%d line(s) via say)" % spoke)
@@ -457,7 +454,9 @@ func _on_request_failed(id: int, kind: String, message: String) -> void:
 			return  # the TTS player already retried on the next model
 		if Time.get_ticks_msec() - _last_tts_warn > 30000:
 			_last_tts_warn = Time.get_ticks_msec()
-			if not SquadAIConfig.tts_available():
+			if tts.engine() == "system":
+				notify.emit("Cloud voices unavailable — switched to system voices for this session.", "info")
+			elif not SquadAIConfig.tts_available():
 				notify.emit("Ally voices hit today's free TTS quota — subtitles only (orders still work).", "warn")
 			else:
 				notify.emit("Ally voice unavailable: %s" % message.left(120), "warn")
@@ -471,23 +470,41 @@ func _on_request_failed(id: int, kind: String, message: String) -> void:
 
 # ------------------------------------------------------------------ voices, subtitles, log
 
+const SYS_PITCH: Dictionary = {"vanguard": 0.8, "skirmisher": 1.25, "artillery": 1.0}
+const SYS_RATE: Dictionary = {"vanguard": 1.0, "skirmisher": 1.12, "artillery": 1.02}
+
+
 func _voice(ally: SquadAlly, text: String, prio: int) -> void:
 	if text.is_empty() or ally == null:
 		return
 	var voice: String = ally.profile.gemini_voice if SquadAIConfig.provider() == "gemini" else ally.profile.tts_voice
-	tts.speak(ally.get_display_name(), text, voice, ally.profile.tts_instructions, prio)
+	var role: String = ally.get_role()
+	var slot: int = maxi(0, _manager.allies.find(ally)) if _manager != null else 0
+	tts.speak(ally.get_display_name(), text, voice, ally.profile.tts_instructions, prio,
+		float(SYS_PITCH.get(role, 1.0)), float(SYS_RATE.get(role, 1.0)), slot)
+
+
+## A line became audible (or will not be voiced): show it now, so text always matches what is heard.
+func _on_voice_line(speaker: String, text: String) -> void:
+	var a: SquadAlly = _manager.find_ally(speaker) if _manager != null else null
+	subtitle.emit(speaker, text, a.profile.color if a != null else UITheme.GOLD, true)
 
 
 func _on_ally_spoke(ally_name: String, text: String, _event: String, priority: int, _voice_id: String) -> void:
 	var a: SquadAlly = _manager.find_ally(ally_name) if _manager != null else null
-	var col: Color = a.profile.color if a != null else UITheme.GOLD
-	subtitle.emit(ally_name, text, col, true)
-	# Chatter stays subtitle-only; real lines are voiced (higher priority interrupts lower).
-	if priority >= 1 and a != null:
-		# Routine callouts stay subtitle-only to spare free-tier TTS quota; important ones are voiced.
-		if priority >= SquadAIConfig.voice_min_event_priority:
-			_voice(a, text, priority)
-		_remember(ally_name, "said: " + text)
+	if priority <= 0:
+		# Chatter (idle lines, banter, kill/engage barks): only when ambient chatter is switched on.
+		if SquadAIConfig.ambient_chatter:
+			subtitle.emit(ally_name, text, a.profile.color if a != null else UITheme.GOLD, true)
+		return
+	if a == null:
+		subtitle.emit(ally_name, text, UITheme.GOLD, true)
+		return
+	if priority >= SquadAIConfig.voice_min_event_priority:
+		_voice(a, text, priority)
+	else:
+		subtitle.emit(ally_name, text, a.profile.color, true)
+	_remember(ally_name, "said: " + text)
 
 
 func _on_command_logged(entry: Dictionary) -> void:
