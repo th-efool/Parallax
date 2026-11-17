@@ -148,7 +148,7 @@ func _run() -> void:
 	var wall: int = 0
 	var min_pair: float = 99.0
 	var cam_block: int = 0
-	_player.global_position = Vector3(0, 0, -58)
+	_player.global_position = Vector3(0, 0, -138)   # start terrace (moved 80 m south, JourneyLayout)
 	_mgr.regroup(false)
 	await create_timer(0.5).timeout
 	# Measure following, not the 40 m run-in from the previous section: wait until the squad has arrived.

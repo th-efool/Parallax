@@ -231,7 +231,7 @@ func _footstep_cue(pc: PlayerController) -> String:
 	if wet > 0.45:
 		return "footstep_wet"
 	# Sandy causeway / beach approach before the first gate.
-	if pc.global_position.z < -40.0:
+	if JourneyLayout.story_z(pc.global_position.z) < -40.0:
 		return "footstep_sand"
 	return "footstep"
 
@@ -355,7 +355,7 @@ func _pick_track() -> String:
 		return "ending"
 	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
 	var pc: PlayerController = _get_player()
-	var z: float = pc.global_position.z if pc != null else -60.0
+	var z: float = JourneyLayout.story_z(pc.global_position.z) if pc != null else -60.0
 	if ed != null and int(ed.current_section) == int(EncounterDirector.Section.EXECUTION_ARENA):
 		return "boss"
 	if is_in_combat():
@@ -412,8 +412,8 @@ func _update_room_tone(pc: PlayerController, real_dt: float) -> void:
 		return
 	var target: float = 0.0
 	if pc != null:
-		var z: float = pc.global_position.z
-		# Enclosed hall / tower interior band.
+		var z: float = JourneyLayout.story_z(pc.global_position.z)
+		# Enclosed hall / tower interior band (story z).
 		if z > 52.0 and z < 104.0:
 			target = 1.0
 	var cur: float = db_to_linear(_room_tone.volume_db + 8.0)

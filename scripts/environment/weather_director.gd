@@ -122,7 +122,7 @@ func _process(delta: float) -> void:
 	var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	var probe: Vector3 = player.global_position if player != null else (cam.global_position if cam != null else Vector3.ZERO)
-	var target_name: String = forced_profile if forced_profile != "" else get_profile_for(probe.z)
+	var target_name: String = forced_profile if forced_profile != "" else get_profile_for(JourneyLayout.story_z(probe.z))
 	if target_name != current_profile:
 		current_profile = target_name
 		profile_changed.emit(current_profile)

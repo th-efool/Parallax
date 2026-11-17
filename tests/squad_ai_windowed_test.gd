@@ -119,7 +119,7 @@ func _run() -> void:
 	_check("roster_three_allies", _mgr.allies.size() == 3, str(_mgr.get_ally_names()))
 
 	# 1) Follow: walk forward on the start terrace, allies trail in formation.
-	_teleport_player(Vector3(0, 0, -59))
+	_teleport_player(Vector3(0, 0, -139))   # start terrace (moved 80 m south, JourneyLayout)
 	_mgr.regroup(false)
 	await _wait(0.8)
 	Input.action_press("move_forward")
@@ -515,12 +515,14 @@ func _run() -> void:
 	(fx as EnemyAI).apply_taunt(taunter, -1.0, 4.0)
 	_say("Brannoc hold here")
 	await _wait(0.2)
-	# Walk the taunter well away from the enemy's home (leash 22 m) across the forecourt / causeway.
-	taunter.global_position = Vector3(-3.5, 0, -40.0)
-	_teleport_player(Vector3(-3.5, 0, -36.0))   # stay near him so his catch-up teleport never fires
+	# Walk the taunter well away from the enemy's home (leash 22 m) out along the R1 causeway bridge (last leg,
+	# 45 % of the way from the forecourt edge to bastion 2).
+	var fixation_spot_r1 := Vector3(-15.3, 0, -30.3)
+	taunter.global_position = fixation_spot_r1
+	_teleport_player(Vector3(-11.9, 0, -26.9))   # stay near him so his catch-up teleport never fires
 	if taunter.current != null:
-		taunter.current.args["spot"] = Vector3(-3.5, 0, -40.0)
-		taunter.current.data["spot"] = Vector3(-3.5, 0, -40.0)
+		taunter.current.args["spot"] = fixation_spot_r1
+		taunter.current.data["spot"] = fixation_spot_r1
 	await _wait(14.0)
 	var fx_d: float = fx.global_position.distance_to(taunter.global_position)
 	_check("taunt_fixation_persists", (fx as EnemyAI).is_fixated() and (fx as EnemyAI).get_current_target() is SquadAlly, "fixated=%s target=%s" % [(fx as EnemyAI).is_fixated(), str((fx as EnemyAI).get_current_target())])

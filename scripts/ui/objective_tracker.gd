@@ -83,13 +83,14 @@ func _refresh() -> void:
 
 
 func _compute(player: Node3D) -> Dictionary:
-	var pz: float = player.global_position.z
+	# Thresholds below are story z (the old compact layout); targets convert with JourneyLayout.
+	var pz: float = JourneyLayout.story_z(player.global_position.z)
 	var py: float = player.global_position.y
 	var gate1: Node = _n("Stage01_EntryVestibule/Gate01_EntryToHall")
 	var sw1: Node3D = _n("Stage01_EntryVestibule/EntryMirrorSwitch") as Node3D
 	if gate1 != null and not bool(gate1.get("is_open")):
 		if pz < -16.0:
-			return {"title": "Follow the Pilgrim's Causeway to the gate", "hint": "Head north along the stone causeway.", "target": Vector3(0, 0, -9)}
+			return {"title": "Follow the Pilgrim's Causeway to the gate", "hint": "Cross the winding causeway past both bastions to the gate.", "target": JourneyLayout.guide_target(player.global_position, Vector3(0, 0, -9))}
 		return {"title": "Open the Gate of Reflections",
 			"hint": "Beat the gate guards, press Q so the glowing stones turn solid, cross, then press E at the Mirror Switch left of the gate.",
 			"target": sw1.global_position if sw1 != null else Vector3(0, 0, 4)}
@@ -97,13 +98,13 @@ func _compute(player: Node3D) -> Dictionary:
 	var gate2: Node = _n("Stage02_HallOfEchoes/Gate02_HallToGallery")
 	if gate2 != null and not bool(gate2.get("is_open")):
 		if pz < 24.0:
-			return {"title": "Climb the Sunlit Stair to the Hall of Echoes", "hint": "Go up the wide stair north of the gate.", "target": Vector3(0, 4, 26)}
+			return {"title": "Cross the Sunlit Bridges to the Hall of Echoes", "hint": "Through the gate and over the bridges, past both bastions, to the hall.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 4, 26)))}
 		if not hall_left.is_empty():
 			return {"title": "Clear the Hall of Echoes — %d left" % hall_left.size(),
 				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) the cracked pillar to crush them.",
 				"target": _nearest(hall_left, player).global_position}
 	if pz < 64.0 and py < 5.5:
-		return {"title": "Climb the Windswept Rampart", "hint": "Through the opened gate and up the ramp to the gallery.", "target": Vector3(0, 6, 62)}
+		return {"title": "Cross the Windswept Rampart", "hint": "Through the opened gate and over the rampart bridges, past both bastions, to the gallery.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 6, 62)))}
 	var brg: Node = _n("Stage03_CollapsedGallery/GallerySpectralBridge")
 	var sup: Node3D = _n("Stage03_CollapsedGallery/WeakStoneSupport") as Node3D
 	var sw3: Node3D = _n("Stage03_CollapsedGallery/BridgeAnchorSwitch") as Node3D
@@ -114,25 +115,25 @@ func _compute(player: Node3D) -> Dictionary:
 				"hint": "The bridge only exists in the Mirror — press Q and cross, climb the broken blocks on the right to the high ledge, then smash the cracked support with a Heavy (RMB).",
 				"target": sup.global_position}
 		return {"title": "Pull the Bridge Anchor", "hint": "Press E at the anchor switch to rebuild the bridge in Reality.",
-			"target": sw3.global_position if sw3 != null else Vector3(0, 6, 79)}
+			"target": sw3.global_position if sw3 != null else JourneyLayout.to_world(Vector3(0, 6, 79))}
 	var guard: Array[EnemyBase] = _alive_in("Stage03_CollapsedGallery/Enemies")
 	if not guard.is_empty():
 		return {"title": "Defeat the Shielded Guard", "hint": "Its shield only exists in Reality — fight it in the Mirror (Q).", "target": guard[0].global_position}
 	var puz: Node3D = _n("Stage04_MechanismChamber/ChamberMechanismPuzzle") as Node3D
 	if puz != null and not bool(puz.get("is_solved")):
 		if pz < 87.0:
-			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": Vector3(0, 6, 90)}
+			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": JourneyLayout.to_world(Vector3(0, 6, 90))}
 		return {"title": "Drop the Mirror weight onto the plate",
 			"hint": "In the Mirror, jump off the raised dais and press F in mid-air above the hanging weight to slam it down.",
 			"target": puz.global_position}
 	var warden: WardenBoss = _n("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
 	if warden != null and not warden.is_dead:
 		if pz < 139.0:
-			return {"title": "Climb the Processional Stair to the Colosseum", "hint": "The Warden waits at the top.", "target": Vector3(0, 10, 140.5)}
+			return {"title": "Cross the Processional to the Colosseum", "hint": "Over the bridges and past both bastions. The Warden waits at the top.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 10, 140.5)))}
 		if warden.current_phase == WardenBoss.Phase.PHASE_1_SPLIT:
 			return {"title": "Defeat The Warden", "hint": "Dodge his strike, then press Q during his recovery and hit the glowing chest rune.", "target": warden.global_position}
 		return {"title": "Finish The Warden", "hint": "The realms have merged — no more shifting. Hit him with everything.", "target": warden.global_position}
-	return {"title": "Walk into the light", "hint": "Leave through the north gate to the summit.", "target": Vector3(0, 10, 194)}
+	return {"title": "Walk into the light", "hint": "Leave through the north gate to the summit.", "target": JourneyLayout.to_world(Vector3(0, 10, 194))}
 
 
 func _nearest(list: Array[EnemyBase], player: Node3D) -> EnemyBase:

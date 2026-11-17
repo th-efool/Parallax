@@ -16,9 +16,10 @@ const PINE_MODELS: Array[String] = ["res://assets/models/flora/megakit/pine_1.gl
 const BROADLEAF_MODELS: Array[String] = ["res://assets/models/flora/megakit/tree_common_1.glb", "res://assets/models/flora/megakit/tree_common_2.glb"]
 
 const WATER_Y: float = -52.0
-const Z_MIN: float = -64.0
-const Z_MAX: float = 203.0
-const ROUTE_CENTER := Vector2(0.0, 70.0)
+## World z extent of the route (JourneyLayout, 2026-11-18 rework: terrace z -141 .. summit z 362).
+const Z_MIN: float = -144.0
+const Z_MAX: float = 370.0
+const ROUTE_CENTER := Vector2(0.0, 113.0)
 
 var sun_heading := Vector2(-0.65, 0.76)
 var _xc := PackedFloat32Array()
@@ -53,20 +54,30 @@ func _init(waypoints: Array, sun: Vector3) -> void:
 # ---------------------------------------------------------------- Route band
 
 func _half_width(z: float) -> float:
+	# World z bands (JourneyLayout). The band centre follows the waypoints, so on the winding bridges it swings
+	# with the deck; 14 m covers the deck plus a bastion and its drum.
 	var hw: float = 9.5
-	if z > -38.0 and z < -28.0:
-		hw = 7.0   # west overlook
+	if z > -144.0 and z < -130.0:
+		hw = 9.0   # start terrace
+	if z >= -130.0 and z < -15.0:
+		hw = 14.0  # R1 causeway bridges + bastions
 	if z > -16.0 and z < 9.0:
 		hw = 13.0  # forecourt + gatehouse (piers to x +-11)
-	if z > 20.0 and z < 49.0:
-		hw = 15.0  # hall + corner towers
-	if z > 86.0 and z < 102.0:
-		hw = 10.0  # clock tower
-	if z > 102.0 and z < 121.0:
-		hw = 15.0  # processional stair + esplanade
-	if z > 121.0 and z < 188.0:
+	if z >= 9.0 and z < 54.0:
+		hw = 14.0  # R2 bridges + bastions
+	if z >= 54.0 and z < 120.0:
+		hw = 36.0  # 60 m hall + corner towers
+	if z >= 120.0 and z < 161.0:
+		hw = 14.0  # R3 rampart bridges
+	if z >= 189.0 and z < 230.0:
+		hw = 22.0  # 36 m clock tower
+	if z >= 230.0 and z < 276.0:
+		hw = 14.0  # R5 processional bridges
+	if z >= 276.0 and z < 281.0:
+		hw = 15.0  # esplanade
+	if z >= 281.0 and z < 348.0:
 		hw = 38.0  # colosseum facade + portal towers
-	if z >= 188.0:
+	if z >= 348.0:
 		hw = 13.0
 	return hw
 
@@ -75,7 +86,7 @@ func _build_route_table(waypoints: Array) -> void:
 	var pts: Array = []
 	for w in waypoints:
 		var p: Vector3 = w[0]
-		if p.z > 141.0 and p.z < 167.0:
+		if p.z > 301.0 and p.z < 327.0:
 			continue   # arena ring detour: keep the centre line at x 0
 		pts.append(p)
 	pts.sort_custom(func(a: Vector3, b: Vector3) -> bool: return a.z < b.z)
@@ -165,8 +176,8 @@ func height(x: float, z: float) -> float:
 	var src: float = smoothstep(380.0, 700.0, d) * 220.0 if x > 0.0 else 0.0
 	var river: float = -60.0 + maxf(absf(z - 1.0 - 6.0 * sin(x * 0.02)) - 4.0, 0.0) * 1.9 + src
 	h = _smin(h, river, 6.0)
-	# Dry gorge under the aqueduct (z ~74): arches stand in it; descends outward to the valley.
-	var gorge: float = -38.0 - 0.14 * d + maxf(absf(z - 74.0 - 4.0 * sin(x * 0.03)) - 8.0, 0.0) * 1.35
+	# Dry gorge under the aqueduct (world z ~178): arches stand in it; descends outward to the valley.
+	var gorge: float = -38.0 - 0.14 * d + maxf(absf(z - 178.0 - 4.0 * sin(x * 0.03)) - 8.0, 0.0) * 1.35
 	h = _smin(h, gorge, 5.0)
 	# Hard guarantee: never enter the route band's gameplay space.
 	if d < 1.0:

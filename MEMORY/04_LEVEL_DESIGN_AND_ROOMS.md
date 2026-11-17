@@ -202,6 +202,29 @@ Instanced in `scenes/main/main.tscn` as `Main/AmbientLife` (delete the node to r
 | Esplanade / Colosseum / Summit | Lizards + edge grass; ivy & weeds at the podium wall, doves on the sand, crows on the stands; summit wildflowers, butterflies, lizards | Arena wisps, summit spirit ferns |
 
 Perf (RTX 3070, 1080p, steady state, without -> with): Colosseum 78 -> 68 FPS, Hall 77 -> 67, Garden view 68 -> 56, Forecourt 66 -> 56. Cost is mostly draw calls from multi-part procedural birds / dense small plants; knobs = habitat `count`, patch `count`, creature `lod_distance`.
+## 2.y LAYOUT REWORK 2026-11-18 — world coordinates (supersedes positions past the start terrace in §2 and §6)
+Single source of truth: `scripts/environment/journey_layout.gd` (`JourneyLayout`). The builders still contain
+story-coordinate code (the old compact layout); `JourneyLayout.to_world()` / `story_z()` convert.
+
+| Piece | World placement |
+|---|---|
+| Start terrace (player spawn, `main.tscn` Player z −136) | 12 × 10 at (0, 0, −136); story z < −50.5 shifted by `OFF_S1_TERRACE` −80 |
+| R1 Pilgrim's Causeway bridge (ENTRY) | (0,0,−131) → bastion (34,0,−97) → bastion (−34,0,−49) → forecourt (0,0,−15); 179 m |
+| Forecourt + gate + stepping stones | unchanged (z −15 … 8) |
+| R2 Sunlit bridges (ENTRY) | (0,0,8) → (16,1.1,24) → (−16,2.9,40) → hall gate (0,4,56); 81 m |
+| Hall of Echoes | 60 × 60 floor, centre (0, 4, 86); gates z 56 / 116; 9 encounter enemies + 3 roamers; 8 cover columns r 17 |
+| R3 Windswept Rampart bridges (HALL) | (0,4,116) → (16,4.55,132) → (−16,5.45,148) → gallery (0,6,164); 81 m |
+| Collapsed Gallery (Stage 03) | story code, root offset `OFF_S3` +104 (deck z 162 … 192) |
+| Clock-tower chamber | 36 × 36 floor, centre (0, 6, 210), walls 24 m; puzzle unchanged at the centre; 8 roamers |
+| R5 Processional bridges (MECHANISM) | (0,6,228) → (16,7.1,244) → (−16,8.9,260) → esplanade (0,10,276); 81 m |
+| Esplanade, Colosseum, Summit (Stage 05) | story code, root offset `OFF_S5` +160 (arena centre z 314, summit z 346 … 362) |
+
+- Bridges: deck 6 m wide, parapets both sides, piers under spans > 16 m.
+- Bastions: r 8 m disc on a drum and rock spur, ring parapet with openings only where legs arrive, merlons, 2 braziers, 3 roamers each.
+- Set dressing (Dress_* zones) and AmbientLife: remapped by `JourneyLayout`; spots on the old connectors are dropped.
+- Weather zones, music bands, footsteps and objective thresholds: read `story_z()`.
+- Saves: carry `layout_version` 2; older checkpoints are converted with `to_world()`.
+
 ## 6. MAP ATLAS FOR AGENTS — read this instead of the builder (dumped from the live level, 2026-11-17)
 
 **See it in the editor**: the level only exists at runtime (it is built behind the loading screen after Start, so `main.tscn` in the editor shows only an empty `LevelRoot`), so run `godot --path . -s res://scripts/tools/bake_map_preview.gd` (windowed, not headless — the dummy renderer drops merged meshes; the tool calls `build_greybox_progressive()` / `build_progressive()` itself) to bake `res://scenes/main/map_preview.scn` (gitignored, ~8.5 MB, Reality state, scripts stripped) and open it. It is a read-only snapshot: edit the builder, then re-bake.

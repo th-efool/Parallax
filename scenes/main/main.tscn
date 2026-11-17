@@ -72,7 +72,7 @@ script = ExtResource("5_audio")
 [node name="AmbientLife" parent="." instance=ExtResource("20_ambient")]
 
 [node name="Player" parent="." instance=ExtResource("7_player")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -56)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -136)
 
 [node name="AllySquad" type="Node" parent="."]
 script = ExtResource("15_squad")

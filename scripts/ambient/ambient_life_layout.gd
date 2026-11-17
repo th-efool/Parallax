@@ -268,6 +268,8 @@ func _populate_arena_and_summit() -> void:
 # =====================================================================================================
 
 func _habitat(parent: Node3D, n: String, pos: Vector3, species: int, count: int, radius: float, mode: int, home_scale: float) -> Node3D:
+	if JourneyLayout.is_dropped(pos.z):
+		return null   # story spot replaced by a winding bridge (JourneyLayout)
 	var h: Node3D = HABITAT.new() as Node3D
 	h.name = n
 	h.set("species", species)
@@ -276,11 +278,13 @@ func _habitat(parent: Node3D, n: String, pos: Vector3, species: int, count: int,
 	h.set("group_mode", mode)
 	h.set("home_radius_scale", home_scale)
 	parent.add_child(h)
-	h.global_position = pos
+	h.global_position = JourneyLayout.to_world(pos)
 	return h
 
 
 func _veg(parent: Node3D, n: String, pos: Vector3, kind: int, mix: Array, count: int, radius: float, spacing: float) -> Node3D:
+	if JourneyLayout.is_dropped(pos.z):
+		return null
 	var v: Node3D = VEG_PATCH.new() as Node3D
 	v.name = n
 	v.set("kind", kind)
@@ -292,11 +296,13 @@ func _veg(parent: Node3D, n: String, pos: Vector3, kind: int, mix: Array, count:
 	v.set("radius", radius)
 	v.set("min_spacing", spacing)
 	parent.add_child(v)
-	v.global_position = pos
+	v.global_position = JourneyLayout.to_world(pos)
 	return v
 
 
 func _flora(parent: Node3D, n: String, pos: Vector3, kind: int, count: int, radius: float, spacing: float) -> Node3D:
+	if JourneyLayout.is_dropped(pos.z):
+		return null
 	var f: Node3D = FLORA_PATCH.new() as Node3D
 	f.name = n
 	f.set("kind", kind)
@@ -305,27 +311,31 @@ func _flora(parent: Node3D, n: String, pos: Vector3, kind: int, count: int, radi
 	f.set("min_spacing", spacing)
 	f.set("clump_size", 1)
 	parent.add_child(f)
-	f.global_position = pos
+	f.global_position = JourneyLayout.to_world(pos)
 	return f
 
 
 func _ivy(parent: Node3D, pos: Vector3, yaw: float, w: float, h: float, hanging: bool) -> Node3D:
+	if JourneyLayout.is_dropped(pos.z):
+		return null
 	var iv: Node3D = IVY.new() as Node3D
 	iv.set("width", w)
 	iv.set("height", h)
 	iv.set("hanging", hanging)
 	iv.set("strands", int(clampf(w * 3.0, 4.0, 12.0)))
 	parent.add_child(iv)
-	iv.global_position = pos
+	iv.global_position = JourneyLayout.to_world(pos)
 	iv.rotation.y = yaw
 	return iv
 
 
 func _marker(parent: Node3D, group: String, pos: Vector3) -> void:
+	if JourneyLayout.is_dropped(pos.z):
+		return
 	var m := Marker3D.new()
 	m.name = group.capitalize().replace(" ", "")
 	parent.add_child(m)
-	m.global_position = pos
+	m.global_position = JourneyLayout.to_world(pos)
 	m.add_to_group(group)
 
 

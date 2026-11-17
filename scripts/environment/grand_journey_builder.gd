@@ -79,6 +79,7 @@ func _build_steps() -> Array:
 		["Laying the Collapsed Gallery", func() -> void: add_child(_build_stage_03_gallery())],
 		["Assembling the Mechanism", func() -> void: add_child(_build_stage_04_mechanism())],
 		["Raising the Execution Arena", func() -> void: add_child(_build_stage_05_arena())],
+		["Spanning the winding bridges", func() -> void: add_child(_build_routes())],
 		["Hanging the banners", func() -> void: add_child(_decor)],
 		["Dressing the ruins", _step_dressing],
 		["Planting the scenery", _step_scenery],
@@ -98,6 +99,10 @@ func _step_dressing() -> void:
 	# Environmental set dressing & realm storytelling (see JourneySetDressing for the art direction).
 	if enable_set_dressing:
 		(load("res://scripts/environment/journey_set_dressing.gd") as GDScript).new(self).call("build")
+		# The dressing is authored in story coordinates: move it onto the stretched layout (JourneyLayout).
+		for dz in _decor.get_children():
+			if String(dz.name).begins_with("Dress_"):
+				JourneyLayout.remap_subtree(dz)
 
 
 func _step_scenery() -> void:
@@ -135,46 +140,63 @@ func build_greybox_progressive() -> void:
 
 
 func get_key_anchors() -> Dictionary:
+	# World coordinates (JourneyLayout). Stage 03 / 05 content is story-built and shifted by OFF_S3 / OFF_S5.
+	var s3 := Vector3(0, 0, JourneyLayout.OFF_S3)
+	var s5 := Vector3(0, 0, JourneyLayout.OFF_S5)
+	var hc: Vector3 = JourneyLayout.HALL_CENTER
+	var cc: Vector3 = JourneyLayout.CHAMBER_CENTER
 	return {
-		"player_spawn": Vector3(0.0, 0.0, -56.0),
+		"player_spawn": Vector3(0.0, 0.0, -56.0 + JourneyLayout.OFF_S1_TERRACE),
 		"entry_gap_center": Vector3(0.0, 0.0, 1.0),
-		"entry_switch": Vector3(0.0, 0.0, 4.0),
-		"hall_pillar": Vector3(0.0, Y_HALL, 34.0),
-		"skeleton_1": Vector3(-6.0, Y_HALL, 30.0),
-		"skeleton_2": Vector3(6.0, Y_HALL, 38.0),
-		"phantom_1": Vector3(-6.0, Y_HALL, 40.0),
-		"phantom_2": Vector3(6.0, Y_HALL, 40.0),
-		"gallery_bridge_center": Vector3(0.0, Y_GALLERY, 72.0),
-		"weak_stone_support": Vector3(0.0, Y_GALLERY + 3.6, 80.2),
-		"bridge_anchor": Vector3(0.0, Y_GALLERY + 3.6, 81.6),
-		"shielded_guard": Vector3(0.0, Y_GALLERY, 83.2),
-		"mechanism_dais": Vector3(-3.0, Y_GALLERY + 1.35, 93.0),
-		"mechanism_plate": Vector3(0.0, Y_GALLERY, 94.0),
-		"arena_entry": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 13.5),
-		"warden_spawn": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 1.0),
-		"arena_exit": Vector3(0.0, Y_ARENA, ARENA_CENTER.z + 13.5),
-		"summit": Vector3(0.0, Y_ARENA, ARENA_CENTER.z + 40.0),
+		"entry_switch": Vector3(-3.1, 0.0, 3.2),
+		"hall_pillar": hc,
+		"skeleton_1": hc + Vector3(-18.0, 0.0, -18.0),
+		"skeleton_2": hc + Vector3(18.0, 0.0, -10.0),
+		"phantom_1": hc + Vector3(-18.0, 0.0, 22.0),
+		"phantom_2": hc + Vector3(18.0, 0.0, 24.0),
+		"gallery_bridge_center": Vector3(0.0, Y_GALLERY, 72.0) + s3,
+		"weak_stone_support": Vector3(0.0, Y_GALLERY + 3.6, 80.2) + s3,
+		"bridge_anchor": Vector3(0.0, Y_GALLERY + 3.6, 81.6) + s3,
+		"shielded_guard": Vector3(0.0, Y_GALLERY, 83.2) + s3,
+		"mechanism_dais": cc + Vector3(-3.0, 1.35, -1.0),
+		"mechanism_plate": cc,
+		"arena_entry": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 13.5) + s5,
+		"warden_spawn": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 1.0) + s5,
+		"arena_exit": Vector3(0.0, Y_ARENA, ARENA_CENTER.z + 13.5) + s5,
+		"summit": Vector3(0.0, Y_ARENA, ARENA_CENTER.z + 40.0) + s5,
 	}
 
 
-## Ordered critical-path waypoints (feet positions) with the realm required to stand there.
-## Used by the route-verification test; keep in sync with the stage builders below.
+## Ordered critical-path waypoints (WORLD feet positions) with the realm required to stand there.
+## Feeds JourneyTerrain (it keeps the landscape below this band). Bridges come from JourneyLayout.ROUTES.
 func get_route_waypoints() -> Array:
-	return [
-		[Vector3(0, 0, -56), 0], [Vector3(-3.5, 0, -44), 0], [Vector3(-7, 0, -33), 0], [Vector3(-3.5, 0, -22), 0],
-		[Vector3(0, 0, -10), 0], [Vector3(0, 0, -2), 0], [Vector3(0, 0, 1), 1], [Vector3(0, 0, 4), 1],
-		[Vector3(0, 0, 6.5), 0], [Vector3(0, 2.0, 15), 0], [Vector3(0, Y_HALL, 23), 0], [Vector3(0, Y_HALL, 26), 0],
-		[Vector3(3.5, Y_HALL, 30), 0], [Vector3(3.5, Y_HALL, 40), 0], [Vector3(0, Y_HALL, 43), 0],
-		[Vector3(0, Y_HALL, 46), 0], [Vector3(0, 5.0, 53), 0], [Vector3(0, Y_GALLERY, 59), 0],
-		[Vector3(0, Y_GALLERY, 65), 0], [Vector3(0, Y_GALLERY, 72), 1], [Vector3(0, Y_GALLERY, 76), 1],
-		[Vector3(2.55, Y_GALLERY + 1.0, 75.3), 1], [Vector3(2.55, Y_GALLERY + 2.0, 77.0), 1], [Vector3(2.9, Y_GALLERY + 3.0, 78.5), 1],
-		[Vector3(0, Y_GALLERY + 3.6, 79.2), 1],
-		[Vector3(0, Y_GALLERY, 83.6), 0], [Vector3(0, Y_GALLERY, 86), 0], [Vector3(0, Y_GALLERY, 90), 0],
-		[Vector3(0, Y_GALLERY, 101), 0], [Vector3(0, 8.0, 109), 0], [Vector3(0, Y_ARENA, 118), 0],
-		[Vector3(0, Y_ARENA, 130), 0], [Vector3(0, Y_ARENA, 140), 0], [Vector3(2.6, Y_ARENA, 144), 0],
-		[Vector3(6, Y_ARENA, 154), 0], [Vector3(2.6, Y_ARENA, 164), 0], [Vector3(0, Y_ARENA, 168), 0],
-		[Vector3(0, Y_ARENA, 177), 0], [Vector3(0, Y_ARENA, 194), 0],
-	]
+	var bridges: Dictionary = {}
+	for r in JourneyLayout.ROUTES:
+		var pts: Array = []
+		for nd in (r as Array)[1]:
+			pts.append([(nd as Array)[0], 0])
+		bridges[String((r as Array)[0])] = pts
+	var out: Array = [[Vector3(0, 0, -56.0 + JourneyLayout.OFF_S1_TERRACE), 0]]
+	out.append_array(bridges["R1_PilgrimCauseway"] as Array)
+	out.append_array([[Vector3(0, 0, -10), 0], [Vector3(0, 0, -2), 0], [Vector3(0, 0, 1), 1], [Vector3(0, 0, 4), 1], [Vector3(0, 0, 6.5), 0]])
+	out.append_array(bridges["R2_SunlitBridges"] as Array)
+	var hc: Vector3 = JourneyLayout.HALL_CENTER
+	out.append_array([[hc + Vector3(0, 0, -26), 0], [hc + Vector3(0, 0, -8), 0], [hc + Vector3(4, 0, 0), 0], [hc + Vector3(0, 0, 8), 0], [hc + Vector3(0, 0, 27), 0]])
+	out.append_array(bridges["R3_WindsweptRampart"] as Array)
+	var s3 := Vector3(0, 0, JourneyLayout.OFF_S3)
+	for w in [[Vector3(0, Y_GALLERY, 65), 0], [Vector3(0, Y_GALLERY, 72), 1], [Vector3(0, Y_GALLERY, 76), 1],
+			[Vector3(2.55, Y_GALLERY + 1.0, 75.3), 1], [Vector3(2.55, Y_GALLERY + 2.0, 77.0), 1], [Vector3(2.9, Y_GALLERY + 3.0, 78.5), 1],
+			[Vector3(0, Y_GALLERY + 3.6, 79.2), 1], [Vector3(0, Y_GALLERY, 83.6), 0], [Vector3(0, Y_GALLERY, 86), 0]]:
+		out.append([((w as Array)[0] as Vector3) + s3, (w as Array)[1]])
+	var cc: Vector3 = JourneyLayout.CHAMBER_CENTER
+	out.append_array([[cc + Vector3(0, 0, -14), 0], [cc + Vector3(0, 0, 14), 0]])
+	out.append_array(bridges["R5_Processional"] as Array)
+	var s5 := Vector3(0, 0, JourneyLayout.OFF_S5)
+	for w in [[Vector3(0, Y_ARENA, 130), 0], [Vector3(0, Y_ARENA, 140), 0], [Vector3(2.6, Y_ARENA, 144), 0],
+			[Vector3(6, Y_ARENA, 154), 0], [Vector3(2.6, Y_ARENA, 164), 0], [Vector3(0, Y_ARENA, 168), 0],
+			[Vector3(0, Y_ARENA, 177), 0], [Vector3(0, Y_ARENA, 194), 0]]:
+		out.append([((w as Array)[0] as Vector3) + s5, (w as Array)[1]])
+	return out
 
 
 # =====================================================================================================
@@ -941,50 +963,17 @@ func _build_stage_01_entry() -> Node3D:
 	var floor_m: ShaderMaterial = _m_floor()
 	var path_m: ShaderMaterial = _m_path()
 
-	# --- Prologue: Pilgrim's Causeway (start terrace -> two causeway spans -> overlook -> forecourt) ---
-	# Widened 2026-11-17 (playtest: "pathways too narrow"): causeways 5 -> 7.5 m, overlook 9 -> 12 m.
-	# Causeway rails are computed from each span's centre line, so rails, ramp edges and the openings in the
-	# terrace / overlook / forecourt parapets always line up.
-	const CW: float = 7.5
-	var ca_a := Vector3(0, 0, -51.5)
-	var ca_b := Vector3(-7, 0, -36)
-	var cb_a := Vector3(-7, 0, -30)
-	var cb_b := Vector3(0, 0, -14.5)
-	_solid(root, "Prologue_StartTerrace", Vector3(0, -0.25, -56), Vector3(12, 0.5, 10), path_m)
-	_ramp(root, "Prologue_CausewayA", ca_a, ca_b, CW, path_m)
-	_solid(root, "Prologue_Overlook", Vector3(-7, -0.25, -33), Vector3(12, 0.5, 7), path_m)
-	_ramp(root, "Prologue_CausewayB", cb_a, cb_b, CW, path_m)
+	# --- Prologue: start terrace (moved 80 m south, 2026-11-18) and the gate forecourt. The Pilgrim's Causeway
+	# between them is the winding bridge R1 with two bastions (_build_routes); its join rails close the terrace's
+	# north edge (z -131) and the forecourt's south edge (z -15).
+	var tz: float = -56.0 + JourneyLayout.OFF_S1_TERRACE
+	_solid(root, "Prologue_StartTerrace", Vector3(0, -0.25, tz), Vector3(12, 0.5, 10), path_m)
 	_solid(root, "Gate_Forecourt", Vector3(0, -0.25, -10), Vector3(14, 0.5, 10), floor_m)
-
-	# Parapets along the whole prologue (gaps only where segments join).
-	var off: float = CW * 0.5 + 0.2
-	var ca_w0: Vector3 = _line_at_z(ca_a, ca_b, -off, -51.0)
-	var ca_w1: Vector3 = _line_at_z(ca_a, ca_b, -off, -36.5)
-	var ca_e0: Vector3 = _line_at_z(ca_a, ca_b, off, -51.0)
-	var ca_e1: Vector3 = _line_at_z(ca_a, ca_b, off, -36.5)
-	var cb_w0: Vector3 = _line_at_z(cb_a, cb_b, -off, -29.5)
-	var cb_w1: Vector3 = _line_at_z(cb_a, cb_b, -off, -15.0)
-	var cb_e0: Vector3 = _line_at_z(cb_a, cb_b, off, -29.5)
-	var cb_e1: Vector3 = _line_at_z(cb_a, cb_b, off, -15.0)
-	_parapet(root, "Rail_T0_S", Vector3(-6, 0, -61), Vector3(6, 0, -61), _m_wall())
-	_parapet(root, "Rail_T0_W", Vector3(-6, 0, -61), Vector3(-6, 0, -51), _m_wall())
-	_parapet(root, "Rail_T0_E", Vector3(6, 0, -61), Vector3(6, 0, -51), _m_wall())
-	_parapet(root, "Rail_T0_NE", Vector3(6, 0, -51), Vector3(maxf(ca_e0.x, ca_w0.x), 0, -51), _m_wall())
-	_parapet(root, "Rail_T0_NW", Vector3(-6, 0, -51), Vector3(minf(ca_e0.x, ca_w0.x), 0, -51), _m_wall())
-	_parapet(root, "Rail_CA_W", ca_w0, ca_w1, _m_wall())
-	_parapet(root, "Rail_CA_E", ca_e0, ca_e1, _m_wall())
-	_parapet(root, "Rail_OL_W", Vector3(-13, 0, -36.5), Vector3(-13, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_S", Vector3(-13, 0, -36.5), Vector3(minf(ca_w1.x, ca_e1.x), 0, -36.5), _m_wall())
-	_parapet(root, "Rail_OL_SE", Vector3(maxf(ca_w1.x, ca_e1.x), 0, -36.5), Vector3(-1, 0, -36.5), _m_wall())
-	_parapet(root, "Rail_OL_N", Vector3(-13, 0, -29.5), Vector3(minf(cb_w0.x, cb_e0.x), 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_NE", Vector3(maxf(cb_w0.x, cb_e0.x), 0, -29.5), Vector3(-1, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_OL_E", Vector3(-1, 0, -36.5), Vector3(-1, 0, -29.5), _m_wall())
-	_parapet(root, "Rail_CB_W", cb_w0, cb_w1, _m_wall())
-	_parapet(root, "Rail_CB_E", cb_e0, cb_e1, _m_wall())
+	_parapet(root, "Rail_T0_S", Vector3(-6, 0, tz - 5.0), Vector3(6, 0, tz - 5.0), _m_wall())
+	_parapet(root, "Rail_T0_W", Vector3(-6, 0, tz - 5.0), Vector3(-6, 0, tz + 5.0), _m_wall())
+	_parapet(root, "Rail_T0_E", Vector3(6, 0, tz - 5.0), Vector3(6, 0, tz + 5.0), _m_wall())
 	_parapet(root, "Rail_FC_W", Vector3(-7, 0, -15), Vector3(-7, 0, -5), _m_wall())
 	_parapet(root, "Rail_FC_E", Vector3(7, 0, -15), Vector3(7, 0, -5), _m_wall())
-	_parapet(root, "Rail_FC_SW", Vector3(-7, 0, -15), Vector3(minf(cb_w1.x, cb_e1.x), 0, -15), _m_wall())
-	_parapet(root, "Rail_FC_SE", Vector3(7, 0, -15), Vector3(maxf(cb_w1.x, cb_e1.x), 0, -15), _m_wall())
 
 	# --- Gameplay core (unchanged greybox coordinates) ---
 	_solid(root, "EntryFloorSouth", Vector3(0.0, -0.25, -2.75), Vector3(12.0, 0.5, 4.5), floor_m)
@@ -1025,8 +1014,8 @@ func _build_stage_01_entry() -> Node3D:
 	_invisible_wall(root, "Tunnel_E", Vector3(2.2, 2.5, 6.5), Vector3(0.4, 5.0, 3.0))
 
 	root.add_child(_make_pit_kill_zone("PitKillZone_Stage01", Vector3(0.0, -4.5, 1.0), Vector3(8.0, 2.5, 4.0)))
-	root.add_child(_make_section_trigger("Trigger_Stage01_Entry", Vector3(0.0, 1.25, -56.0), Vector3(6.0, 2.5, 3.0),
-		EncounterDirector.Section.ENTRY, Vector3(0.0, 0.0, -56.0), "", 0, NodePath(), false))
+	root.add_child(_make_section_trigger("Trigger_Stage01_Entry", Vector3(0.0, 1.25, -56.0 + JourneyLayout.OFF_S1_TERRACE), Vector3(6.0, 2.5, 3.0),
+		EncounterDirector.Section.ENTRY, Vector3(0.0, 0.0, -56.0 + JourneyLayout.OFF_S1_TERRACE), "", 0, NodePath(), false))
 	root.add_child(_make_section_trigger("Trigger_Stage01_Forecourt", Vector3(0.0, 1.25, -7.5), Vector3(7.0, 2.5, 1.5),
 		EncounterDirector.Section.ENTRY, Vector3(0.0, 0.0, -7.5), "", 0, NodePath(), false))
 
@@ -1058,35 +1047,15 @@ func _build_stage_01_entry() -> Node3D:
 		_banner(g[2], Vector3(sx * 8.5, 13.0, 4.35), 180.0, 2.2, 7.5, true)
 	for p in [Vector3(-6.0, 0, -14.0), Vector3(6.0, 0, -14.0), Vector3(-6.0, 0, -6.0), Vector3(6.0, 0, -6.0)]:
 		_brazier(g, p)
-	_brazier(g, Vector3(4.5, 0, -59.5))
-	_brazier(g, Vector3(-4.5, 0, -59.5))
-	# Prologue waystones and a toppled colossus on the overlook (looking out over the cloud sea).
-	var fallen := CylinderMesh.new()
-	fallen.top_radius = 0.9
-	fallen.bottom_radius = 1.0
-	fallen.height = 7.0
-	fallen.radial_segments = 16
-	# Toppled column lies along the west balustrade (clear of the causeway-to-causeway walking line).
-	fallen.height = 4.4
-	var fallen_basis: Basis = Basis(Vector3(1, 0, 0), PI * 0.5).rotated(Vector3.UP, 0.06)
-	_mesh(g[0], "FallenColumn", fallen, _m_marble(), Transform3D(fallen_basis, Vector3(-10.3, 0.95, -31.75)))
-	var fallen_col := _prop_collider(g[0], "FallenColumnCollider", Vector3(-10.3, 0.95, -31.75), _cyl_shape(0.98, 4.4))
-	fallen_col.basis = fallen_basis
-	_mesh(g[0], "OverlookObelisk", ProcMesh.column_mesh(0.45, 6.5, 12), _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-10.5, 0, -35.5)))
-	_prop_collider(g[0], "OverlookObeliskCollider", Vector3(-10.5, 3.25, -35.5), _cyl_shape(0.75, 6.5))
-	for z in [-48.0, -40.0, -26.0, -19.0]:
-		var x: float = lerpf(0.0, -7.0, clampf((z + 51.5) / 15.5, 0.0, 1.0)) if z < -30.0 else lerpf(-7.0, 0.0, clampf((z + 30.0) / 15.5, 0.0, 1.0))
-		# Just outside the widened causeway's east rail (walkway half-width ~4.1 m on the x axis).
-		_mesh(g[0], "Waystone", ProcMesh.column_mesh(0.25, 2.2, 8), _m_wall(), Transform3D(Basis.IDENTITY, Vector3(x + 4.9, 0, z)), true, 120.0)
-	_crystal_cluster(g[2], Vector3(-3.5, 0.0, -35.4), 1.2, 11, true)
-	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0), 1.0, 12, true)
-	g[1].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), false))
-	g[2].add_child(_make_ambient_particles(Vector3(0, 3, -30), Vector3(10, 3, 30), true))
-	# Journey enemies (ENTRY): a two-skeleton teaching ambush on the overlook, and a Mirror phantom haunting
-	# the gate forecourt that only reveals itself once the player first shifts to cross the stepping stones.
+	_brazier(g, Vector3(4.5, 0, -59.5 + JourneyLayout.OFF_S1_TERRACE))
+	_brazier(g, Vector3(-4.5, 0, -59.5 + JourneyLayout.OFF_S1_TERRACE))
+	_crystal_cluster(g[2], Vector3(5.0, 0.0, -57.0 + JourneyLayout.OFF_S1_TERRACE), 1.0, 12, true)
+	g[1].add_child(_make_ambient_particles(Vector3(0, 3, -10), Vector3(10, 3, 6), false))
+	g[2].add_child(_make_ambient_particles(Vector3(0, 3, -10), Vector3(10, 3, 6), true))
+	# Journey enemies (ENTRY): a Mirror phantom haunting the gate forecourt that only reveals itself once the
+	# player first shifts to cross the stepping stones, plus the gate guards. The causeway ambushes now wait on
+	# the two R1 bastions (_build_routes).
 	var rg: Node3D = _roamer_group(root)
-	_add_roamer(rg, "skeleton", "OverlookSkeleton_A", Vector3(-8.0, 0.0, -31.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
-	_add_roamer(rg, "skeleton", "OverlookSkeleton_B", Vector3(-5.0, 0.0, -30.5), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	_add_roamer(rg, "phantom", "ForecourtPhantom", Vector3(3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
 	# Gate stone guards: two enlarged Shielded Guards flanking the stepping-stone pit, a Grave Brute holding the
 	# forecourt and a Hexcaster on the north landing beside the gate stone.
@@ -1097,8 +1066,6 @@ func _build_stage_01_entry() -> Node3D:
 			(warden_e as EnemyAI).patrol_radius = 0.0
 	_add_roamer(rg, "brute", "GateBrute", Vector3(0.0, 0.0, -8.5), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
 	_add_roamer(rg, "hexcaster", "GateHexcaster", Vector3(3.2, 0.0, 3.4), EncounterDirector.Section.ENTRY, Vector3(0, 0, -2))
-	# A Hollow Hexcaster hangs back up the path, teaching that some threats strike from range.
-	_add_roamer(rg, "hexcaster", "OverlookHexcaster", Vector3(-4.3, 0.0, -24.0), EncounterDirector.Section.ENTRY, Vector3(-7, 0, -40))
 	return root
 
 
@@ -1107,137 +1074,109 @@ func _build_stage_01_entry() -> Node3D:
 # =====================================================================================================
 
 func _build_stage_02_hall() -> Node3D:
+	## Hall of Echoes, 3x the old room: a 60 x 60 floor at Y 4 centred on JourneyLayout.HALL_CENTER, built in
+	## WORLD coordinates (2026-11-18). The Sunlit Stair and Windswept Rampart are now the winding bridges R2 / R3
+	## (_build_routes). Gameplay node names are unchanged (save system + objective tracker look them up).
 	var root := Node3D.new()
 	root.name = "Stage02_HallOfEchoes"
 	var g: Array[Node3D] = _zone("Zone02_Hall")
 	var y: float = Y_HALL
+	var c: Vector3 = JourneyLayout.HALL_CENTER
+	var h: float = JourneyLayout.HALL_HALF
+	var zs: float = c.z - h
+	var zn: float = c.z + h
 
-	# --- Sunlit Stair: Z 8 -> 22, Y 0 -> 4 ---
-	# Ramp collider runs through the middle of each step (shifted half a run) so feet neither sink into the
-	# nosings nor float over the treads; an invisible top-step slab closes the gap to the landing.
-	var s_run: float = 14.0 / 20.0
-	_ramp(root, "SunlitStair_Ramp", Vector3(0, 0, 8.0 - s_run * 0.5), Vector3(0, y, 22.0 - s_run * 0.5), 8.0, null, false)
-	_solid(root, "SunlitStair_TopStep", Vector3(0, y - 0.25, 22.0 - s_run * 0.5), Vector3(8.0, 0.5, s_run), null, LAYER_WORLD_SHARED, Vector3.ZERO, false)
-	_mesh(g[0], "SunlitStair_Steps", ProcMesh.steps_mesh(8.0, y, 14.0, 20), _m_floor(), Transform3D(Basis.IDENTITY, Vector3(0, 0, 8.0)))
-	_solid(root, "SunlitStair_Landing", Vector3(0, y - 0.25, 23.0), Vector3(8.0, 0.5, 2.0), _m_floor())
-	_parapet(root, "Rail_Stair_W", Vector3(-4.2, 0, 7.6), Vector3(-4.2, y, 22.0), _m_wall())
-	_parapet(root, "Rail_Stair_E", Vector3(4.2, 0, 7.6), Vector3(4.2, y, 22.0), _m_wall())
-	_parapet(root, "Rail_Landing_W", Vector3(-4.2, y, 22.0), Vector3(-4.2, y, 23.8), _m_wall())
-	_parapet(root, "Rail_Landing_E", Vector3(4.2, y, 22.0), Vector3(4.2, y, 23.8), _m_wall())
-	# Sloped plinth walls carrying a colonnade on each flank (bases sunk slightly so none float on the slope).
-	var col_mesh: ArrayMesh = ProcMesh.column_mesh(0.42, 7.5, 16)
-	var cols: Array = []
-	var cheek_pitch: float = atan2(y, 14.0)
-	var cheek := BoxMesh.new()
-	cheek.size = Vector3(2.6, 2.6, 14.6)
-	for sx in [-1.0, 1.0]:
-		var cb := Basis.from_euler(Vector3(-cheek_pitch, 0, 0))
-		_mesh(g[0], "StairCheek", cheek, _m_wall(), Transform3D(cb, Vector3(sx * 5.75, 0.6 + y * 0.5, 15.0) - cb.y * 1.3))
-		for i in range(5):
-			var z: float = 9.4 + float(i) * 3.0
-			var yy: float = 0.6 + (z - 8.0) / 14.0 * y - 0.18
-			cols.append(Transform3D(Basis.IDENTITY, Vector3(sx * 5.75, yy, z)))
-	_multimesh(g[0], "StairColonnade", col_mesh, _m_marble(), cols)
-	var architrave := BoxMesh.new()
-	architrave.size = Vector3(1.3, 0.9, 15.0)
-	for sx in [-1.0, 1.0]:
-		var basis := Basis.from_euler(Vector3(-atan2(y, 14.0), 0, 0))
-		_mesh(g[0], "StairArchitrave", architrave, _m_marble(), Transform3D(basis, Vector3(sx * 5.75, 0.6 + 7.95 + y * 0.5, 15.2)))
-
-	# --- Hall of Echoes: 20 x 20 at Y 4, centre (0, 4, 34) ---
-	var hall_floor := _solid(root, "HallFloor", Vector3(0.0, y - 0.25, 34.0), Vector3(20.0, 0.5, 20.0), _m_floor())
-	var ring := ProcMesh.ring_sector_mesh(5.6, 6.6, 0.0, 0.03, 0.0, TAU, 64)
+	var hall_floor := _solid(root, "HallFloor", Vector3(c.x, y - 0.25, c.z), Vector3(h * 2.0, 0.5, h * 2.0), _m_floor())
+	var ring := ProcMesh.ring_sector_mesh(16.8, 19.8, 0.0, 0.03, 0.0, TAU, 96)
 	_mesh(hall_floor, "MosaicRing", ring, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(0, 0.25, 0)), false)
-	var seal := _make_gate("Gate02a_HallSouthSeal", Vector3(0.0, y, 24.0), 1, "", true)
+	var seal := _make_gate("Gate02a_HallSouthSeal", Vector3(0.0, y, zs), 1, "", true)
 	_style_gate(seal)
 	root.add_child(seal)
 	_build_hall_walls(root, g, y)
 
-	var pillar := _make_breakable_pillar("CrackedCentralPillar", Vector3(0.0, y, 34.0), BreakableProp.PropKind.CRACKED_PILLAR, 1, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
+	var pillar := _make_breakable_pillar("CrackedCentralPillar", Vector3(c.x, y, c.z), BreakableProp.PropKind.CRACKED_PILLAR, 1, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
 	_restyle_pillar(pillar, 9.0, 0.7, Vector3(0, 0, 1))
 	root.add_child(pillar)
+	# A ring of eight great columns (r 17) breaks up the big floor: cover from the hexcasters, lanes to kite through.
+	var col_mesh: ArrayMesh = ProcMesh.column_mesh(0.9, 12.0, 16)
+	var cols: Array = []
+	for i in range(8):
+		var a: float = TAU * (float(i) + 0.5) / 8.0
+		var cp := Vector3(c.x + sin(a) * 17.0, y, c.z + cos(a) * 17.0)
+		cols.append(Transform3D(Basis.IDENTITY, cp))
+		_prop_collider(root, "HallColumnCollider", cp + Vector3(0, 6.0, 0), _cyl_shape(1.2, 12.0))
+	_multimesh(g[0], "HallColumns", col_mesh, _m_marble(), cols)
 
-	var exit_gate := _make_gate("Gate02_HallToGallery", Vector3(0.0, y, 44.0), 1, "hall_of_echoes", false)
+	# Encounter garrison: every one counts toward "hall_of_echoes"; the exit gate opens when all are down.
+	var hall_specs: Array = [
+		["skeleton", "SkeletonGuard_1", "hall_skel_1", Vector3(-18, 0, -18)],
+		["skeleton", "SkeletonGuard_2", "hall_skel_2", Vector3(18, 0, -10)],
+		["skeleton", "SkeletonGuard_3", "hall_skel_3", Vector3(-10, 0, 6)],
+		["skeleton", "SkeletonGuard_4", "hall_skel_4", Vector3(12, 0, 12)],
+		["skeleton", "SkeletonGuard_5", "hall_skel_5", Vector3(-20, 0, 18)],
+		["skeleton", "SkeletonGuard_6", "hall_skel_6", Vector3(20, 0, 20)],
+		["phantom", "PhantomTwin_1", "hall_phantom_1", Vector3(-18, 0, 22)],
+		["phantom", "PhantomTwin_2", "hall_phantom_2", Vector3(18, 0, 24)],
+		["phantom", "PhantomTwin_3", "hall_phantom_3", Vector3(0, 0, 16)],
+	]
+	var exit_gate := _make_gate("Gate02_HallToGallery", Vector3(0.0, y, zn), 1, "hall_of_echoes", false)
 	_style_gate(exit_gate)
 	root.add_child(exit_gate)
-	root.add_child(_make_section_trigger("Trigger_Stage02_Hall", Vector3(0.0, y + 1.25, 26.0), Vector3(5.0, 2.5, 1.5),
-		EncounterDirector.Section.HALL_COMBAT, Vector3(0.0, y, 25.6), "hall_of_echoes", 4, NodePath("../Gate02a_HallSouthSeal"), false))
+	root.add_child(_make_section_trigger("Trigger_Stage02_Hall", Vector3(0.0, y + 1.25, zs + 2.0), Vector3(5.0, 2.5, 1.5),
+		EncounterDirector.Section.HALL_COMBAT, Vector3(0.0, y, zs + 1.6), "hall_of_echoes", hall_specs.size(), NodePath("../Gate02a_HallSouthSeal"), false))
 
 	if spawn_enemies:
 		var enemies := Node3D.new()
 		enemies.name = "Enemies"
-		var skel1 := SkeletonGuard.new()
-		_configure_enemy_actor(skel1, "SkeletonGuard_1", "hall_skel_1", Vector3(-6.0, y, 30.0), Color(0.82, 0.76, 0.65))
-		skel1.died.connect(_on_hall_skeleton_died)
-		enemies.add_child(skel1)
-		var skel2 := SkeletonGuard.new()
-		_configure_enemy_actor(skel2, "SkeletonGuard_2", "hall_skel_2", Vector3(6.0, y, 38.0), Color(0.82, 0.76, 0.65))
-		skel2.died.connect(_on_hall_skeleton_died)
-		enemies.add_child(skel2)
-		var phan1 := PhantomTwin.new()
-		_configure_enemy_actor(phan1, "PhantomTwin_1", "hall_phantom_1", Vector3(-6.0, y, 40.0), Color(0.25, 0.78, 1.0, 0.85))
-		enemies.add_child(phan1)
-		var phan2 := PhantomTwin.new()
-		_configure_enemy_actor(phan2, "PhantomTwin_2", "hall_phantom_2", Vector3(6.0, y, 40.0), Color(0.25, 0.78, 1.0, 0.85))
-		enemies.add_child(phan2)
+		for spec in hall_specs:
+			var e: EnemyBase = null
+			var tint := Color(0.82, 0.76, 0.65)
+			if String(spec[0]) == "phantom":
+				e = PhantomTwin.new()
+				tint = Color(0.25, 0.78, 1.0, 0.85)
+			else:
+				e = SkeletonGuard.new()
+				e.died.connect(_on_hall_skeleton_died)
+			_configure_enemy_actor(e, String(spec[1]), String(spec[2]), c + (spec[3] as Vector3), tint)
+			enemies.add_child(e)
 		root.add_child(enemies)
+	# Roamers (HALL section, never hold the gate): a Grave Brute before the exit, two Hexcasters on the flanks.
+	var hrg: Node3D = _roamer_group(root)
+	_add_roamer(hrg, "brute", "HallBrute", c + Vector3(0, 0, 24), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	_add_roamer(hrg, "hexcaster", "HallHexcaster_W", c + Vector3(-24, 0, 0), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	_add_roamer(hrg, "hexcaster", "HallHexcaster_E", c + Vector3(24, 0, 4), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 
-	for p in [Vector3(-8.2, y, 25.8), Vector3(8.2, y, 25.8), Vector3(-8.2, y, 42.2), Vector3(8.2, y, 42.2)]:
+	for p in [Vector3(-(h - 1.8), y, zs + 1.8), Vector3(h - 1.8, y, zs + 1.8), Vector3(-(h - 1.8), y, zn - 1.8), Vector3(h - 1.8, y, zn - 1.8),
+			Vector3(-(h - 1.8), y, c.z), Vector3(h - 1.8, y, c.z)]:
 		_brazier(g, p)
-	_banner(g[1], Vector3(-5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, false)
-	_banner(g[1], Vector3(5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, false)
-	_banner(g[2], Vector3(-5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, true)
-	_banner(g[2], Vector3(5.0, y + 11.0, 43.3), 180.0, 2.4, 8.0, true)
+	for bx in [-15.0, -5.0, 5.0, 15.0]:
+		_banner(g[1], Vector3(bx, y + 11.0, zn - 0.7), 180.0, 2.4, 8.0, false)
+		_banner(g[2], Vector3(bx, y + 11.0, zn - 0.7), 180.0, 2.4, 8.0, true)
 	# Crystals grow on the cliff just outside the arcades: seen through the grilles, never in the fighting space.
-	_crystal_cluster(g[2], Vector3(-12.3, 3.4, 34.0), 1.4, 21)
-	_crystal_cluster(g[2], Vector3(12.3, 3.4, 30.0), 1.2, 22)
-	# Gate-arch piers flanking the south seal gate protrude onto the landing: give them real collision.
+	_crystal_cluster(g[2], Vector3(-(h + 2.3), 3.4, c.z), 1.4, 21)
+	_crystal_cluster(g[2], Vector3(h + 2.3, 3.4, c.z - 4.0), 1.2, 22)
+	# Gate-arch piers flanking both gates protrude onto the landings: give them real collision.
 	for sx in [-1.0, 1.0]:
-		for gz in [23.3, 44.7]:
+		for gz in [zs - 0.7, zn + 0.7]:
 			_prop_collider(root, "GateArchPier_%d" % int(sx), Vector3(sx * 2.6, y + 4.0, gz), _box_shape(Vector3(0.8, 8.0, 1.6)))
-	g[1].add_child(_make_ambient_particles(Vector3(0, y + 3.5, 34), Vector3(9, 3.5, 9), false))
-	g[2].add_child(_make_ambient_particles(Vector3(0, y + 3.5, 34), Vector3(9, 3.5, 9), true))
-
-	# --- Windswept Rampart: Z 44 -> 60, Y 4 -> 6, open to the sunset on the west ---
-	_solid(root, "Corridor02_Floor", Vector3(0.0, y - 0.25, 46.0), Vector3(4.0, 0.5, 4.0), _m_floor())
-	# Widened 2026-11-17 toward the open west side (the east side is the curtain wall): ramp 5 -> 6.2 m,
-	# landing 6 -> 7 m, its west edge flush with the gallery floor (x = -4) so no gap opens at the join.
-	_ramp(root, "Rampart_Ramp", Vector3(-0.6, y, 48.0), Vector3(-0.6, Y_GALLERY, 58.0), 6.2, _m_path())
-	_solid(root, "Rampart_Landing", Vector3(-0.5, Y_GALLERY - 0.25, 59.0), Vector3(7.0, 0.5, 2.0), _m_path())
-	_parapet(root, "Rail_Rampart_Join", Vector3(-2.2, y, 48.0), Vector3(-3.9, y, 48.0), _m_wall())
-	# Visible balustrades instead of invisible walls on the open-air corridor.
-	_parapet(root, "Corridor02_W", Vector3(-2.2, y, 44.4), Vector3(-2.2, y, 48.0), _m_wall())
-	_parapet(root, "Corridor02_E", Vector3(2.2, y, 44.4), Vector3(2.2, y, 48.0), _m_wall())
-	_parapet(root, "Rail_Rampart_W", Vector3(-3.9, y, 47.8), Vector3(-3.9, Y_GALLERY, 58.0), _m_wall())
-	_parapet(root, "Rail_Rampart_LW", Vector3(-4.2, Y_GALLERY, 58.0), Vector3(-4.2, Y_GALLERY, 60.0), _m_wall())
-	_parapet(root, "Rail_Rampart_LE", Vector3(3.0, Y_GALLERY, 58.0), Vector3(3.0, Y_GALLERY, 60.0), _m_wall())
-	# East: a tall buttressed curtain wall.
-	_solid(root, "Rampart_CurtainWall", Vector3(3.6, y + 3.0, 53.0), Vector3(1.4, 12.0, 13.0), _m_wall())
-	var buttress := BoxMesh.new()
-	buttress.size = Vector3(1.6, 10.0, 1.2)
-	var bts: Array = []
-	for i in range(4):
-		bts.append(Transform3D(Basis.IDENTITY, Vector3(4.9, y + 1.0, 48.5 + float(i) * 3.4)))
-	_multimesh(g[0], "Buttresses", buttress, _m_wall(), bts)
-	_banner(g[1], Vector3(2.85, y + 6.5, 53.0), -90.0, 1.6, 5.0, false)
-	_banner(g[2], Vector3(2.85, y + 6.5, 53.0), -90.0, 1.6, 5.0, true)
-	# Rampart sentry (HALL section stays current until the gallery trigger): holds the narrow ramp.
-	_add_roamer(_roamer_group(root), "skeleton", "RampartSentry", Vector3(0.0, Y_GALLERY, 58.6), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, 48))
-	# A Shade Stalker (exists in both realms) waits beside the sentry and blinks behind whoever it hunts.
-	var stalker: EnemyBase = _add_roamer(_roamer_group(root), "stalker", "RampartStalker", Vector3(2.0, Y_GALLERY, 59.3), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, 48))
-	if stalker is EnemyAI:
-		(stalker as EnemyAI).patrol_radius = 0.6
+	g[1].add_child(_make_ambient_particles(Vector3(c.x, y + 3.5, c.z), Vector3(h - 3.0, 3.5, h - 3.0), false))
+	g[2].add_child(_make_ambient_particles(Vector3(c.x, y + 3.5, c.z), Vector3(h - 3.0, 3.5, h - 3.0), true))
 	return root
 
 
 func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
+	var c: Vector3 = JourneyLayout.HALL_CENTER
+	var h: float = JourneyLayout.HALL_HALF
+	var zs: float = c.z - h
+	var zn: float = c.z + h
 	var wall_m: ShaderMaterial = _m_wall()
 	# Collision: four sides, with 4 m openings for the south seal gate and north exit gate.
-	_invisible_wall(root, "Wall_West", Vector3(-10.25, y + 4.0, 34.0), Vector3(0.5, 8.0, 20.5))
-	_invisible_wall(root, "Wall_East", Vector3(10.25, y + 4.0, 34.0), Vector3(0.5, 8.0, 20.5))
+	_invisible_wall(root, "Wall_West", Vector3(-h - 0.25, y + 4.0, c.z), Vector3(0.5, 8.0, h * 2.0 + 0.5))
+	_invisible_wall(root, "Wall_East", Vector3(h + 0.25, y + 4.0, c.z), Vector3(0.5, 8.0, h * 2.0 + 0.5))
+	var seg_w: float = h - 2.0 + 0.2
 	for sx in [-1.0, 1.0]:
-		_invisible_wall(root, "Wall_South_%d" % int(sx), Vector3(sx * 6.1, y + 4.0, 23.75), Vector3(8.2, 8.0, 0.5))
-		_invisible_wall(root, "Wall_North_%d" % int(sx), Vector3(sx * 6.1, y + 4.0, 44.25), Vector3(8.2, 8.0, 0.5))
+		_invisible_wall(root, "Wall_South_%d" % int(sx), Vector3(sx * (2.0 + seg_w * 0.5), y + 4.0, zs - 0.25), Vector3(seg_w, 8.0, 0.5))
+		_invisible_wall(root, "Wall_North_%d" % int(sx), Vector3(sx * (2.0 + seg_w * 0.5), y + 4.0, zn + 0.25), Vector3(seg_w, 8.0, 0.5))
 
 	# Visual: two-storey arcades on all four sides (arch modules + grilles), corner towers, cornice.
 	var mod_w: float = 4.0
@@ -1247,29 +1186,33 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 	var low_x: Array = []
 	var up_x: Array = []
 	var grille_x: Array = []
-	# West/East sides (modules run along Z, face inward)
+	# West/East sides: 4 m modules along Z (15 per 60 m side), facing inward.
+	var n_mod: int = int(round(h * 2.0 / mod_w))
 	for sx in [-1.0, 1.0]:
-		for i in range(5):
-			var z: float = 26.0 + float(i) * mod_w
+		for i in range(n_mod):
+			var z: float = zs + mod_w * (float(i) + 0.5)
 			var b := Basis(Vector3.UP, PI * 0.5)
-			low_x.append(Transform3D(b, Vector3(sx * 10.7, y, z)))
-			up_x.append(Transform3D(b, Vector3(sx * 10.9, y + 8.0, z)))
-			grille_x.append(Transform3D(b, Vector3(sx * 10.7, y, z)))
-	# South/North sides: two 3.5 m bays each side of the 6 m gate arch tile the 20 m wall exactly
-	# (x 3..6.5 and 6.5..10), so no two modules overlap (the old 4 m bays overlapped by 0.6 m and z-fought).
-	var side_low: ArrayMesh = ProcMesh.arch_mesh(3.5, 8.0, 2.3, 3.6, 1.4)
-	var side_up: ArrayMesh = ProcMesh.arch_mesh(3.5, 5.0, 2.1, 2.4, 1.0)
-	var side_grille: ArrayMesh = ProcMesh.portcullis_mesh(2.3, 4.6, 0.08, 0.32)
+			low_x.append(Transform3D(b, Vector3(sx * (h + 0.7), y, z)))
+			up_x.append(Transform3D(b, Vector3(sx * (h + 0.9), y + 8.0, z)))
+			grille_x.append(Transform3D(b, Vector3(sx * (h + 0.7), y, z)))
+	# South/North sides: eight equal bays each side of the 6 m gate arch tile x 3 .. h exactly (no overlaps).
+	var bays: int = 8
+	var bay_w: float = (h - 3.0) / float(bays)
+	var side_low: ArrayMesh = ProcMesh.arch_mesh(bay_w, 8.0, bay_w - 1.2, 3.6, 1.4)
+	var side_up: ArrayMesh = ProcMesh.arch_mesh(bay_w, 5.0, bay_w - 1.4, 2.4, 1.0)
+	var side_grille: ArrayMesh = ProcMesh.portcullis_mesh(bay_w - 1.2, 4.6, 0.08, 0.32)
 	var gate_arch: ArrayMesh = ProcMesh.arch_mesh(6.0, 8.0, 4.4, 3.4, 1.6)
 	var gate_up: ArrayMesh = ProcMesh.arch_mesh(6.0, 5.0, 3.4, 2.4, 1.0)
 	var side_low_x: Array = []
 	var side_up_x: Array = []
 	var side_grille_x: Array = []
-	for sz in [23.3, 44.7]:
-		for x in [-8.25, -4.75, 4.75, 8.25]:
-			side_low_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
-			side_up_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y + 8.0, sz)))
-			side_grille_x.append(Transform3D(Basis.IDENTITY, Vector3(x, y, sz)))
+	for sz in [zs - 0.7, zn + 0.7]:
+		for k in range(bays):
+			var bx: float = 3.0 + bay_w * (float(k) + 0.5)
+			for sx in [-1.0, 1.0]:
+				side_low_x.append(Transform3D(Basis.IDENTITY, Vector3(sx * bx, y, sz)))
+				side_up_x.append(Transform3D(Basis.IDENTITY, Vector3(sx * bx, y + 8.0, sz)))
+				side_grille_x.append(Transform3D(Basis.IDENTITY, Vector3(sx * bx, y, sz)))
 		_mesh(g[0], "GateArch", gate_arch, wall_m, Transform3D(Basis.IDENTITY, Vector3(0, y, sz)))
 		_mesh(g[0], "GateArchUpper", gate_up, wall_m, Transform3D(Basis.IDENTITY, Vector3(0, y + 8.0, sz)))
 	_multimesh(g[0], "HallArcadeLower", arch_low, wall_m, low_x)
@@ -1282,8 +1225,8 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 	var tower := BoxMesh.new()
 	tower.size = Vector3(4.0, 24.0, 4.0)
 	var towers: Array = []
-	for cx in [-12.0, 12.0]:
-		for cz in [22.0, 46.0]:
+	for cx in [-(h + 2.0), h + 2.0]:
+		for cz in [zs - 2.0, zn + 2.0]:
 			towers.append(Transform3D(Basis.IDENTITY, Vector3(cx, y + 6.0, cz)))
 	_multimesh(g[0], "HallTowers", tower, wall_m, towers)
 	var tower_cap := BoxMesh.new()
@@ -1295,12 +1238,211 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 	_multimesh(g[0], "HallTowerCaps", tower_cap, _m_marble(), caps)
 	# Cornice ring
 	var cor := BoxMesh.new()
-	cor.size = Vector3(1.6, 0.7, 24.0)
-	_mesh(g[0], "CorniceW", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-10.9, y + 13.35, 34.0)))
-	_mesh(g[0], "CorniceE", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(10.9, y + 13.35, 34.0)))
+	cor.size = Vector3(1.6, 0.7, h * 2.0 + 4.0)
+	_mesh(g[0], "CorniceW", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-(h + 0.9), y + 13.35, c.z)))
+	_mesh(g[0], "CorniceE", cor, _m_marble(), Transform3D(Basis.IDENTITY, Vector3(h + 0.9, y + 13.35, c.z)))
 	# N/S runs sit 4 cm higher so the overlapping corner blocks never share a top/bottom plane.
-	_mesh(g[0], "CorniceS", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, 23.0)))
-	_mesh(g[0], "CorniceN", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, 45.0)))
+	_mesh(g[0], "CorniceS", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, zs - 1.0)))
+	_mesh(g[0], "CorniceN", cor, _m_marble(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0, y + 13.39, zn + 1.0)))
+
+
+# =====================================================================================================
+# Winding bridges (2026-11-18): the four connectors as long zig-zag bridges with two bastions each.
+# Geometry lives in JourneyLayout.ROUTES (world coordinates); garrisons below.
+# =====================================================================================================
+
+## Bastion garrisons per bridge: [bastion 1 kinds, bastion 2 kinds] (roamer kinds of _add_roamer).
+const ROUTE_ENEMIES: Dictionary = {
+	"R1_PilgrimCauseway": [["skeleton", "skeleton", "hexcaster"], ["skeleton", "shield", "hexcaster"]],
+	"R2_SunlitBridges": [["phantom", "skeleton", "stalker"], ["skeleton", "skeleton", "hexcaster"]],
+	"R3_WindsweptRampart": [["skeleton", "stalker", "hexcaster"], ["brute", "skeleton", "phantom"]],
+	"R5_Processional": [["phantom", "skeleton", "hexcaster"], ["shield", "skeleton", "brute"]],
+}
+
+
+func _route_section(route_name: String) -> int:
+	## The section that is current while the player walks this bridge (roamers wake only in their section).
+	match route_name:
+		"R3_WindsweptRampart":
+			return EncounterDirector.Section.HALL_COMBAT
+		"R5_Processional":
+			return EncounterDirector.Section.MECHANISM_CHAMBER
+		_:
+			return EncounterDirector.Section.ENTRY
+
+
+func _build_routes() -> Node3D:
+	var all := Node3D.new()
+	all.name = "Journey_Routes"
+	var g: Array[Node3D] = _zone("Zone_Routes")
+	var seed_i: int = 900
+	for r in JourneyLayout.ROUTES:
+		var rname: String = String((r as Array)[0])
+		var nodes: Array = (r as Array)[1]
+		var root := Node3D.new()
+		root.name = rname
+		all.add_child(root)
+		var kinds: Array = ROUTE_ENEMIES.get(rname, [])
+		var bi: int = 0
+		for i in range(1, nodes.size() - 1):
+			var nd: Array = nodes[i]
+			if float(nd[1]) <= 0.0:
+				continue
+			var bk: Array = []
+			if bi < kinds.size():
+				bk = kinds[bi]
+			var prev_p: Vector3 = (nodes[i - 1] as Array)[0]
+			var next_p: Vector3 = (nodes[i + 1] as Array)[0]
+			_build_bastion(root, g, "%s_Bastion%d" % [rname, bi + 1], nd[0] as Vector3, float(nd[1]), [prev_p, next_p], bk, _route_section(rname), seed_i)
+			seed_i += 1
+			bi += 1
+		for i in range(nodes.size() - 1):
+			_build_bridge_leg(root, g, "%s_Leg%d" % [rname, i + 1], nodes[i] as Array, nodes[i + 1] as Array)
+	return all
+
+
+func _build_bastion(root: Node3D, g: Array[Node3D], bname: String, c: Vector3, r: float, neighbours: Array, kinds: Array, section: int, seed_val: int) -> void:
+	## Round fortified platform: walkable disc on a masonry drum and rock spur, ring parapet with openings exactly
+	## where the bridge legs arrive, merlons, two braziers on the far side, and a garrison of roamers.
+	var off: float = JourneyLayout.BRIDGE_WIDTH * 0.5 + 0.2
+	var rr: float = r - 0.2
+	var body := StaticBody3D.new()
+	body.name = bname
+	body.position = Vector3(c.x, c.y - 0.25, c.z)
+	body.collision_layer = LAYER_WORLD_SHARED
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	cs.shape = _cyl_shape(r, 0.5)
+	body.add_child(cs)
+	var deck := CylinderMesh.new()
+	deck.top_radius = r
+	deck.bottom_radius = r
+	deck.height = 0.5
+	deck.radial_segments = 40
+	deck.rings = 1
+	_mesh(body, "Deck", deck, _m_floor(), Transform3D.IDENTITY, true, 0.0, false)
+	root.add_child(body)
+	var drum := CylinderMesh.new()
+	drum.top_radius = r + 0.3
+	drum.bottom_radius = r + 1.4
+	drum.height = 8.0
+	drum.radial_segments = 32
+	drum.rings = 1
+	_mesh(g[0], "BastionDrum", drum, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(c.x, c.y - 0.52 - 4.0, c.z)))
+	var rk: MeshInstance3D = _rock(_scenery, "BastionRock", Vector3(c.x, c.y - 8.6, c.z), Vector3(r * 2.0 + 5.0, 60.0, r * 2.0 + 5.0), seed_val, _m_rock(), 0.72, 0.24, 14, false, true)
+	rk.remove_meta("gj_batch")
+	# Ring parapet: arcs between the openings. Each opening spans +-asin(off / rr) around a leg direction, so the
+	# leg's side rails end exactly on the arc ends (no gap to fall through).
+	var opens: Array[float] = []
+	for nb in neighbours:
+		var d: Vector3 = (nb as Vector3) - c
+		opens.append(atan2(d.x, d.z))
+	opens.sort()
+	var beta: float = asin(clampf(off / rr, 0.0, 1.0))
+	var arcs: Array = []
+	for i in range(opens.size()):
+		var a0: float = opens[i] + beta
+		var a1: float = opens[(i + 1) % opens.size()] - beta
+		if i == opens.size() - 1:
+			a1 += TAU
+		if a1 - a0 > 0.05:
+			arcs.append([a0, a1])
+	var merlon := BoxMesh.new()
+	merlon.size = Vector3(0.9, 1.0, 0.55)
+	var merlons: Array = []
+	var seg: int = 0
+	var far_arc: Array = [0.0, 0.0]
+	for arc in arcs:
+		var a0: float = float(arc[0])
+		var a1: float = float(arc[1])
+		if a1 - a0 > float(far_arc[1]) - float(far_arc[0]):
+			far_arc = [a0, a1]
+		var n: int = maxi(1, ceili((a1 - a0) / 0.26))
+		for k in range(n):
+			var t0: float = lerpf(a0, a1, float(k) / float(n))
+			var t1: float = lerpf(a0, a1, float(k + 1) / float(n))
+			var p0 := Vector3(c.x + sin(t0) * rr, c.y, c.z + cos(t0) * rr)
+			var p1 := Vector3(c.x + sin(t1) * rr, c.y, c.z + cos(t1) * rr)
+			_parapet(root, "%s_Ring%d" % [bname, seg], p0, p1, _m_wall())
+			seg += 1
+		var nm: int = int((a1 - a0) * rr / 2.4)
+		for k in range(nm):
+			var am: float = lerpf(a0, a1, (float(k) + 0.5) / float(nm))
+			merlons.append(Transform3D(Basis(Vector3.UP, am), Vector3(c.x + sin(am) * rr, c.y + 1.75, c.z + cos(am) * rr)))
+	if not merlons.is_empty():
+		_multimesh(g[0], "BastionMerlons", merlon, _m_wall(), merlons)
+	# Braziers on the far (outer) side of the bend, garrison spread around the centre facing the way in.
+	var m: float = (float(far_arc[0]) + float(far_arc[1])) * 0.5
+	for s in [-0.42, 0.42]:
+		_brazier(g, Vector3(c.x + sin(m + s) * (rr - 1.3), c.y, c.z + cos(m + s) * (rr - 1.3)))
+	var face: Vector3 = neighbours[0] as Vector3
+	var spots: Array = [m, m + 2.2, m - 2.2]
+	for ei in range(kinds.size()):
+		var a: float = float(spots[ei % spots.size()])
+		var ep := Vector3(c.x + sin(a) * 3.4, c.y, c.z + cos(a) * 3.4)
+		var kind: String = String(kinds[ei])
+		_add_roamer(_roamer_group(root), kind, "%s_%s%d" % [bname, kind.capitalize(), ei + 1], ep, section, face)
+
+
+func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array, nb: Array) -> void:
+	## One straight span between two bridge nodes: sloped deck between the bastion edges (or from a floor edge,
+	## with a flat apron tucked into that floor so the angled end leaves no hole), side parapets, join rails along
+	## a floor edge, and masonry piers under long spans.
+	var a: Vector3 = na[0]
+	var b: Vector3 = nb[0]
+	var ra: float = float(na[1])
+	var rb: float = float(nb[1])
+	var w: float = JourneyLayout.BRIDGE_WIDTH
+	var off: float = w * 0.5 + 0.2
+	var flat := Vector3(b.x - a.x, 0.0, b.z - a.z)
+	var u: Vector3 = flat.normalized()
+	var nrm := Vector3(u.z, 0.0, -u.x)
+	var tan_th: float = absf(u.x) / maxf(absf(u.z), 0.05)
+	var a_deck: Vector3 = a + u * (ra - 0.4) if ra > 0.0 else a
+	var b_deck: Vector3 = b - u * (rb - 0.4) if rb > 0.0 else b
+	if ra <= 0.0:
+		_ramp(root, lname + "_ApronA", a - u * (w * 0.5 * tan_th + 0.6), a, w, _m_path())
+	if rb <= 0.0:
+		_ramp(root, lname + "_ApronB", b, b + u * (w * 0.5 * tan_th + 0.6), w, _m_path())
+	_ramp(root, lname, a_deck, b_deck, w, _m_path())
+	# Side parapets: from the bastion ring (or the floor edge line) to the next ring / edge.
+	for s in [-1.0, 1.0]:
+		var p0: Vector3
+		var p1: Vector3
+		if ra > 0.0:
+			p0 = a + u * sqrt(maxf(0.0, (ra - 0.2) * (ra - 0.2) - off * off)) + nrm * (s * off)
+		else:
+			p0 = _line_at_z(a, b, s * off, float(na[2]))
+		if rb > 0.0:
+			p1 = b - u * sqrt(maxf(0.0, (rb - 0.2) * (rb - 0.2) - off * off)) + nrm * (s * off)
+		else:
+			p1 = _line_at_z(a, b, s * off, float(nb[2]))
+		p0.y = a.y
+		p1.y = b.y
+		_parapet(root, "%s_Rail%s" % [lname, "R" if s > 0.0 else "L"], p0, p1, _m_wall())
+	# Join rails along a floor edge (z = edge_z, edge opening |x| <= edge_half_width) out to the bridge rails.
+	for e in [[na, ra, a], [nb, rb, b]]:
+		if float(e[1]) > 0.0:
+			continue
+		var nd: Array = e[0]
+		var ez: float = float(nd[2])
+		var hw: float = float(nd[3])
+		var ey: float = (e[2] as Vector3).y
+		var xl: float = _line_at_z(a, b, -off, ez).x
+		var xr: float = _line_at_z(a, b, off, ez).x
+		var lo: float = minf(xl, xr)
+		var hi: float = maxf(xl, xr)
+		if absf(lo + hw) > 0.05:
+			_parapet(root, lname + "_JoinW", Vector3(-hw, ey, ez), Vector3(lo, ey, ez), _m_wall())
+		if absf(hi - hw) > 0.05:
+			_parapet(root, lname + "_JoinE", Vector3(hw, ey, ez), Vector3(hi, ey, ez), _m_wall())
+	# Masonry piers under long spans (visual only; the kill plane still catches falls).
+	var piers: int = int(flat.length() / 16.0)
+	for k in range(piers):
+		var pp: Vector3 = a_deck.lerp(b_deck, (float(k) + 1.0) / float(piers + 1))
+		var pier := BoxMesh.new()
+		pier.size = Vector3(w * 0.55, 30.0, 2.2)
+		_mesh(g[0], "BridgePier", pier, _m_wall(), Transform3D(Basis(Vector3.UP, atan2(u.x, u.z)), Vector3(pp.x, pp.y - 0.62 - 15.0, pp.z)))
 
 
 # =====================================================================================================
@@ -1311,6 +1453,9 @@ func _build_stage_03_gallery() -> Node3D:
 	var root := Node3D.new()
 	root.name = "Stage03_CollapsedGallery"
 	var g: Array[Node3D] = _zone("Zone03_Gallery")
+	# Story-coordinate stage: the stage root and its decor zone are shifted onto the stretched layout.
+	root.position.z = JourneyLayout.OFF_S3
+	(g[0].get_parent() as Node3D).position.z = JourneyLayout.OFF_S3
 	var y: float = Y_GALLERY
 
 	_solid(root, "GalleryFloorSouth", Vector3(0.0, y - 0.25, 65.0), Vector3(8.0, 0.5, 10.0), _m_path())
@@ -1391,7 +1536,7 @@ func _build_stage_03_gallery() -> Node3D:
 	_style_gate(gate)
 	root.add_child(gate)
 	root.add_child(_make_section_trigger("Trigger_Stage03_Gallery", Vector3(0.0, y + 1.25, 61.5), Vector3(4.0, 2.5, 1.5),
-		EncounterDirector.Section.COLLAPSED_GALLERY, Vector3(0.0, y, 61.5), "shielded_guard", 1, NodePath(), false))
+		EncounterDirector.Section.COLLAPSED_GALLERY, Vector3(0.0, y, 61.5 + JourneyLayout.OFF_S3), "shielded_guard", 1, NodePath(), false))
 	if spawn_enemies:
 		var enemies := Node3D.new()
 		enemies.name = "Enemies"
@@ -1443,8 +1588,8 @@ func _build_stage_03_gallery() -> Node3D:
 			root.add_child(body)
 	# Gorge walls framing the crossing + mist rising from the depths.
 	# Gorge walls frame only the broken span (kept short of the rampart so its sunset vista stays open).
-	_rock(_scenery, "GorgeWallWest", Vector3(-36.0, y + 12.0, 76.0), Vector3(26.0, 84.0, 28.0), 301, _m_rock(), 1.0, 0.2, 14)
-	_rock(_scenery, "GorgeWallEast", Vector3(36.0, y + 20.0, 72.0), Vector3(26.0, 92.0, 34.0), 302, _m_rock(), 1.0, 0.2, 14)
+	_rock(_scenery, "GorgeWallWest", Vector3(-36.0, y + 12.0, 76.0 + JourneyLayout.OFF_S3), Vector3(26.0, 84.0, 28.0), 301, _m_rock(), 1.0, 0.2, 14)
+	_rock(_scenery, "GorgeWallEast", Vector3(36.0, y + 20.0, 72.0 + JourneyLayout.OFF_S3), Vector3(26.0, 92.0, 34.0), 302, _m_rock(), 1.0, 0.2, 14)
 	_brazier(g, Vector3(-3.0, y, 61.0))
 	_brazier(g, Vector3(3.0, y, 61.0))
 	_crystal_cluster(g[2], Vector3(0.0, y - 3.0, 70.2), 1.6, 31)
@@ -1462,51 +1607,59 @@ func _build_stage_03_gallery() -> Node3D:
 # =====================================================================================================
 
 func _build_stage_04_mechanism() -> Node3D:
+	## Clock-Tower Mechanism Chamber, 3x the old room: a 36 x 36 floor at Y 6 centred on
+	## JourneyLayout.CHAMBER_CENTER, built in WORLD coordinates (2026-11-18). The puzzle (dais, weight, plate)
+	## keeps its proven dimensions at the centre; the room, clockwork, tower and garrison grew around it.
 	var root := Node3D.new()
 	root.name = "Stage04_MechanismChamber"
 	var g: Array[Node3D] = _zone("Zone04_Tower")
 	var y: float = Y_GALLERY
-	var cz: float = 94.0
+	var cz: float = JourneyLayout.CHAMBER_CENTER.z
+	var h: float = JourneyLayout.CHAMBER_HALF
+	var wall_h: float = 24.0
+	var span: float = h * 2.0 + 3.0
 
-	_solid(root, "ChamberFloor", Vector3(0.0, y - 0.25, cz), Vector3(12.0, 0.5, 12.0), _m_floor())
+	_solid(root, "ChamberFloor", Vector3(0.0, y - 0.25, cz), Vector3(h * 2.0, 0.5, h * 2.0), _m_floor())
 	_solid(root, "RaisedImpactDais", Vector3(-3.0, y + 0.675, cz - 1.0), Vector3(2.5, 1.35, 2.5), _m_marble())
 	# Walls (visible, tall) with 4 m openings south & north.
-	_solid(root, "Wall_West", Vector3(-6.75, y + 9.0, cz), Vector3(1.5, 18.0, 13.5), _m_wall())
-	_solid(root, "Wall_East", Vector3(6.75, y + 9.0, cz), Vector3(1.5, 18.0, 13.5), _m_wall())
+	_solid(root, "Wall_West", Vector3(-h - 0.75, y + wall_h * 0.5, cz), Vector3(1.5, wall_h, h * 2.0 + 1.5), _m_wall())
+	_solid(root, "Wall_East", Vector3(h + 0.75, y + wall_h * 0.5, cz), Vector3(1.5, wall_h, h * 2.0 + 1.5), _m_wall())
+	var seg_w: float = h - 2.0
 	for sx in [-1.0, 1.0]:
-		# 4.0 m segments butt exactly against the side walls' inner faces (x = ±6) — no overlapping corners.
-		_solid(root, "Wall_South_%d" % int(sx), Vector3(sx * 4.0, y + 9.0, cz - 6.6), Vector3(4.0, 18.0, 1.2), _m_wall())
-		_solid(root, "Wall_North_%d" % int(sx), Vector3(sx * 4.0, y + 9.0, cz + 6.6), Vector3(4.0, 18.0, 1.2), _m_wall())
+		# Segments butt exactly against the side walls' inner faces (x = +-h): no overlapping corners.
+		_solid(root, "Wall_South_%d" % int(sx), Vector3(sx * (2.0 + seg_w * 0.5), y + wall_h * 0.5, cz - h - 0.6), Vector3(seg_w, wall_h, 1.2), _m_wall())
+		_solid(root, "Wall_North_%d" % int(sx), Vector3(sx * (2.0 + seg_w * 0.5), y + wall_h * 0.5, cz + h + 0.6), Vector3(seg_w, wall_h, 1.2), _m_wall())
 	var lintel := BoxMesh.new()
-	lintel.size = Vector3(4.0, 14.0, 1.2)
-	_mesh(g[0], "LintelSouth", lintel, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 11.0, cz - 6.6)))
-	_mesh(g[0], "LintelNorth", lintel, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 11.0, cz + 6.6)))
-	# Ceiling with an oculus (4 x 4 opening) at y + 18 -> god rays through volumetric fog.
+	lintel.size = Vector3(4.0, wall_h - 4.0, 1.2)
+	_mesh(g[0], "LintelSouth", lintel, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 4.0 + (wall_h - 4.0) * 0.5, cz - h - 0.6)))
+	_mesh(g[0], "LintelNorth", lintel, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 4.0 + (wall_h - 4.0) * 0.5, cz + h + 0.6)))
+	# Ceiling with a 4 x 4 oculus at the top of the walls.
+	var ceil_y: float = y + wall_h + 0.5
 	var ceil_piece := BoxMesh.new()
-	ceil_piece.size = Vector3(15.0, 1.0, 5.5)
-	_mesh(g[0], "CeilingS", ceil_piece, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 18.5, cz - 4.75)))
-	_mesh(g[0], "CeilingN", ceil_piece, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 18.5, cz + 4.75)))
+	ceil_piece.size = Vector3(span, 1.0, h - 0.5)
+	_mesh(g[0], "CeilingS", ceil_piece, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, ceil_y, cz - 2.0 - (h - 0.5) * 0.5)))
+	_mesh(g[0], "CeilingN", ceil_piece, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, ceil_y, cz + 2.0 + (h - 0.5) * 0.5)))
 	var ceil_side := BoxMesh.new()
-	ceil_side.size = Vector3(5.5, 1.0, 4.0)
-	_mesh(g[0], "CeilingW", ceil_side, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(-4.75, y + 18.5, cz)))
-	_mesh(g[0], "CeilingE", ceil_side, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(4.75, y + 18.5, cz)))
-	# Tower exterior rising above: spire block + crenels
+	ceil_side.size = Vector3(h - 0.5, 1.0, 4.0)
+	_mesh(g[0], "CeilingW", ceil_side, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(-2.0 - (h - 0.5) * 0.5, ceil_y, cz)))
+	_mesh(g[0], "CeilingE", ceil_side, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(2.0 + (h - 0.5) * 0.5, ceil_y, cz)))
+	# Tower exterior rising above: spire block + pyramid roof.
 	var spire := BoxMesh.new()
-	spire.size = Vector3(15.0, 14.0, 15.0)
-	_mesh(g[0], "TowerUpper", spire, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + 26.0, cz)))
+	spire.size = Vector3(span, 14.0, span)
+	_mesh(g[0], "TowerUpper", spire, _m_wall(), Transform3D(Basis.IDENTITY, Vector3(0, y + wall_h + 8.0, cz)))
 	var roof := CylinderMesh.new()
 	roof.top_radius = 0.0
-	roof.bottom_radius = 10.5
-	roof.height = 12.0
+	roof.bottom_radius = span * 0.7
+	roof.height = 24.0
 	roof.radial_segments = 4
 	roof.rings = 1
-	_mesh(g[0], "TowerRoof", roof, _m_bronze(), Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0, y + 39.0, cz)))
+	_mesh(g[0], "TowerRoof", roof, _m_bronze(), Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0, y + wall_h + 27.0, cz)))
 
-	var gate := _make_gate("Gate04_MechanismToArena", Vector3(0.0, y, cz + 6.0), 3, "", false)
+	var gate := _make_gate("Gate04_MechanismToArena", Vector3(0.0, y, cz + h), 3, "", false)
 	_style_gate(gate)
 	root.add_child(gate)
-	root.add_child(_make_section_trigger("Trigger_Stage04_Mechanism", Vector3(0.0, y + 1.25, 89.5), Vector3(4.5, 2.5, 1.5),
-		EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0.0, y, 89.5), "", 0, NodePath(), false))
+	root.add_child(_make_section_trigger("Trigger_Stage04_Mechanism", Vector3(0.0, y + 1.25, cz - h + 1.5), Vector3(4.5, 2.5, 1.5),
+		EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0.0, y, cz - h + 1.5), "", 0, NodePath(), false))
 
 	var puzzle := MechanismPuzzle.new()
 	puzzle.name = "ChamberMechanismPuzzle"
@@ -1547,34 +1700,44 @@ func _build_stage_04_mechanism() -> Node3D:
 	puzzle.add_child(plate)
 	root.add_child(puzzle)
 
-	# Clockwork: big bronze gears turning on both side walls.
-	# Meshing pairs sit on different depth planes (0.4 m apart) and clear the pilasters at z 89 / 99.
-	for spec in [[-5.95, 12.0, 93.3, 3.4, 1.0], [-5.55, 15.5, 96.2, 2.2, -1.6], [5.95, 11.0, 95.2, 3.0, -1.0], [5.55, 15.0, 91.6, 2.0, 1.4]]:
+	# Clockwork: bronze gears turning on both side walls. [side, height (old y-6 datum), z offset, radius,
+	# turns per 40 s, inset]. Meshing pairs sit on different depth planes (0.4 m apart) and clear the pilasters.
+	for spec in [[-1.0, 12.0, -0.7, 3.4, 1.0, 0.0], [-1.0, 15.5, 2.2, 2.2, -1.6, 0.4], [1.0, 11.0, 1.2, 3.0, -1.0, 0.0], [1.0, 15.0, -2.4, 2.0, 1.4, 0.4],
+			[-1.0, 14.0, 10.5, 4.0, 0.7, 0.0], [-1.0, 18.5, 10.5, 2.6, -1.2, 0.4], [1.0, 13.0, -10.5, 4.0, -0.8, 0.0], [1.0, 18.0, -10.5, 2.8, 1.1, 0.4]]:
 		var gear: ArrayMesh = ProcMesh.gear_mesh(float(spec[3]), 0.35, int(float(spec[3]) * 6.0), 0.35)
-		var gm := _mesh(g[0], "Gear", gear, _m_bronze(), Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(float(spec[0]), y + float(spec[1]) - 6.0, float(spec[2]))), true, 0.0, false)
+		var gpos := Vector3(float(spec[0]) * (h - 0.05 - float(spec[5])), y + float(spec[1]) - 6.0, cz + float(spec[2]))
+		var gm := _mesh(g[0], "Gear", gear, _m_bronze(), Transform3D(Basis(Vector3.UP, PI * 0.5), gpos), true, 0.0, false)
 		var tw := gm.create_tween().set_loops()
 		tw.tween_property(gm, "rotation:x", TAU * signf(float(spec[4])), 40.0 / absf(float(spec[4]))).as_relative()
 		_anim_tweens.append(tw)
 	# Pilasters
 	var pil := BoxMesh.new()
-	pil.size = Vector3(0.4, 17.0, 0.9)
+	pil.size = Vector3(0.4, wall_h - 1.0, 0.9)
 	var pils: Array = []
 	for sx in [-1.0, 1.0]:
-		for z in [89.0, 99.0]:
-			pils.append(Transform3D(Basis.IDENTITY, Vector3(sx * 5.8, y + 8.5, z)))
-			_prop_collider(root, "PilasterCollider", Vector3(sx * 5.8, y + 8.5, z), _box_shape(Vector3(0.4, 17.0, 0.9)))
+		for dz in [-16.0, -5.5, 5.5, 16.0]:
+			var pp := Vector3(sx * (h - 0.2), y + (wall_h - 1.0) * 0.5, cz + dz)
+			pils.append(Transform3D(Basis.IDENTITY, pp))
+			_prop_collider(root, "PilasterCollider", pp, _box_shape(Vector3(0.4, wall_h - 1.0, 0.9)))
 	_multimesh(g[0], "Pilasters", pil, _m_marble(), pils)
-	_brazier(g, Vector3(-4.6, y, 99.0))
-	_brazier(g, Vector3(4.6, y, 99.0))
-	_crystal_cluster(g[2], Vector3(4.6, y, 89.4), 1.0, 41, true)
-	g[1].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), false))
-	g[2].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(5.5, 6, 5.5), true))
-	# Tower wardens (MECHANISM section): a Reality skeleton pair guarding the dais, and a phantom that
-	# harries the player in the Mirror while they line up the landing slam.
+	_brazier(g, Vector3(-(h - 1.4), y, cz + h - 1.0))
+	_brazier(g, Vector3(h - 1.4, y, cz + h - 1.0))
+	_brazier(g, Vector3(-(h - 1.4), y, cz - h + 1.4))
+	_crystal_cluster(g[2], Vector3(h - 1.4, y, cz - h + 1.4), 1.0, 41, true)
+	g[1].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(h - 0.5, 6, h - 0.5), false))
+	g[2].add_child(_make_ambient_particles(Vector3(0, y + 6, cz), Vector3(h - 0.5, 6, h - 0.5), true))
+	# Tower garrison (MECHANISM section): skeletons and a brute hold the floor, a hexcaster and a stalker work
+	# the flanks, and a phantom harries the player in the Mirror while they line up the landing slam.
 	var rg: Node3D = _roamer_group(root)
-	_add_roamer(rg, "skeleton", "TowerSkeleton_A", Vector3(3.5, y, 97.5), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y, 90))
-	_add_roamer(rg, "skeleton", "TowerSkeleton_B", Vector3(-4.2, y, 97.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y, 90))
-	_add_roamer(rg, "phantom", "TowerPhantom", Vector3(3.8, y, 91.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(-3, y, 93))
+	var door := Vector3(0, y, cz - h)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_A", Vector3(10.0, y, cz + 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_B", Vector3(-12.0, y, cz + 9.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "phantom", "TowerPhantom", Vector3(11.0, y, cz - 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_C", Vector3(-10.0, y, cz - 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_D", Vector3(6.0, y, cz + 14.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "brute", "TowerBrute", Vector3(0.0, y, cz + 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "hexcaster", "TowerHexcaster", Vector3(-14.0, y, cz + 2.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "stalker", "TowerStalker", Vector3(14.0, y, cz + 3.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	return root
 
 
@@ -1586,31 +1749,18 @@ func _build_stage_05_arena() -> Node3D:
 	var root := Node3D.new()
 	root.name = "Stage05_ExecutionArena"
 	var g: Array[Node3D] = _zone("Zone05_Colosseum")
+	# Story-coordinate stage: the stage root and its decor zone are shifted onto the stretched layout.
+	root.position.z = JourneyLayout.OFF_S5
+	(g[0].get_parent() as Node3D).position.z = JourneyLayout.OFF_S5
 	var y0: float = Y_GALLERY
 	var y: float = Y_ARENA
 	var c: Vector3 = ARENA_CENTER
 
-	# --- Processional: corridor Z 100..102, stair Z 102..116 (Y 6 -> 10), esplanade Z 116..120 ---
-	_solid(root, "Corridor04_Floor", Vector3(0.0, y0 - 0.25, 101.0), Vector3(4.0, 0.5, 2.0), _m_floor())
-	_parapet(root, "Corridor04_W", Vector3(-2.2, y0, 100.6), Vector3(-2.2, y0, 102.0), _m_wall())
-	_parapet(root, "Corridor04_E", Vector3(2.2, y0, 100.6), Vector3(2.2, y0, 102.0), _m_wall())
-	var p_run: float = 14.0 / 22.0
-	_ramp(root, "Processional_Ramp", Vector3(0, y0, 102.0 - p_run * 0.5), Vector3(0, y, 116.0 - p_run * 0.5), 12.0, null, false)
-	_solid(root, "Processional_TopStep", Vector3(0, y - 0.25, 116.0 - p_run * 0.5), Vector3(12.0, 0.5, p_run), null, LAYER_WORLD_SHARED, Vector3.ZERO, false)
-	_mesh(g[0], "Processional_Steps", ProcMesh.steps_mesh(12.0, y - y0, 14.0, 22), _m_floor(), Transform3D(Basis.IDENTITY, Vector3(0, y0, 102.0)))
+	# --- Esplanade Z 116..120 (story). The Processional is now the winding bridge R5 (_build_routes), which
+	# arrives at the esplanade's south edge; its join rails close that edge out to x +-9.
 	_solid(root, "Processional_Esplanade", Vector3(0.0, y - 0.25, 118.0), Vector3(18.0, 0.5, 4.0), _m_floor())
-	_parapet(root, "Rail_Proc_W", Vector3(-6.2, y0, 101.8), Vector3(-6.2, y, 116.0), _m_wall())
-	_parapet(root, "Rail_Proc_E", Vector3(6.2, y0, 101.8), Vector3(6.2, y, 116.0), _m_wall())
 	_parapet(root, "Rail_Esp_W", Vector3(-9.0, y, 116.0), Vector3(-9.0, y, 120.0), _m_wall())
 	_parapet(root, "Rail_Esp_E", Vector3(9.0, y, 116.0), Vector3(9.0, y, 120.0), _m_wall())
-	_parapet(root, "Rail_Esp_SW", Vector3(-9.0, y, 116.0), Vector3(-6.2, y, 116.0), _m_wall())
-	_parapet(root, "Rail_Esp_SE", Vector3(9.0, y, 116.0), Vector3(6.2, y, 116.0), _m_wall())
-	# Colossal statues on stepped plinths flanking the stair, facing the path.
-	for sx in [-1.0, 1.0]:
-		for z in [105.5, 112.5]:
-			var top: float = y0 + (z - 102.0) / 14.0 * (y - y0) + 2.0
-			_solid(root, "StatuePlinth", Vector3(sx * 8.6, top - 7.0, z), Vector3(3.2, 14.0, 3.2), _m_marble())
-			_sword_monument(g[0], Vector3(sx * 8.6, top, z), 90.0, 13.0)
 	for p in [Vector3(-7.8, y, 117.5), Vector3(7.8, y, 117.5)]:
 		_brazier(g, p)
 	# Colosseum approach (still MECHANISM section until the arena trigger): an armoured gatekeeper on the
@@ -1618,7 +1768,6 @@ func _build_stage_05_arena() -> Node3D:
 	var rg: Node3D = _roamer_group(root)
 	_add_roamer(rg, "shield", "EsplanadeGatekeeper", Vector3(0.0, y, 118.4), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	_add_roamer(rg, "skeleton", "EsplanadeSkeleton", Vector3(-5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
-	_add_roamer(rg, "phantom", "StairPhantom", Vector3(3.0, 8.3, 110.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 102))
 	# Grave Brute: slow ground-slam heavy guarding the east half of the esplanade.
 	_add_roamer(rg, "brute", "EsplanadeBrute", Vector3(5.5, y, 118.0), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
 	_add_roamer(rg, "hexcaster", "EsplanadeHexcaster", Vector3(-3.0, y, 117.4), EncounterDirector.Section.MECHANISM_CHAMBER, Vector3(0, y0, 104))
@@ -1759,7 +1908,7 @@ func _build_stage_05_arena() -> Node3D:
 	_style_gate(exit_gate)
 	root.add_child(exit_gate)
 	root.add_child(_make_section_trigger("Trigger_Stage05_Arena", Vector3(0.0, y + 1.25, c.z - 11.5), Vector3(6.0, 2.5, 1.5),
-		EncounterDirector.Section.EXECUTION_ARENA, Vector3(0.0, y, c.z - 11.5), "the_warden", 1, NodePath("../Gate04b_ArenaSouthSeal"), false))
+		EncounterDirector.Section.EXECUTION_ARENA, Vector3(0.0, y, c.z - 11.5 + JourneyLayout.OFF_S5), "the_warden", 1, NodePath("../Gate04b_ArenaSouthSeal"), false))
 
 	# --- Sunset Summit (run complete), Z c+32 .. c+48 ---
 	var sz0: float = c.z + 32.0
@@ -1771,7 +1920,7 @@ func _build_stage_05_arena() -> Node3D:
 	_parapet(root, "Rail_Summit_SW", Vector3(-9.0, y, sz0), Vector3(-3.2, y, sz0), _m_wall())
 	_parapet(root, "Rail_Summit_SE", Vector3(9.0, y, sz0), Vector3(3.2, y, sz0), _m_wall())
 	root.add_child(_make_section_trigger("Trigger_RunComplete", Vector3(0.0, y + 1.25, sz0 + 3.0), Vector3(4.0, 2.5, 1.5),
-		EncounterDirector.Section.COMPLETE, Vector3(0.0, y, sz0 + 3.0), "", 0, NodePath(), true))
+		EncounterDirector.Section.COMPLETE, Vector3(0.0, y, sz0 + 3.0 + JourneyLayout.OFF_S5), "", 0, NodePath(), true))
 	_mesh(g[0], "SummitObelisk", ProcMesh.column_mesh(0.7, 14.0, 16), _m_marble(), Transform3D(Basis.IDENTITY, Vector3(-6.0, y, sz1 - 3.0)))
 	_prop_collider(g[0], "SummitObeliskCollider", Vector3(-6.0, y + 7.0, sz1 - 3.0), _cyl_shape(0.95, 14.0))
 	_prop_collider(g[0], "SummitObeliskBase", Vector3(-6.0, y + 0.42, sz1 - 3.0), _box_shape(Vector3(1.86, 0.84, 1.86)))
@@ -1806,22 +1955,18 @@ func _build_world_scenery() -> void:
 	var rock_m: ShaderMaterial = _m_rock()
 	# Massifs beneath every walkable region (tops clamped just under the floors).
 	var massifs: Array = [
-		# [center_top, size, seed]
-		[Vector3(0, -0.6, -56), Vector3(17, 70, 15), 1],
-		[Vector3(-3.5, -0.6, -44), Vector3(9, 60, 15), 2],
-		[Vector3(-7, -0.6, -33), Vector3(13, 66, 11), 3],
-		[Vector3(-3.5, -0.6, -22), Vector3(9, 60, 15), 4],
+		# [center_top, size, seed] in WORLD coordinates (JourneyLayout). The bridges span open air between them;
+		# every bridge bastion stands on its own rock spur (_build_bastion).
+		[Vector3(0, -0.6, -136), Vector3(17, 70, 15), 1],
 		# Stage 01 is split around the stepping-stone gap (Z -0.5..2.5) so the chasm stays a real drop.
 		[Vector3(0, -0.6, -10.5), Vector3(26, 74, 16), 5],
 		[Vector3(0, -0.6, 5.6), Vector3(26, 74, 3.0), 13],
-		[Vector3(0, -0.6, 15), Vector3(16, 70, 16), 6],
-		[Vector3(0, 3.4, 35), Vector3(28, 80, 26), 14],
-		[Vector3(0, 3.4, 52), Vector3(24, 80, 18), 7],
-		[Vector3(0, 5.4, 61), Vector3(14, 70, 6), 8],
-		[Vector3(0, 5.4, 92), Vector3(22, 84, 26), 9],
-		[Vector3(0, 5.4, 112), Vector3(28, 84, 24), 10],
-		[Vector3(0, 9.4, 157), Vector3(76, 96, 70), 11],
-		[Vector3(0, 9.4, 194), Vector3(26, 90, 20), 12],
+		[Vector3(0, 3.4, 86), Vector3(70, 80, 66), 14],
+		[Vector3(0, 5.4, 165), Vector3(14, 70, 6), 8],
+		[Vector3(0, 5.4, 210), Vector3(42, 84, 42), 9],
+		[Vector3(0, 9.4, 278), Vector3(20, 84, 8), 10],
+		[Vector3(0, 9.4, 317), Vector3(76, 96, 70), 11],
+		[Vector3(0, 9.4, 354), Vector3(26, 90, 20), 12],
 	]
 	var mi_idx: int = 0
 	for mdef in massifs:
@@ -1843,7 +1988,7 @@ func _build_world_scenery() -> void:
 	var isle_mesh: ArrayMesh = ProcMesh.rock_mesh(Vector3(1, 1, 1), 555, 0.3, 8, 0.0)
 	for i in range(10):
 		var ang: float = TAU * float(i) / 10.0
-		var pos := Vector3(sin(ang) * rng.randf_range(45.0, 90.0), rng.randf_range(18.0, 55.0), 120.0 + cos(ang) * rng.randf_range(50.0, 95.0))
+		var pos := Vector3(sin(ang) * rng.randf_range(45.0, 90.0), rng.randf_range(18.0, 55.0), 120.0 + JourneyLayout.OFF_S5 + cos(ang) * rng.randf_range(50.0, 95.0))
 		var s: float = rng.randf_range(4.0, 9.0)
 		# Isle + its crystal crown share one bobbing pivot (they used to drift apart).
 		var pivot := Node3D.new()
@@ -1858,7 +2003,7 @@ func _build_world_scenery() -> void:
 		_anim_tweens.append(tw)
 
 	# One world kill plane catches every fall off the cliffs.
-	var kz := _make_pit_kill_zone("PitKillZone_World", Vector3(0.0, -25.0, 70.0), Vector3(700.0, 19.0, 700.0))
+	var kz := _make_pit_kill_zone("PitKillZone_World", Vector3(0.0, -25.0, 113.0), Vector3(700.0, 19.0, 700.0))
 	kz.kill_y_threshold = -6.0
 	_scenery.add_child(kz)
 
@@ -1882,25 +2027,27 @@ func _build_occluders() -> void:
 	var occ := Node3D.new()
 	occ.name = "Occluders"
 	add_child(occ)
-	# Gatehouse piers (facade x ±2.3..±11, z 4.5..7.5, y 0..15).
+	# Gatehouse piers (facade x +-2.3..+-11, z 4.5..7.5, y 0..15).
 	for sx in [-1.0, 1.0]:
 		_occluder(occ, "GatehousePier", Vector3(sx * 6.65, 7.3, 6.0), Vector3(8.3, 14.2, 2.6))
-	# Rampart curtain wall.
-	_occluder(occ, "CurtainWall", Vector3(3.6, Y_HALL + 3.0, 53.0), Vector3(1.0, 11.4, 12.4))
-	# Hall corner towers.
-	for cx in [-12.0, 12.0]:
-		for cz in [22.0, 46.0]:
+	# Hall corner towers (world, JourneyLayout.HALL_CENTER).
+	var hc: Vector3 = JourneyLayout.HALL_CENTER
+	var hh: float = JourneyLayout.HALL_HALF
+	for cx in [-(hh + 2.0), hh + 2.0]:
+		for cz in [hc.z - hh - 2.0, hc.z + hh + 2.0]:
 			_occluder(occ, "HallTower", Vector3(cx, Y_HALL + 6.0, cz), Vector3(3.6, 23.4, 3.6))
-	# Clock tower: four walls + upper block.
+	# Clock tower: four walls + upper block (world, JourneyLayout.CHAMBER_CENTER).
 	var ty: float = Y_GALLERY
-	_occluder(occ, "TowerWallW", Vector3(-6.75, ty + 9.0, 94.0), Vector3(1.2, 17.4, 13.0))
-	_occluder(occ, "TowerWallE", Vector3(6.75, ty + 9.0, 94.0), Vector3(1.2, 17.4, 13.0))
+	var cc: Vector3 = JourneyLayout.CHAMBER_CENTER
+	var ch: float = JourneyLayout.CHAMBER_HALF
+	_occluder(occ, "TowerWallW", Vector3(-ch - 0.75, ty + 12.0, cc.z), Vector3(1.2, 23.4, ch * 2.0 + 1.0))
+	_occluder(occ, "TowerWallE", Vector3(ch + 0.75, ty + 12.0, cc.z), Vector3(1.2, 23.4, ch * 2.0 + 1.0))
 	for sx in [-1.0, 1.0]:
-		_occluder(occ, "TowerWallS", Vector3(sx * 4.0, ty + 9.0, 87.4), Vector3(3.6, 17.4, 0.9))
-		_occluder(occ, "TowerWallN", Vector3(sx * 4.0, ty + 9.0, 100.6), Vector3(3.6, 17.4, 0.9))
-	_occluder(occ, "TowerUpper", Vector3(0, ty + 26.0, 94.0), Vector3(14.4, 13.4, 14.4))
+		_occluder(occ, "TowerWallS", Vector3(sx * (2.0 + (ch - 2.0) * 0.5), ty + 12.0, cc.z - ch - 0.6), Vector3(ch - 2.4, 23.4, 0.9))
+		_occluder(occ, "TowerWallN", Vector3(sx * (2.0 + (ch - 2.0) * 0.5), ty + 12.0, cc.z + ch + 0.6), Vector3(ch - 2.4, 23.4, 0.9))
+	_occluder(occ, "TowerUpper", Vector3(0, ty + 32.0, cc.z), Vector3(ch * 2.0 + 2.4, 13.4, ch * 2.0 + 2.4))
 	# Colosseum: portal-tower piers beside both tunnels, and the solid facade podium ring (as chords).
-	var c: Vector3 = ARENA_CENTER
+	var c: Vector3 = ARENA_CENTER + Vector3(0, 0, JourneyLayout.OFF_S5)
 	for dz in [-1.0, 1.0]:
 		for sx in [-1.0, 1.0]:
 			_occluder(occ, "PortalPier", c + Vector3(sx * 4.75, 12.5, dz * 22.4), Vector3(3.1, 24.6, 17.4))
@@ -1911,9 +2058,9 @@ func _build_occluders() -> void:
 		var dir := Vector3(sin(a), 0, cos(a))
 		var chord: float = 2.0 * 31.2 * sin(PI / 24.0) * 0.92
 		_occluder(occ, "FacadePodium", c + dir * 31.85 + Vector3(0, -6.0, 0), Vector3(chord, 19.0, 0.9), a)
-	# Rock massif cores (well inside the noisy hulls).
-	for mdef in [[Vector3(0, -12, -10.5), Vector3(16, 20, 10)], [Vector3(0, -8, 35), Vector3(18, 20, 16)], [Vector3(0, -6, 92), Vector3(14, 20, 16)],
-			[Vector3(0, -6, 112), Vector3(18, 20, 14)], [Vector3(0, -6, 157), Vector3(50, 24, 46)], [Vector3(0, -6, 194), Vector3(16, 20, 12)]]:
+	# Rock massif cores (well inside the noisy hulls), world coordinates.
+	for mdef in [[Vector3(0, -12, -10.5), Vector3(16, 20, 10)], [Vector3(0, -8, 86), Vector3(44, 20, 40)], [Vector3(0, -6, 210), Vector3(26, 20, 26)],
+			[Vector3(0, -6, 317), Vector3(50, 24, 46)], [Vector3(0, -6, 354), Vector3(16, 20, 12)]]:
 		_occluder(occ, "MassifCore", mdef[0], mdef[1])
 
 

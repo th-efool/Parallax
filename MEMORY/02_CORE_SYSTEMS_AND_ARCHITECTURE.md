@@ -195,3 +195,13 @@ All local persistence is managed by `scripts/core/leaderboard_store.gd` (`Leader
   - Whenever `rebind_action()` or `reset_keybindings_to_default()` runs, `LeaderboardStore` updates Godot's `InputMap` immediately, saves `user://settings.cfg`, and emits `controls_rebound(action_name, display_label, all_labels)`.
   - `HUDController` listens to `controls_rebound` and `settings_changed`, immediately updating `ShiftKeyLabel` (`[Q]` -> `[<new>]`), `AttackPrompt` (`<LMB> ATTACK | <RMB> HEAVY | <DODGE> DODGE`), `LandingPrompt` (`<F> LAND`), `InteractPrompt` (`<E>: <Verb>`), and `get_tutorial_prompt_text()`.
   - `InteractSwitch` listens to `controls_rebound` and formats its world prompt via `get_formatted_prompt_text()` (`<InteractKey>: Interact`), re-emitting `prompt_changed` immediately if the player is standing in the switch zone.
+
+### JourneyLayout (2026-11-18)
+`JourneyLayout` (`scripts/environment/journey_layout.gd`, static) owns the macro layout of The Ascent:
+- `ROUTES`: winding bridges in world coordinates;
+- stage offsets `OFF_S1_TERRACE` / `OFF_S3` / `OFF_S5`;
+- `HALL_CENTER` / `CHAMBER_CENTER`;
+- `to_world()`, `to_world_z()` and `story_z()` for story-coordinate code;
+- `guide_target()` for the objective arrow.
+
+Never hard-code world z thresholds; compare `story_z()` values instead.

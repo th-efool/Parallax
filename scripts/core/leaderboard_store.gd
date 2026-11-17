@@ -709,6 +709,7 @@ func get_default_save_data() -> Dictionary:
 		"encounter_no_hit_awarded": {},
 		"banked_event_ids": {},
 		"player_health": 100,
+		"layout_version": 1,   # JourneyLayout.VERSION of the save; files without the key are the old layout
 		"world_flags": {
 			"entry_switch_activated": false,
 			"hall_pillar_broken": false,
@@ -772,6 +773,7 @@ func capture_and_save_world_state(root_node: Node = null) -> Dictionary:
 
 	var snapshot: Dictionary = {
 		"has_active_run": true,
+		"layout_version": JourneyLayout.VERSION,
 	}
 
 	if ed != null:
@@ -847,6 +849,9 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 
 	var saved_sec: int = int(_save_data.get("checkpoint_section", _save_data.get("current_section", 0)))
 	var saved_pos: Vector3 = _save_data.get("checkpoint_position", Vector3(0.0, 0.0, -3.0))
+	# Saves written before the 2026-11-18 layout rework hold old (story) coordinates: carry them over.
+	if int(_save_data.get("layout_version", 1)) < JourneyLayout.VERSION:
+		saved_pos = JourneyLayout.to_world(saved_pos)
 	var saved_rot_y: float = float(_save_data.get("checkpoint_rotation_y", PI))
 	var saved_realm: int = int(_save_data.get("checkpoint_realm", 0))
 	var spawn_xform := Transform3D(Basis.IDENTITY.rotated(Vector3.UP, saved_rot_y), saved_pos)
@@ -921,8 +926,11 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 			if ed != null:
 				var comp_enc: Dictionary = ed.get("completed_encounters") as Dictionary
 				if bool(comp_enc.get("hall_of_echoes", false)):
-					for ename in ["SkeletonGuard_1", "SkeletonGuard_2", "PhantomTwin_1", "PhantomTwin_2"]:
-						var en: Node = level_root.get_node_or_null("Stage02_HallOfEchoes/Enemies/" + ename)
+					var hall_enemies: Array = []
+					var hall_group: Node = level_root.get_node_or_null("Stage02_HallOfEchoes/Enemies")
+					if hall_group != null:
+						hall_enemies = hall_group.get_children()
+					for en in hall_enemies:
 						if en != null:
 							en.set("is_dead", true)
 							if en.has_method("_refresh_active_state"):
