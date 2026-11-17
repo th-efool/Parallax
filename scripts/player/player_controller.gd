@@ -229,6 +229,8 @@ var _finisher_cooldown_end_ms: int = 0
 var _finisher_last_tick_ms: int = 0
 var _finisher_target: Node3D = null
 var _multi_tick: int = 0
+var _ally_ward_hp: int = 0
+var _ally_ward_until_ms: int = 0
 
 
 func _ready() -> void:
@@ -1093,6 +1095,13 @@ func apply_damage(amount: int, _source: Node = null) -> bool:
 		_on_hit_dodged(_source)
 		return false
 
+	# Squad ally ward (Ivo's Mirror Ward) soaks damage first.
+	if _ally_ward_hp > 0 and Time.get_ticks_msec() < _ally_ward_until_ms:
+		var soak: int = mini(_ally_ward_hp, amount)
+		_ally_ward_hp -= soak
+		amount -= soak
+		if amount <= 0:
+			return true
 	health = maxi(0, health - amount)
 	player_damaged.emit(amount)
 	health_changed.emit(health, max_health)
@@ -1109,6 +1118,16 @@ func apply_damage(amount: int, _source: Node = null) -> bool:
 	elif amount >= 20 and current_state != State.LANDING_PLUNGE:
 		_enter_stagger(_source, amount)
 	return true
+
+
+## Squad ally ward: absorbs up to `amount` damage for `duration` seconds.
+func add_ally_ward(amount: int, duration: float) -> void:
+	_ally_ward_hp = maxi(_ally_ward_hp, amount)
+	_ally_ward_until_ms = Time.get_ticks_msec() + int(duration * 1000.0)
+
+
+func get_ally_ward() -> int:
+	return _ally_ward_hp if Time.get_ticks_msec() < _ally_ward_until_ms else 0
 
 
 func _on_hit_dodged(_attacker: Node) -> void:

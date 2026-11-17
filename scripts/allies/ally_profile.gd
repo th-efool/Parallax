@@ -38,6 +38,8 @@ extends Resource
 @export_group("Abilities")
 ## Subset of: taunt, charge, bodyguard, kite, lure, nuke, mine, finisher, revive.
 @export var abilities: Array[String] = ["taunt", "charge", "bodyguard", "revive"]
+## Signature skills (`AllySkill` sub-resources): each ally's own kit, used autonomously and on command.
+@export var skills: Array = []
 @export var taunt_cooldown: float = 6.0
 @export var nuke_damage: int = 45
 @export var nuke_radius: float = 3.6
@@ -56,6 +58,31 @@ extends Resource
 
 func has_ability(a: String) -> bool:
 	return abilities.has(a)
+
+
+func get_skills() -> Array[AllySkill]:
+	var out: Array[AllySkill] = []
+	for s in skills:
+		if s is AllySkill:
+			out.append(s as AllySkill)
+	return out
+
+
+## Finds a skill by id, display name or alias (case-insensitive, substring for aliases).
+func find_skill(key: String) -> AllySkill:
+	var k: String = key.strip_edges().to_lower()
+	if k.is_empty():
+		return null
+	for s in get_skills():
+		if s.id == k or s.display_name.to_lower() == k:
+			return s
+	for s in get_skills():
+		if k.contains(s.display_name.to_lower()):
+			return s
+		for a in s.aliases:
+			if k.contains(String(a)):
+				return s
+	return null
 
 
 func line(event: String, fallback: String = "") -> String:

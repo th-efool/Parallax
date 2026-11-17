@@ -23,6 +23,8 @@ static var instance: AllySquadManager = null
 @export var max_allies: int = 6
 
 var allies: Array[SquadAlly] = []
+## Shared battlefield knowledge (enemy IDs, looks, weapons, positions) used by allies, parser and Director.
+var intel: WorldIntel = null
 var _combos: Dictionary = {}     # id -> combo record
 var _combo_seq: int = 0
 var _player: Node3D = null
@@ -43,6 +45,9 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
+	intel = WorldIntel.new()
+	intel.name = "WorldIntel"
+	add_child(intel)
 	if spawn_allies:
 		call_deferred("_spawn_squad")
 
@@ -210,17 +215,46 @@ func get_roster() -> Array:
 			"color": a.profile.color,
 			"queued": a.queue.size(),
 			"abilities": a.profile.abilities,
+			"skills": a.get_skill_states(),
+			"buffs": ("+DMG " if a._dmg_buff > 0.0 else "") + ("WALL " if a._dr > 0.0 else "") + ("WARD" if a._ward_hp > 0.0 else ""),
 		})
 	return out
 
 
-## Plain-text roster for LLM system prompts (refreshed automatically on death / revive).
+## Plain-text roster for LLM system prompts (refreshed automatically on death / revive): role, look,
+## HP, current order, where they stand relative to the player, and every signature skill with its cooldown.
 func get_roster_text() -> String:
 	var lines: PackedStringArray = []
 	for a in allies:
-		var st: String = "DOWN (needs revive)" if a.is_downed else "%d%% HP, %s" % [int(a.get_health_ratio() * 100.0), a.get_state_text()]
-		lines.append("- %s (%s; abilities: %s): %s" % [a.get_display_name(), a.get_role(), ", ".join(a.profile.abilities), st])
+		var st: String = "DOWN (needs revive)" if a.is_downed else "%d%% HP, doing: %s" % [int(a.get_health_ratio() * 100.0), a.get_state_text()]
+		var where: String = ""
+		if _player != null:
+			var rel: Vector3 = a.global_position - _player.global_position
+			where = ", %.0fm from you" % rel.length()
+		var sk: PackedStringArray = []
+		for s in a.profile.get_skills():
+			var rem: float = a.skill_remaining(s)
+			sk.append("%s [%s]%s" % [s.id, "ready" if rem <= 0.0 else "%ds" % int(ceil(rem)), "" if rem > 0.0 else ""])
+		lines.append("- %s (%s%s): %s. Skills: %s. Base abilities: %s." % [a.get_display_name(), a.get_role(), where, st, ", ".join(sk), ", ".join(a.profile.abilities)])
 	return "\n".join(lines)
+
+
+## Skill catalogue for prompts: one line per skill with what it does.
+func get_skills_text() -> String:
+	var lines: PackedStringArray = []
+	for a in allies:
+		for s in a.profile.get_skills():
+			lines.append("- %s.%s \"%s\" (%s target, %ds cd): %s" % [a.get_display_name(), s.id, s.display_name, s.target_kind, int(s.cooldown), s.description])
+	return "\n".join(lines)
+
+
+## Vocabulary the offline parser needs from live data (skills and their aliases per ally).
+func get_parser_context() -> Dictionary:
+	var sk: Array = []
+	for a in allies:
+		for s in a.profile.get_skills():
+			sk.append({"ally": a.get_display_name(), "id": s.id, "name": s.display_name, "aliases": s.aliases})
+	return {"skills": sk}
 
 
 func get_combat_summary() -> String:
@@ -286,6 +320,9 @@ func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 			if et != null and is_instance_valid(et) and not et.is_dead and et.is_active:
 				return et
 		sel = "nearest"
+	# Shared knowledge base: IDs ("E3"), types, looks, colours, weapons, sides, "near Sera", "hitting Ivo"...
+	if intel != null:
+		return intel.resolve(sel)
 	var cands: Array[EnemyAI] = _active_enemies_near(near, 25.0)
 	if cands.is_empty():
 		return null
@@ -412,6 +449,10 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 			return "orders cancelled"
 		"split":
 			return _split_squad(addressed, source)
+		"strategy":
+			return execute_strategy(String(c.get("strategy", c.get("text", ""))), String(c.get("target", "")), addressed if _explicit_allies(c) else get_living(), source)
+		"skill":
+			return _issue_skill(c, source)
 	# Role-based substitution: an addressed ally who is DOWN hands the order to a stand-in.
 	if verb != "revive" and verb != "massacre" and verb != "ceasefire":
 		var named_explicitly: bool = (c.get("allies", []) is Array) and not (c.get("allies", []) as Array).is_empty() and not ((c.get("allies", []) as Array).has("all"))
@@ -449,6 +490,204 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 	_log(source, ", ".join(_names(addressed)), desc, "; ".join(outcomes))
 	_roster_dirty = true
 	return "; ".join(outcomes)
+
+
+func _explicit_allies(c: Dictionary) -> bool:
+	var a: Variant = c.get("allies", [])
+	return a is Array and not (a as Array).is_empty() and not (a as Array).has("all")
+
+
+## Skill order: the named ally uses it, else whoever owns a skill matching the name.
+func _issue_skill(c: Dictionary, source: String) -> String:
+	var key: String = String(c.get("skill", c.get("text", "")))
+	var who: SquadAlly = null
+	if _explicit_allies(c):
+		for n in (c.get("allies", []) as Array):
+			var a: SquadAlly = find_ally(String(n))
+			if a != null and a.profile.find_skill(key) != null:
+				who = a
+				break
+	if who == null:
+		for a in get_living():
+			if a.profile.find_skill(key) != null:
+				who = a
+				break
+	if who == null:
+		var l: SquadAlly = _leader()
+		if l != null:
+			l.say("None of us knows '%s'." % key, "refuse", 1)
+		_log(source, "squad", "skill " + key, "unknown")
+		return "unknown skill"
+	if who.is_downed:
+		_log(source, who.get_display_name(), "skill " + key, "dropped: ally down")
+		return "ally down"
+	var s: AllySkill = who.profile.find_skill(key)
+	var cmd := SquadCommand.make("skill", {"skill": s.id, "target": String(c.get("target", ""))}, source)
+	# Skills are instant: they cut in and the interrupted order resumes right after (never queue behind it).
+	var res: String = "assigned"
+	if who.current != null and not who.current.done and who.current.verb != "skill":
+		who.enqueue(who.current, true)
+		res = "cut in (resumes %s)" % who.current.verb
+	who.assign(cmd)
+	_log(source, who.get_display_name(), "skill " + s.display_name, res)
+	_roster_dirty = true
+	return "%s: %s (%s)" % [who.get_display_name(), s.display_name, res]
+
+
+## Expands a strategy (SquadStrategies.LIST) onto the living squad. Works for any ally count.
+func execute_strategy(id: String, target_sel: String, list: Array[SquadAlly], source: String = "chat") -> String:
+	var strat: Dictionary = SquadStrategies.get_by_id(id)
+	if strat.is_empty():
+		strat = SquadStrategies.match_text(id)
+	if strat.is_empty():
+		var l0: SquadAlly = _leader()
+		if l0 != null:
+			l0.say("Don't know that plan.", "refuse", 1)
+		return "unknown strategy '%s'" % id
+	var living: Array[SquadAlly] = []
+	for a in list:
+		if not a.is_downed:
+			living.append(a)
+	if living.is_empty():
+		return "no allies standing"
+	var near: Vector3 = _player.global_position if _player != null else Vector3.ZERO
+	var primary: EnemyAI = resolve_enemy(target_sel if not target_sel.is_empty() else "nearest", near)
+	var primary_id: String = intel.id_of(primary) if primary != null and intel != null else "nearest"
+	var by_dist: Array[EnemyAI] = []
+	var by_hp: Array[EnemyAI] = []
+	if intel != null:
+		for en in intel.get_entries():
+			by_dist.append(en["node"] as EnemyAI)
+		by_hp = by_dist.duplicate()
+		by_hp.sort_custom(func(x: EnemyAI, y: EnemyAI) -> bool: return float(x.health) / float(maxi(1, x.max_health)) < float(y.health) / float(maxi(1, y.max_health)))
+	var vanguard: SquadAlly = null
+	for a in living:
+		if a.get_role() == "vanguard":
+			vanguard = a
+			break
+	if vanguard == null:
+		vanguard = living[0]
+	var weakest: String = _weakest_friend_name()
+	var roles: Dictionary = strat["roles"]
+	var parts: PackedStringArray = []
+	var slot_i: int = 0
+	var n_slot: int = 0
+	for a0 in living:
+		for st0 in (roles.get(a0.get_role(), roles.get("any", [])) as Array):
+			if str((st0 as Dictionary).get("args", {})).contains("$slot_angle"):
+				n_slot += 1
+				break
+	for i in range(living.size()):
+		var a: SquadAlly = living[i]
+		var steps: Array = (roles.get(a.get_role(), roles.get("any", [])) as Array)
+		if steps.is_empty():
+			continue
+		a.clear_queue()
+		if a.current != null and a.current.priority < SquadCommand.Priority.PANIC:
+			a.finish_current("new strategy")
+			a.clear_queue()
+		var first: bool = true
+		for st in steps:
+			var args: Dictionary = ((st as Dictionary).get("args", {}) as Dictionary).duplicate(true)
+			for k in args.keys():
+				var v: Variant = args[k]
+				if not (v is String):
+					continue
+				var sv: String = String(v)
+				match sv:
+					"$target":
+						args[k] = primary_id
+					"$distinct":
+						args[k] = intel.id_of(by_dist[i % by_dist.size()]) if not by_dist.is_empty() else "nearest"
+					"$weakest_distinct":
+						args[k] = intel.id_of(by_hp[i % by_hp.size()]) if not by_hp.is_empty() else "weakest"
+					"$weakest_friend":
+						args[k] = weakest
+					"$slot_angle":
+						# Angle 0 = the player's side of the target. Pincer alternates flanks; surround spreads evenly.
+						if String(strat["id"]) == "pincer":
+							args[k] = 100.0 if slot_i % 2 == 0 else -100.0
+						else:
+							args[k] = 360.0 * float(slot_i) / float(maxi(1, n_slot)) + 180.0 / float(maxi(1, n_slot))
+					"$line_spot":
+						args[k] = _line_spot(i, living.size())
+					"$behind_spot":
+						args[k] = vanguard.global_position - (vanguard.get_facing_direction()) * 1.8 + Vector3(-vanguard.get_facing_direction().z, 0, vanguard.get_facing_direction().x) * (float(i % 2) * 2.0 - 1.0) * 1.2
+					"$player_spot":
+						args[k] = near
+					_:
+						if sv.contains("$vanguard"):
+							args[k] = sv.replace("$vanguard", vanguard.get_display_name())
+			if args.has("angle"):
+				slot_i += 1
+			var cmd := SquadCommand.make(String((st as Dictionary)["verb"]), args, source)
+			if first:
+				a.assign(cmd)
+				first = false
+			else:
+				a.enqueue(cmd)
+		parts.append("%s: %s" % [a.get_display_name(), a.current.describe() if a.current != null else "-"])
+	var lead: SquadAlly = vanguard if not vanguard.is_downed else living[0]
+	lead.say("%s! %s" % [strat["name"], _strategy_callout(strat, living)], "strategy", 2)
+	var txt: String = "%s on %s — %s" % [strat["name"], primary_id, "; ".join(parts)]
+	_log(source, "squad", "strategy " + String(strat["name"]), txt)
+	combo_progress.emit("strategy", txt)
+	active_strategy = String(strat["name"])
+	_roster_dirty = true
+	return txt
+
+
+var active_strategy: String = ""
+
+
+func _strategy_callout(strat: Dictionary, living: Array[SquadAlly]) -> String:
+	var bits: PackedStringArray = []
+	for a in living:
+		if a.current != null:
+			bits.append("%s %s" % [a.get_display_name(), a.current.describe().get_slice(" E", 0)])
+	return ", ".join(bits.slice(0, 3)) + "."
+
+
+func _weakest_friend_name() -> String:
+	var best: String = "player"
+	var br: float = 2.0
+	if _player is PlayerController:
+		var p: PlayerController = _player as PlayerController
+		br = float(p.health) / float(maxi(1, p.max_health))
+	for a in get_living():
+		if a.get_health_ratio() < br:
+			br = a.get_health_ratio()
+			best = a.get_display_name()
+	return best
+
+
+func _line_spot(i: int, n: int) -> Vector3:
+	if _player == null:
+		return Vector3.ZERO
+	var c: Vector3 = Vector3.INF
+	if intel != null and not intel.get_entries().is_empty():
+		c = Vector3.ZERO
+		var k: int = 0
+		for en in intel.get_entries():
+			if k >= 5:
+				break
+			c += (en["node"] as Node3D).global_position
+			k += 1
+		c /= float(k)
+	var f: Vector3 = (c - _player.global_position) if c != Vector3.INF else (_player.call("get_facing_direction") as Vector3)
+	f.y = 0.0
+	f = f.normalized() if f.length_squared() > 0.01 else Vector3.FORWARD
+	var r := Vector3(-f.z, 0.0, f.x)
+	return _player.global_position + f * 3.0 + r * (float(i) - float(n - 1) * 0.5) * 2.2
+
+
+## Ambush trigger: every ally lying in wait springs on the same enemy at once.
+func spring_ambush(trigger: EnemyAI) -> void:
+	for a in get_living():
+		if a.current != null and a.current.verb == "ambush" and not bool(a.current.data.get("sprung", false)):
+			a.current.data["sprung"] = true
+			a.current.data["enemy"] = trigger
+	_log("event", "squad", "ambush sprung", intel.id_of(trigger) if intel != null else "")
 
 
 ## Split the squad across the player's left / centre / right (works for any ally count).

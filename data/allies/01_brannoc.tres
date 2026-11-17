@@ -1,6 +1,58 @@
-[gd_resource type="Resource" script_class="AllyProfile" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="AllyProfile" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/allies/ally_profile.gd" id="1_prof"]
+[ext_resource type="Script" path="res://scripts/allies/ally_skill.gd" id="2_skill"]
+
+[sub_resource type="Resource" id="skill_war_cry"]
+script = ExtResource("2_skill")
+id = "war_cry"
+display_name = "War Cry"
+description = "Roars to pull every enemy within 7 m onto himself (3 s taunt lock) and fires up nearby allies: +25% damage for 6 s."
+aliases = Array[String](["war cry", "battle cry", "roar", "shout"])
+effect = "war_cry"
+target_kind = "area"
+cooldown = 14
+cast_range = 0
+radius = 7
+power = 0.25
+duration = 6
+auto_use = "swarmed"
+voice_line = "Come and face me, all of you!"
+color = Color(1, 0.6, 0.25, 1)
+
+[sub_resource type="Resource" id="skill_shield_wall"]
+script = ExtResource("2_skill")
+id = "shield_wall"
+display_name = "Shield Wall"
+description = "Plants his shield for 6 s: he takes 70% less damage, allies within 4.5 m take 50% less, and he taunts the 3 nearest enemies."
+aliases = Array[String](["shield wall", "shields up", "brace", "hold the wall"])
+effect = "shield_wall"
+target_kind = "self"
+cooldown = 18
+cast_range = 0
+radius = 4.5
+power = 0.5
+duration = 6
+auto_use = "protect"
+voice_line = "Behind me! Shield wall!"
+color = Color(1, 0.85, 0.4, 1)
+
+[sub_resource type="Resource" id="skill_ground_breaker"]
+script = ExtResource("2_skill")
+id = "ground_breaker"
+display_name = "Ground Breaker"
+description = "Slams the ground: 18 damage and a 1.6 s knock-down (STUNNED) to every enemy within 3.2 m."
+aliases = Array[String](["ground breaker", "stomp", "quake", "earthshaker", "ground slam"])
+effect = "ground_breaker"
+target_kind = "area"
+cooldown = 12
+cast_range = 0
+radius = 3.2
+power = 18
+duration = 1.6
+auto_use = "cluster"
+voice_line = "Down you go!"
+color = Color(0.9, 0.7, 0.4, 1)
 
 [resource]
 script = ExtResource("1_prof")
@@ -23,6 +75,7 @@ attack_cooldown = 1.1
 retreat_threshold = 0.25
 regen_per_sec = 4.0
 abilities = Array[String](["taunt", "charge", "bodyguard", "revive"])
+skills = [SubResource("skill_war_cry"), SubResource("skill_shield_wall"), SubResource("skill_ground_breaker")]
 taunt_cooldown = 5.0
 nuke_damage = 25
 nuke_radius = 2.6

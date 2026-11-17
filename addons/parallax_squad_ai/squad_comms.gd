@@ -18,14 +18,16 @@ signal text_response(ally_name: String, text: String)
 signal roster_prompt_updated(roster_text: String)
 
 const ParserScript := preload("res://scripts/allies/squad_command_parser.gd")
-const HISTORY_MAX: int = 18
+const HISTORY_MAX: int = 24
 
 var client: OpenAIClient = null
 var mic: SquadMicCapture = null
 var tts: SquadTTSPlayer = null
 var mic_state: String = "idle"
 
-var _histories: Dictionary = {}     # ally name -> Array of messages
+var _histories: Dictionary = {}     # ally name -> Array of memory lines (what they said / were told)
+var _director_history: Array = []  # one shared Director conversation (user / assistant / tool messages)
+var _recent_events: Array = []     # rolling squad event log injected as RECENT EVENTS
 var _pending: Dictionary = {}       # request id -> {ally, user_text, via, spoken_upto, text}
 var _stt_req: int = -1
 var _manager: AllySquadManager = null
@@ -98,7 +100,7 @@ func submit_utterance(text: String, via: String = "chat") -> void:
 
 
 func _offline(t: String, via: String) -> void:
-	var cmds: Array = ParserScript.parse(t, _manager.get_ally_names())
+	var cmds: Array = ParserScript.parse(t, _manager.get_ally_names(), _manager.get_parser_context())
 	var results: Array[String] = _manager.issue_commands(cmds, via)
 	for i in range(cmds.size()):
 		var cd: Dictionary = cmds[i]
@@ -164,57 +166,103 @@ func _on_transcribed(id: int, text: String) -> void:
 
 # ------------------------------------------------------------------ LLM path
 
-const TOOLS: Array = [
-	{"type": "function", "function": {
-		"name": "command_allies",
-		"description": "Give an order to one or more squad allies. Call once per distinct order; call several in parallel for multi-part orders.",
-		"parameters": {"type": "object", "properties": {
-			"allies": {"type": "array", "items": {"type": "string"}, "description": "Ally names from the roster, or [\"all\"]."},
-			"action": {"type": "string", "enum": ["follow", "hold", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "jump", "dance", "emote", "status", "stop", "auto_engage_on", "auto_engage_off"]},
-			"target": {"type": "string", "description": "Enemy selector (nearest, strongest, weakest, brute, caster, stalker, phantom, shield, skeleton, warden, or 'ally:<Name>' = that ally's target). For bodyguard: an ally name, 'player' or 'objective'. For revive: an ally name. For interact: 'chest' or blank. take_aggro pulls everything off the player; peel pulls one enemy off the player; split spreads the squad left/right/center."},
-			"count": {"type": "integer", "description": "Repetitions for jump (1-12)."},
-			"emote": {"type": "string", "enum": ["wave", "cheer", "sit", "bow", "salute", "spin", "flex"]}
-		}, "required": ["allies", "action"]}}},
-	{"type": "function", "function": {
-		"name": "start_combo",
-		"description": "Two-ally handshake combo. kite_nuke: skirmisher kites enemies into a cluster then artillery nukes them. charge_finish: vanguard charges and knocks down, skirmisher finishes. lure_detonate: artillery plants a mirror sigil, skirmisher lures enemies onto it, then it detonates. The game substitutes downed allies automatically.",
-		"parameters": {"type": "object", "properties": {
-			"combo": {"type": "string", "enum": ["kite_nuke", "charge_finish", "lure_detonate"]},
-			"target": {"type": "string"},
-			"allies": {"type": "array", "items": {"type": "string"}, "description": "Optional preferred participants."}
-		}, "required": ["combo"]}}},
-	{"type": "function", "function": {
-		"name": "panic_order",
-		"description": "Overrides everything. massacre: all-out attack, no retreat. ceasefire: stop attacking and regroup. scatter: spread away from danger.",
-		"parameters": {"type": "object", "properties": {
-			"order": {"type": "string", "enum": ["massacre", "ceasefire", "scatter"]},
-			"allies": {"type": "array", "items": {"type": "string"}}
-		}, "required": ["order"]}}},
-]
+## The LLM acts as ONE Squad Director: it reads every natural-language message (any phrasing, slang, typos,
+## no trigger words), sees the live roster + skills, the strategy library and the battlefield table (enemy IDs
+## with looks / colours / weapons / positions from WorldIntel), then issues tool calls and has allies answer
+## in character through `say`. Allies themselves query WorldIntel to act on the IDs.
+static func tools() -> Array:
+	return [
+		{"type": "function", "function": {
+			"name": "command_allies",
+			"description": "Give an order to one or more allies. Call once per distinct order; several calls in parallel for multi-part orders.",
+			"parameters": {"type": "object", "properties": {
+				"allies": {"type": "array", "items": {"type": "string"}, "description": "Ally names from the roster, or [\"all\"]."},
+				"action": {"type": "string", "enum": ["follow", "hold", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "overwatch", "jump", "dance", "emote", "status", "stop", "auto_engage_on", "auto_engage_off"]},
+				"target": {"type": "string", "description": "Enemy: an ID from BATTLEFIELD (e.g. \"E3\") — always prefer IDs; or nearest/strongest/weakest; or 'ally:<Name>' = whatever that ally is fighting. bodyguard: an ally name, 'player' or 'objective'. revive: an ally name. interact: 'chest' or blank."},
+				"count": {"type": "integer", "description": "Repetitions for jump (1-12)."},
+				"emote": {"type": "string", "enum": ["wave", "cheer", "sit", "bow", "salute", "spin", "flex"]}
+			}, "required": ["allies", "action"]}}},
+		{"type": "function", "function": {
+			"name": "use_skill",
+			"description": "Make an ally use one of THEIR OWN signature skills (see SKILLS). Enemy-target skills take an enemy ID; heals/wards take an ally name or 'player'.",
+			"parameters": {"type": "object", "properties": {
+				"ally": {"type": "string"},
+				"skill": {"type": "string", "description": "Skill id from SKILLS, e.g. war_cry, shadowstep, mending_light."},
+				"target": {"type": "string"}
+			}, "required": ["ally", "skill"]}}},
+		{"type": "function", "function": {
+			"name": "execute_strategy",
+			"description": "Run a squad strategy from STRATEGIES. The game assigns every living ally a part by role.",
+			"parameters": {"type": "object", "properties": {
+				"strategy": {"type": "string", "enum": SquadStrategies.ids()},
+				"target": {"type": "string", "description": "Primary enemy ID (optional)."},
+				"allies": {"type": "array", "items": {"type": "string"}, "description": "Optional subset of allies."}
+			}, "required": ["strategy"]}}},
+		{"type": "function", "function": {
+			"name": "start_combo",
+			"description": "Two-ally handshake combo. kite_nuke: skirmisher kites into a cluster, artillery nukes. charge_finish: vanguard charges + knocks down, skirmisher finishes. lure_detonate: artillery plants a sigil, skirmisher lures enemies onto it, it detonates.",
+			"parameters": {"type": "object", "properties": {
+				"combo": {"type": "string", "enum": ["kite_nuke", "charge_finish", "lure_detonate"]},
+				"target": {"type": "string"},
+				"allies": {"type": "array", "items": {"type": "string"}}
+			}, "required": ["combo"]}}},
+		{"type": "function", "function": {
+			"name": "panic_order",
+			"description": "Overrides everything. massacre: all-out attack, no retreat. ceasefire: stop attacking and regroup. scatter: spread away from danger.",
+			"parameters": {"type": "object", "properties": {
+				"order": {"type": "string", "enum": ["massacre", "ceasefire", "scatter"]},
+				"allies": {"type": "array", "items": {"type": "string"}}
+			}, "required": ["order"]}}},
+		{"type": "function", "function": {
+			"name": "say",
+			"description": "An ally speaks out loud, in character (one short line, max ~20 words). Use it for every reply; usually only the ally/allies addressed or acting speak (max 2 per turn).",
+			"parameters": {"type": "object", "properties": {
+				"ally": {"type": "string"},
+				"text": {"type": "string"}
+			}, "required": ["ally", "text"]}}},
+	]
 
 
-func build_system_prompt(ally: SquadAlly) -> String:
-	var p: AllyProfile = ally.profile
+func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var roster: String = _manager.get_roster_text() if _manager != null else ""
-	var situ: String = _manager.get_combat_summary() if _manager != null else ""
-	return ("You are %s, the %s of the player's squad of mirror-bound 'Echoes' in PARALLAX, a dark-fantasy mirror-realm arena combat game. Personality: %s\n" % [p.ally_name, p.role, p.personality]) \
-		+ "The player is the condemned champion you fight beside. Reply IN CHARACTER as %s in one or two short spoken sentences (max 25 words): it is voiced aloud, so no lists, emojis or stage directions.\n" % p.ally_name \
-		+ "When the player gives an order, ALWAYS call the matching tool(s) in this same response (several in parallel if needed; you may order any squad member, not just yourself) AND say a short in-character acknowledgement. Pick allies by role: vanguard = bodyguard/charge/taunt, skirmisher = kite/lure/finish, artillery = nuke/sigil mines.\n" \
-		+ "massacre, ceasefire and scatter are panic orders that override everything. Silly orders (jumping, dancing, emotes) are fine: use the tools. If something is impossible (an ally is DOWN), say so and suggest a revive. Never invent allies, enemies or abilities that are not listed.\n" \
-		+ "LIVE SQUAD ROSTER:\n%s\nSITUATION: %s" % [roster, situ]
+	var skills: String = _manager.get_skills_text() if _manager != null else ""
+	var field: String = _manager.intel.describe_text() if _manager != null and _manager.intel != null else "unknown"
+	var personas: PackedStringArray = []
+	if _manager != null:
+		for a in _manager.allies:
+			personas.append("- %s (%s): %s Speaks: %s" % [a.get_display_name(), a.get_role(), a.profile.personality, a.profile.tts_instructions])
+	var player_s: String = ""
+	var p: PlayerController = get_tree().get_first_node_in_group("player") as PlayerController
+	if p != null:
+		player_s = "Player HP %d/%d%s." % [p.health, p.max_health, (", Mirror Ward %d" % p.get_ally_ward()) if p.get_ally_ward() > 0 else ""]
+		if RealmManager.instance != null:
+			player_s += " Realm: %s." % ("MERGED" if RealmManager.instance.is_merged else ("MIRROR" if RealmManager.instance.current_realm == RealmManager.Realm.MIRROR else "REALITY"))
+	var memory: PackedStringArray = []
+	for line in _recent_events.slice(maxi(0, _recent_events.size() - 8)):
+		memory.append("- " + String(line))
+	var focus: String = ("The player is mainly talking to %s.\n" % focus_ally.get_display_name()) if focus_ally != null else ""
+	return "You are the SQUAD DIRECTOR of PARALLAX, a dark-fantasy mirror-realm arena game. You command the player's squad of mirror-bound 'Echoes' and voice them.\n" \
+		+ "The player talks to you in completely natural language — any phrasing, slang, typos, half-sentences, voice transcripts. Work out what they mean; never require keywords. Ambiguous orders: choose the most sensible tactical reading.\n" \
+		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies.\n" \
+		+ focus \
+		+ "PERSONALITIES (flavour only):\n%s\n" % "\n".join(personas) \
+		+ "ROSTER (live):\n%s\n" % roster \
+		+ "SKILLS:\n%s\n" % skills \
+		+ "STRATEGIES:\n%s\n" % SquadStrategies.describe_all() \
+		+ "BATTLEFIELD (live, nearest first; bearing is relative to the player's facing):\n%s\n" % field \
+		+ "PLAYER: %s\n" % player_s \
+		+ "RECENT EVENTS:\n%s" % ("\n".join(memory) if not memory.is_empty() else "- none")
 
 
 func _ask_llm(text: String, via: String) -> void:
-	var ally: SquadAlly = _pick_addressee(text)
-	if ally == null:
-		_offline(text, via)
-		return
-	var hist: Array = _histories.get(ally.get_display_name(), []) as Array
-	var msgs: Array = [{"role": "system", "content": build_system_prompt(ally)}]
-	msgs.append_array(hist)
+	var focus: SquadAlly = _pick_addressee(text)
+	if _manager.intel != null:
+		_manager.intel.refresh()
+	var msgs: Array = [{"role": "system", "content": build_system_prompt(focus)}]
+	msgs.append_array(_director_history)
 	msgs.append({"role": "user", "content": text})
-	var id: int = client.chat_stream(msgs, TOOLS)
-	_pending[id] = {"ally": ally, "user_text": text, "via": via, "spoken_upto": 0, "text": ""}
+	var id: int = client.chat_stream(msgs, tools(), 0.7)
+	_pending[id] = {"ally": focus, "user_text": text, "via": via, "spoken_upto": 0, "text": ""}
 
 
 func _pick_addressee(text: String) -> SquadAlly:
@@ -238,20 +286,9 @@ func _on_text_delta(id: int, delta: String) -> void:
 	var rec: Dictionary = _pending[id]
 	rec["text"] = String(rec["text"]) + delta
 	var ally: SquadAlly = rec["ally"] as SquadAlly
-	if not is_instance_valid(ally):
+	if ally == null or not is_instance_valid(ally):
 		return
 	subtitle.emit(ally.get_display_name(), String(rec["text"]), ally.profile.color, false)
-	# Sentence-chunked TTS: voice each finished sentence while the rest is still streaming.
-	var full: String = String(rec["text"])
-	var upto: int = int(rec["spoken_upto"])
-	var cut: int = -1
-	for i in range(upto, full.length() - 1):
-		var ch: String = full[i]
-		if (ch == "." or ch == "!" or ch == "?") and full[i + 1] == " ":
-			cut = i + 1
-	if cut > upto:
-		_voice(ally, full.substr(upto, cut - upto).strip_edges(), 1)
-		rec["spoken_upto"] = cut
 
 
 func _on_chat_completed(id: int, text: String, calls: Array) -> void:
@@ -259,21 +296,65 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 		return
 	var rec: Dictionary = _pending[id]
 	_pending.erase(id)
-	var ally: SquadAlly = rec["ally"] as SquadAlly
-	if not is_instance_valid(ally) or _manager == null:
+	if _manager == null:
 		return
-	var results: Array[String] = []
+	var focus: SquadAlly = rec["ally"] as SquadAlly
 	var tool_msgs: Array = []
+	var spoke: int = 0
+	var acted: Array[SquadAlly] = []
+	# Allies given a direct order this turn are excluded from any squad-wide strategy in the same turn.
+	var directly_ordered: Array[String] = []
+	for c0 in calls:
+		var cd0: Dictionary = c0 as Dictionary
+		var a0: Dictionary = cd0.get("args", {}) as Dictionary
+		match String(cd0.get("name", "")):
+			"command_allies", "start_combo":
+				for n0 in (a0.get("allies", []) as Array if a0.get("allies", []) is Array else []):
+					if String(n0).to_lower() != "all":
+						directly_ordered.append(String(n0).to_lower())
+			"use_skill":
+				pass  # skills cut in and resume, they never conflict
 	for c in calls:
 		var cd: Dictionary = c as Dictionary
-		var cmd: Dictionary = tool_to_command(String(cd.get("name", "")), cd.get("args", {}) as Dictionary)
-		var res: String = _manager.issue(cmd, String(rec["via"]) + "+llm") if not cmd.is_empty() else "invalid tool call"
-		results.append(res)
-		tool_called.emit(ally.get_display_name(), String(cd.get("name", "")), cd.get("args", {}) as Dictionary, res)
+		var tname: String = String(cd.get("name", ""))
+		var args: Dictionary = cd.get("args", {}) as Dictionary
+		if tname == "execute_strategy" and not directly_ordered.is_empty():
+			var given: Array = args.get("allies", []) as Array if args.get("allies", []) is Array else []
+			if given.is_empty() or given.has("all"):
+				var rest: Array = []
+				for a1 in _manager.get_living():
+					if not directly_ordered.has(a1.get_display_name().to_lower()):
+						rest.append(a1.get_display_name())
+				args = args.duplicate()
+				args["allies"] = rest
+		var res: String = ""
+		if tname == "say":
+			var who: SquadAlly = _manager.find_ally(String(args.get("ally", "")))
+			if who == null:
+				who = focus if focus != null else _manager._leader()
+			var line: String = String(args.get("text", "")).strip_edges()
+			if who != null and not line.is_empty():
+				if who.is_downed:
+					line = "(weakly) " + line
+				subtitle.emit(who.get_display_name(), line, who.profile.color, true)
+				_voice(who, line, 1)
+				_remember(who.get_display_name(), "said: " + line)
+				spoke += 1
+				res = "spoken"
+			else:
+				res = "no such ally"
+		else:
+			var cmd: Dictionary = tool_to_command(tname, args)
+			res = _manager.issue(cmd, String(rec["via"]) + "+llm") if not cmd.is_empty() else "invalid tool call"
+			_remember("squad", "%s %s -> %s" % [tname, JSON.stringify(args), res.left(80)])
+			for n in (cmd.get("allies", []) as Array):
+				var a2: SquadAlly = _manager.find_ally(String(n))
+				if a2 != null and not acted.has(a2):
+					acted.append(a2)
+		tool_called.emit(String(args.get("ally", focus.get_display_name() if focus != null else "squad")), tname, args, res)
 		tool_msgs.append({"role": "tool", "tool_call_id": String(cd.get("id", "")), "content": res})
-	# Remember the exchange in this ally's own history.
-	var hist: Array = _histories.get(ally.get_display_name(), []) as Array
-	hist.append({"role": "user", "content": String(rec["user_text"])})
+	# Shared Director history (one conversation; per-ally memory lives in _histories / RECENT EVENTS).
+	_director_history.append({"role": "user", "content": String(rec["user_text"])})
 	var assistant: Dictionary = {"role": "assistant", "content": text if not text.is_empty() else null}
 	if not calls.is_empty():
 		var tc: Array = []
@@ -284,26 +365,34 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 				tce["extra_content"] = cd2["extra_content"]
 			tc.append(tce)
 		assistant["tool_calls"] = tc
-	hist.append(assistant)
-	hist.append_array(tool_msgs)
-	while hist.size() > HISTORY_MAX:
-		hist.pop_front()
-	# Never leave a dangling tool message at the head of the history.
-	while not hist.is_empty() and String((hist[0] as Dictionary).get("role", "")) != "user":
-		hist.pop_front()
-	_histories[ally.get_display_name()] = hist
+	_director_history.append(assistant)
+	_director_history.append_array(tool_msgs)
+	while _director_history.size() > HISTORY_MAX:
+		_director_history.pop_front()
+	while not _director_history.is_empty() and String((_director_history[0] as Dictionary).get("role", "")) != "user":
+		_director_history.pop_front()
+	# Plain text instead of `say`: voice it as the addressed ally. Nothing at all: a canned acknowledgement.
+	var speaker: SquadAlly = focus if focus != null else (acted[0] if not acted.is_empty() else _manager._leader())
 	var spoken: String = text.strip_edges()
-	if spoken.is_empty():
-		spoken = ally.profile.line("ack", "On it.") if not calls.is_empty() else ally.profile.line("confused", "Say again?")
-		subtitle.emit(ally.get_display_name(), spoken, ally.profile.color, true)
-		_voice(ally, spoken, 1)
-	else:
-		subtitle.emit(ally.get_display_name(), spoken, ally.profile.color, true)
-		var rest: String = text.substr(int(rec["spoken_upto"])).strip_edges()
-		if not rest.is_empty():
-			_voice(ally, rest, 1)
-	text_response.emit(ally.get_display_name(), spoken)
-	log_entry.emit({"source": "llm", "who": ally.get_display_name(), "what": spoken, "result": "%d tool call(s)" % calls.size()})
+	if spoke == 0 and speaker != null:
+		if spoken.is_empty():
+			spoken = speaker.profile.line("ack", "On it.") if not calls.is_empty() else speaker.profile.line("confused", "Say again?")
+		subtitle.emit(speaker.get_display_name(), spoken, speaker.profile.color, true)
+		_voice(speaker, spoken, 1)
+		_remember(speaker.get_display_name(), "said: " + spoken)
+	text_response.emit(speaker.get_display_name() if speaker != null else "squad", spoken if spoke == 0 else "(%d line(s) via say)" % spoke)
+	log_entry.emit({"source": "llm", "who": "Director", "what": String(rec["user_text"]).left(40), "result": "%d tool call(s)" % calls.size()})
+
+
+func _remember(who: String, what: String) -> void:
+	_recent_events.append("%s %s" % [who, what])
+	while _recent_events.size() > 24:
+		_recent_events.pop_front()
+	var h: Array = _histories.get(who, []) as Array
+	h.append(what)
+	while h.size() > HISTORY_MAX:
+		h.pop_front()
+	_histories[who] = h
 
 
 ## Maps an LLM tool call to the shared command schema.
@@ -328,6 +417,13 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 			return {"verb": "combo_" + String(args.get("combo", "")), "allies": allies, "target": String(args.get("target", "nearest"))}
 		"panic_order":
 			return {"verb": String(args.get("order", "")), "allies": allies if not (allies as Array).is_empty() else ["all"]}
+		"use_skill":
+			var who: String = String(args.get("ally", ""))
+			return {"verb": "skill", "skill": String(args.get("skill", "")), "allies": [who] if not who.is_empty() else [], "target": String(args.get("target", ""))}
+		"execute_strategy":
+			return {"verb": "strategy", "strategy": String(args.get("strategy", "")), "allies": allies, "target": String(args.get("target", ""))}
+		"say":
+			return {"verb": "say", "allies": [String(args.get("ally", ""))], "text": String(args.get("text", ""))}
 	return {}
 
 
@@ -338,9 +434,14 @@ func _on_request_failed(id: int, kind: String, message: String) -> void:
 		notify.emit("Voice transcription failed: %s" % message, "error")
 		return
 	if OpenAIClient.is_tts_kind(kind):
+		if message.begins_with("QUOTA") and SquadAIConfig.tts_available():
+			return  # the TTS player already retried on the next model
 		if Time.get_ticks_msec() - _last_tts_warn > 30000:
 			_last_tts_warn = Time.get_ticks_msec()
-			notify.emit("Ally voice unavailable: %s" % message, "warn")
+			if not SquadAIConfig.tts_available():
+				notify.emit("Ally voices hit today's free TTS quota — subtitles only (orders still work).", "warn")
+			else:
+				notify.emit("Ally voice unavailable: %s" % message.left(120), "warn")
 		return
 	if kind == "chat" and _pending.has(id):
 		var rec: Dictionary = _pending[id]
@@ -364,11 +465,17 @@ func _on_ally_spoke(ally_name: String, text: String, _event: String, priority: i
 	subtitle.emit(ally_name, text, col, true)
 	# Chatter stays subtitle-only; real lines are voiced (higher priority interrupts lower).
 	if priority >= 1 and a != null:
-		_voice(a, text, priority)
+		# Routine callouts stay subtitle-only to spare free-tier TTS quota; important ones are voiced.
+		if priority >= SquadAIConfig.voice_min_event_priority:
+			_voice(a, text, priority)
+		_remember(ally_name, "said: " + text)
 
 
 func _on_command_logged(entry: Dictionary) -> void:
 	log_entry.emit(entry)
+	# Squad events (downs, revives, skills, ambushes, phase failures) feed the Director's RECENT EVENTS.
+	if String(entry.get("source", "")) == "event":
+		_remember(String(entry.get("who", "")), "%s %s" % [entry.get("what", ""), entry.get("result", "")])
 
 
 func _on_roster_changed(_roster: Array) -> void:

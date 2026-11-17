@@ -317,6 +317,79 @@ func _run() -> void:
 	_check("direct_order_substitution", _log_has("substitute for Ivo") or _log_has("dropped: ally down"), " / ".join(_log))
 	await _reset_arena()
 
+	# 8c) WorldIntel targeting by look / colour / weapon / ID, signature skills, strategies.
+	await _reset_arena()
+	var caster: EnemyBase = _spawn("hexcaster", Vector3(-4.0, 0, -6.0))
+	var brute: EnemyBase = _spawn("brute", Vector3(4.0, 0, -6.0))
+	var stalker: EnemyBase = _spawn("stalker", Vector3(0.0, 0, -5.5))
+	for s in [caster, brute, stalker]:
+		(s as EnemyBase).max_health = 4000
+		(s as EnemyBase).health = 4000
+	await _wait(1.2)
+	var intel: WorldIntel = _mgr.intel
+	intel.refresh()
+	_check("intel_ids_assigned", not intel.id_of(caster).is_empty() and intel.get_entries().size() >= 3, intel.describe_text(5).replace("\n", " || "))
+	_check("intel_resolve_colour", intel.resolve("the purple caster") == caster, "")
+	_check("intel_resolve_weapon_size", intel.resolve("big green guy with the axe") == brute, "")
+	_check("intel_resolve_id", intel.resolve(intel.id_of(stalker)) == stalker, intel.id_of(stalker))
+	_dump_threat()
+	await _shot("11_intel_tags")
+	_say("Sera, kill the purple one")
+	await _wait(0.4)
+	var st: SquadAlly = _ally("Sera")
+	_check("nl_attack_by_colour", st.current != null and st.current.verb == "attack" and _mgr.resolve_enemy(String(st.current.args.get("target", "")), _player.global_position) == caster, st.get_state_text())
+	# Skills on command.
+	var bran2: SquadAlly = _ally("Brannoc")
+	bran2.health = int(bran2.max_health * 0.4)
+	_say("Ivo heal Brannoc")
+	await _wait(2.5)
+	_check("skill_heal_ally", bran2.health > int(bran2.max_health * 0.4), "Brannoc %d/%d" % [bran2.health, bran2.max_health])
+	_say("Brannoc war cry")
+	await _wait(2.5)
+	var taunted_by_b: int = 0
+	for e in [caster, brute, stalker]:
+		if (e as EnemyAI).get_current_target() == bran2:
+			taunted_by_b += 1
+	_check("skill_war_cry_taunts", bran2.skill_remaining(bran2.profile.find_skill("war_cry")) > 0.0, "on Brannoc: %d" % taunted_by_b)
+	_say("Sera smoke bomb")
+	await _wait(2.0)
+	_check("skill_smoke_bomb", st.skill_remaining(st.profile.find_skill("smoke_bomb")) > 0.0, "")
+	await _shot("12_skills")
+	# Strategies.
+	_say("surround the brute")
+	await _wait(0.5)
+	var surround_n: int = 0
+	for a in _mgr.get_living():
+		if a.current != null and a.current.verb == "surround":
+			surround_n += 1
+	_check("strategy_surround", surround_n == _mgr.get_living().size(), _states())
+	await _wait(2.5)
+	await _shot("13_surround")
+	_say("divide and conquer")
+	await _wait(0.5)
+	var tgts: Dictionary = {}
+	for a in _mgr.get_living():
+		if a.current != null and a.current.verb == "attack":
+			tgts[String(a.current.args.get("target", ""))] = true
+	_check("strategy_divide_distinct_targets", tgts.size() >= mini(3, _mgr.get_living().size()), str(tgts.keys()))
+	_say("shield wall")
+	await _wait(1.5)
+	_check("strategy_shield_wall", bran2._dr > 0.0 or bran2.skill_remaining(bran2.profile.find_skill("shield_wall")) > 0.0, _states())
+	_say("ok everyone pincer the stalker")
+	await _wait(0.5)
+	_check("strategy_pincer", _mgr.active_strategy == "Pincer", _states())
+	# Autonomous skill use during a fight.
+	_say("everyone massacre")
+	await _wait(6.0)
+	var auto_used: int = 0
+	for a in _mgr.allies:
+		for sk in a.get_skill_states():
+			if float((sk as Dictionary)["remaining"]) > 0.0:
+				auto_used += 1
+	_check("skills_used_in_fight", auto_used >= 3, "%d skills on cooldown" % auto_used)
+	await _shot("14_skill_fight")
+	await _reset_arena()
+
 	# 9) Substitution when an ally is down, then manual revive by the player.
 	await _reset_arena()
 	_say("follow me")

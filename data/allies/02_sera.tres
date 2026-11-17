@@ -1,6 +1,75 @@
-[gd_resource type="Resource" script_class="AllyProfile" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="AllyProfile" load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/allies/ally_profile.gd" id="1_prof"]
+[ext_resource type="Script" path="res://scripts/allies/ally_skill.gd" id="2_skill"]
+
+[sub_resource type="Resource" id="skill_shadowstep"]
+script = ExtResource("2_skill")
+id = "shadowstep"
+display_name = "Shadowstep"
+description = "Blinks behind an enemy within 12 m and stabs it in the back for 38 (backstab multipliers apply)."
+aliases = Array[String](["shadowstep", "shadow step", "blink behind", "teleport behind", "backstab"])
+effect = "shadowstep"
+target_kind = "enemy"
+cooldown = 8
+cast_range = 12
+radius = 0
+power = 38
+duration = 0
+auto_use = "engaged"
+voice_line = "Behind you."
+color = Color(0.4, 0.9, 1, 1)
+
+[sub_resource type="Resource" id="skill_fan_of_blades"]
+script = ExtResource("2_skill")
+id = "fan_of_blades"
+display_name = "Fan of Blades"
+description = "Throws knives at up to 3 enemies within 9 m for 14 damage each."
+aliases = Array[String](["fan of blades", "knives", "throw knives", "daggers", "blade fan"])
+effect = "fan_of_blades"
+target_kind = "area"
+cooldown = 10
+cast_range = 9
+radius = 9
+power = 14
+duration = 0
+auto_use = "cluster"
+voice_line = "Catch!"
+color = Color(0.6, 0.95, 1, 1)
+
+[sub_resource type="Resource" id="skill_smoke_bomb"]
+script = ExtResource("2_skill")
+id = "smoke_bomb"
+display_name = "Smoke Bomb"
+description = "Vanishes in smoke: every enemy within 5 m forgets her (threat wiped, target lost) for a clean escape."
+aliases = Array[String](["smoke bomb", "smoke", "vanish", "disappear", "go invisible"])
+effect = "smoke_bomb"
+target_kind = "self"
+cooldown = 16
+cast_range = 0
+radius = 5
+power = 0
+duration = 3
+auto_use = "self_chased_low"
+voice_line = "Poof!"
+color = Color(0.7, 0.75, 0.8, 1)
+
+[sub_resource type="Resource" id="skill_flurry"]
+script = ExtResource("2_skill")
+id = "flurry"
+display_name = "Flurry"
+description = "Five lightning-fast cuts on one enemy, 9 damage each (great on stunned targets)."
+aliases = Array[String](["flurry", "blender", "whirlwind", "spin attack", "dice them"])
+effect = "flurry"
+target_kind = "enemy"
+cooldown = 9
+cast_range = 2.2
+radius = 0
+power = 9
+duration = 0
+auto_use = "stunned_target"
+voice_line = "Dance with me!"
+color = Color(0.5, 1, 0.95, 1)
 
 [resource]
 script = ExtResource("1_prof")
@@ -23,6 +92,7 @@ attack_cooldown = 0.75
 retreat_threshold = 0.35
 regen_per_sec = 3.0
 abilities = Array[String](["taunt", "kite", "lure", "finisher", "revive"])
+skills = [SubResource("skill_shadowstep"), SubResource("skill_fan_of_blades"), SubResource("skill_smoke_bomb"), SubResource("skill_flurry")]
 taunt_cooldown = 4.0
 nuke_damage = 22
 nuke_radius = 2.4

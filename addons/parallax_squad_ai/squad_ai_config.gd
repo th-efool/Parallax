@@ -50,7 +50,10 @@ static var show_command_log: bool = true
 static var show_subtitles: bool = true
 static var request_timeout_sec: float = 25.0
 ## Cap on voiced lines per minute (protects free-tier quotas); extra lines stay subtitle-only.
-static var tts_per_minute: int = 8
+static var tts_per_minute: int = 5
+## Canned event lines (skill callouts, acks) are voiced only at/above this priority; Director replies always are.
+## 2 = panic acks, combo calls, downed. Keeps free-tier TTS quotas for the lines that matter.
+static var voice_min_event_priority: int = 2
 
 
 static func ensure_loaded() -> void:
@@ -194,8 +197,27 @@ static func stt_model() -> String:
 	return _def("stt_model")
 
 
+## Gemini TTS models tried in order; one that returns 429 (free-tier quota spent) is skipped for the session.
+const GEMINI_TTS_FALLBACKS: Array[String] = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "gemini-2.5-pro-preview-tts"]
+static var _tts_exhausted: Dictionary = {}
+
+
 static func tts_model() -> String:
+	if provider() == "gemini":
+		for m in GEMINI_TTS_FALLBACKS:
+			if not _tts_exhausted.has(m):
+				return m
+		return ""
 	return _def("tts_model")
+
+
+static func mark_tts_exhausted(model_id: String) -> void:
+	_tts_exhausted[model_id] = true
+
+
+## False once every TTS model's quota is spent this session (voices fall back to subtitles only).
+static func tts_available() -> bool:
+	return is_online() and not tts_model().is_empty()
 
 
 static func key_source() -> String:

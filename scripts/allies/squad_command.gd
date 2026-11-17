@@ -31,6 +31,11 @@ const VERBS: Dictionary = {
 	"destroy": [Priority.ORDER, true, false],
 	"interact": [Priority.ORDER, true, false],
 	"peel": [Priority.MISSION, true, false],
+	"skill": [Priority.ORDER, true, false],
+	"surround": [Priority.ORDER, true, false],
+	"overwatch": [Priority.ORDER, false, true],
+	"ambush": [Priority.MISSION, true, false],
+	"strategy": [Priority.ORDER, true, false],
 	"bodyguard": [Priority.MISSION, false, false],
 	"kite": [Priority.MISSION, true, false],
 	"nuke": [Priority.MISSION, true, false],
@@ -99,4 +104,13 @@ func describe() -> String:
 			return "bodyguard %s" % (t if not t.is_empty() else "player")
 		"say":
 			return "say \"%s\"" % String(args.get("text", "")).left(24)
+		"skill":
+			return "skill %s" % String(args.get("skill", "")).replace("_", " ") + ("" if t.is_empty() else " → " + t)
+		"surround":
+			return "flank %s" % String(args.get("side", "")) + ("" if t.is_empty() else " " + t)
+		"hold":
+			if args.has("lane"):
+				return "hold %s" % String(args["lane"])
+			if args.has("label"):
+				return String(args["label"])
 	return verb.replace("_", " ") + ("" if t.is_empty() else " " + t)

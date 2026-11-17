@@ -211,7 +211,7 @@ func set_cinematic(on: bool) -> void:
 	if hud != null:
 		hud.visible = not on
 	for e in get_tree().get_nodes_in_group("enemy"):
-		for nm in ["FloatingHPBar", "StateIcon"]:
+		for nm in ["FloatingHPBar", "StateIcon", "IntelTag"]:
 			var l: Node3D = (e as Node).get_node_or_null(nm) as Node3D
 			if l != null:
 				l.set_meta("cinematic_hidden", on)
@@ -308,11 +308,14 @@ func _draw_roster(origin: Vector2) -> void:
 	var body: Font = UITheme.body_font()
 	var y: float = origin.y
 	var now: float = float(Time.get_ticks_msec()) * 0.001
+	var m: AllySquadManager = AllySquadManager.instance
+	if m != null and not m.active_strategy.is_empty():
+		_text(disp, Vector2(origin.x, y - 40.0), "STRATEGY · " + m.active_strategy.to_upper(), 17, Color(1.0, 0.93, 0.72, 1.0), 6)
 	for r_v in _roster:
 		var r: Dictionary = r_v as Dictionary
 		var col: Color = r.get("color", UITheme.GOLD) as Color
 		var down: bool = bool(r.get("downed", false))
-		var rect := Rect2(origin.x, y, 300.0, 58.0)
+		var rect := Rect2(origin.x, y, 300.0, 78.0)
 		var c: float = 9.0
 		var poly := _chamfer(rect, c)
 		draw_colored_polygon(poly, Color(0.035, 0.04, 0.065, 0.80))
@@ -331,8 +334,29 @@ func _draw_roster(origin: Vector2) -> void:
 		var st: String = "DOWN — E to revive" if down else String(r.get("state", ""))
 		if int(r.get("queued", 0)) > 0 and not down:
 			st += "  +%d queued" % int(r.get("queued", 0))
-		_text(body, rect.position + Vector2(16.0, 53.0), st.left(36), 14, Color(1, 0.55, 0.5) if down else Color(0.88, 0.88, 0.92, 0.9), 2)
-		y += 64.0
+		_text(body, rect.position + Vector2(16.0, 53.0), _fit(body, st, 14, 270.0), 14, Color(1, 0.55, 0.5) if down else Color(0.88, 0.88, 0.92, 0.9), 2)
+		var buffs: String = String(r.get("buffs", ""))
+		if not buffs.is_empty() and not down:
+			_text(body, rect.position + Vector2(204.0, 39.0), buffs.strip_edges(), 12, Color(1.0, 0.85, 0.45, 0.95), 2)
+		# Skill pills: lit when ready, dim with seconds while cooling down.
+		var sx: float = rect.position.x + 16.0
+		for sk_v in (r.get("skills", []) as Array):
+			var sk: Dictionary = sk_v as Dictionary
+			var rem: float = float(sk.get("remaining", 0.0))
+			var scol: Color = sk.get("color", UITheme.GOLD) as Color
+			var label: String = String(sk.get("name", "")).get_slice(" ", 0).left(7).to_upper()
+			if rem > 0.0:
+				label += " %d" % int(ceil(rem))
+			var w: float = body.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 10.0
+			var pill := Rect2(sx, rect.position.y + 60.0, w, 13.0)
+			var ready: bool = rem <= 0.0 and not down
+			draw_rect(pill, Color(scol.r, scol.g, scol.b, 0.28 if ready else 0.08))
+			draw_rect(pill, Color(scol.r, scol.g, scol.b, 0.9 if ready else 0.3), false, 1.0)
+			_text(body, Vector2(sx + 5.0, rect.position.y + 71.0), label, 11, Color(1, 1, 1, 0.95) if ready else Color(0.7, 0.7, 0.75, 0.7), 0)
+			sx += w + 4.0
+			if sx > rect.end.x - 30.0:
+				break
+		y += 84.0
 
 
 func _draw_subtitles(s: Vector2) -> void:

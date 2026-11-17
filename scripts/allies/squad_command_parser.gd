@@ -56,19 +56,32 @@ const TARGET_WORDS: Dictionary = {
 }
 
 
+const DESCRIPTOR_WORDS: Array[String] = ["purple", "violet", "blue", "cyan", "green", "pale", "white", "bone", "gold", "golden",
+	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "orb", "greataxe",
+	"hooded", "armored", "armoured", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
+	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "stunned", "fleeing"]
+const PANIC_VERBS: Array[String] = ["ceasefire", "massacre", "scatter"]
+const TARGETED_VERBS: Array[String] = ["attack", "kite", "nuke", "taunt", "hit_and_run", "skill", "strategy",
+	"combo_kite_nuke", "combo_charge_finish", "combo_lure_detonate", "peel"]
+
+static var _vocab: Dictionary = {}
+
+
 ## Returns an Array of command dictionaries. `ally_names` = live roster names (any case).
-static func parse(text: String, ally_names: Array) -> Array:
+## `ctx` (optional, from AllySquadManager.get_parser_context()): {"skills": [{ally, id, name, aliases}]}.
+static func parse(text: String, ally_names: Array, ctx: Dictionary = {}) -> Array:
 	var out: Array = []
 	var raw: String = text.strip_edges()
 	if raw.is_empty():
 		return out
 	# Sentence boundaries are clause boundaries too ("Brannoc, guard me. Sera, kite them.").
-	var t: String = " " + raw.to_lower().replace(". ", " ; ").replace("! ", " ; ").replace("? ", " ; ").replace(",", " ").replace(".", " ").replace("?", " ") + " "
+	var t: String = " " + raw.to_lower().replace(". ", " ; ").replace("! ", " ; ").replace("? ", " ; ").replace(",", " ").replace(".", " ").replace("?", " ").replace("!", " ") + " "
+	t = " " + _normalize(t, ally_names, ctx) + " "
 	# Multi-clause: "Sera kite them then Ivo nuke" -> split on then / and then / ;
 	var clauses: PackedStringArray = _split_clauses(t)
 	var carry_allies: Array = []
 	for cl in clauses:
-		var cmd: Dictionary = _parse_clause(" " + cl.strip_edges() + " ", ally_names, carry_allies)
+		var cmd: Dictionary = _parse_clause(" " + cl.strip_edges() + " ", ally_names, carry_allies, ctx)
 		if cmd.is_empty():
 			continue
 		carry_allies = cmd.get("allies", []) as Array
@@ -85,7 +98,7 @@ static func _split_clauses(t: String) -> PackedStringArray:
 	return s.split("|", false)
 
 
-static func _parse_clause(t: String, ally_names: Array, carry_allies: Array) -> Dictionary:
+static func _parse_clause(t: String, ally_names: Array, carry_allies: Array, ctx: Dictionary = {}) -> Dictionary:
 	var allies: Array = _addressed(t, ally_names)
 	if allies.is_empty() and not carry_allies.is_empty():
 		allies = carry_allies
@@ -97,9 +110,34 @@ static func _parse_clause(t: String, ally_names: Array, carry_allies: Array) -> 
 				break
 		if not verb.is_empty():
 			break
+	# Panic orders always win. Otherwise a named skill of an addressed ally, then a squad strategy, then a
+	# skill anyone owns, then the plain verb rules.
+	if not (verb in PANIC_VERBS):
+		var skill: Dictionary = _match_skill(t, allies, ctx)
+		var strat: Dictionary = SquadStrategies.match_text(t)
+		if not skill.is_empty() and (allies.has(String(skill["ally"])) or strat.is_empty()):
+			var c1: Dictionary = {"verb": "skill", "skill": skill["id"], "allies": allies if not allies.is_empty() else [skill["ally"]], "utterance": t.strip_edges()}
+			var tgt_s: String = _skill_target(t, ally_names, allies)
+			if not tgt_s.is_empty():
+				c1["target"] = tgt_s
+			return c1
+		if not strat.is_empty():
+			var c2: Dictionary = {"verb": "strategy", "strategy": strat["id"], "allies": allies, "utterance": t.strip_edges()}
+			if _has_descriptor(t):
+				c2["target"] = "desc:" + t.strip_edges()
+			else:
+				var tw: String = _target_word(t)
+				if not tw.is_empty():
+					c2["target"] = tw
+			return c2
+	# Verb-less but clearly about an enemy ("the purple one!", "E3!", "that axe guy") -> attack it.
+	if verb.is_empty() and (_has_descriptor(t) or not _target_word(t).is_empty() and _target_word(t) != "nearest"):
+		verb = "attack"
 	if verb.is_empty():
 		return {}
 	var cmd: Dictionary = {"verb": verb, "allies": allies, "utterance": t.strip_edges()}
+	if verb in TARGETED_VERBS and _has_descriptor(t):
+		cmd["target"] = "desc:" + t.strip_edges()
 	match verb:
 		"auto_on":
 			cmd["verb"] = "auto_engage"
@@ -137,6 +175,126 @@ static func _parse_clause(t: String, ally_names: Array, carry_allies: Array) -> 
 		if not tgt.is_empty():
 			cmd["target"] = tgt
 	return cmd
+
+
+static func _has_descriptor(t: String) -> bool:
+	var rx := RegEx.new()
+	rx.compile("\\b(?:e|enemy)\\s*#?\\s*\\d+\\b")
+	if rx.search(t) != null:
+		return true
+	for w in DESCRIPTOR_WORDS:
+		if t.contains(" " + w + " ") or t.contains(" " + w + "s "):
+			return true
+	return false
+
+
+## Skill owned by an addressed ally (preferred) or anyone: {"ally", "id"} or {}.
+static func _match_skill(t: String, allies: Array, ctx: Dictionary) -> Dictionary:
+	var best: Dictionary = {}
+	var best_len: int = 0
+	for s in (ctx.get("skills", []) as Array):
+		var sd: Dictionary = s as Dictionary
+		var phrases: Array = (sd.get("aliases", []) as Array).duplicate()
+		phrases.append(String(sd.get("name", "")).to_lower())
+		for p in phrases:
+			var ps: String = String(p)
+			if ps.length() < 3 or not t.contains(" " + ps + " ") and not t.contains(" " + ps):
+				continue
+			var l: int = ps.length() + (100 if allies.has(String(sd["ally"])) else 0)
+			if l > best_len:
+				best_len = l
+				best = {"ally": String(sd["ally"]), "id": String(sd["id"])}
+	return best
+
+
+## Target for a skill: an enemy description, "me"/an ally (heals / wards), else blank (skill decides).
+static func _skill_target(t: String, ally_names: Array, addressed: Array) -> String:
+	if _has_descriptor(t):
+		return "desc:" + t.strip_edges()
+	var other: String = _named_other(t, ally_names, addressed)
+	if not other.is_empty():
+		return other
+	if t.contains(" me ") or t.ends_with(" me"):
+		return "me"
+	var tw: String = _target_word(t)
+	return tw if tw != "nearest" else ""
+
+
+## Typo tolerance: words of 5+ letters that are not in the command vocabulary snap to the closest
+## vocabulary word within edit distance 1 (2 for long words). "masacre" -> "massacre", "sheild" -> "shield".
+static func _normalize(t: String, ally_names: Array, ctx: Dictionary) -> String:
+	var vocab: Dictionary = _build_vocab(ally_names, ctx)
+	var out: PackedStringArray = []
+	for w in t.split(" ", false):
+		var word: String = w
+		if word.length() >= 5 and not vocab.has(word) and not word.is_valid_int():
+			var lim: int = 1 if word.length() < 8 else 2
+			var best: String = ""
+			var bd: int = lim + 1
+			for v in vocab.keys():
+				var vs: String = String(v)
+				if absi(vs.length() - word.length()) > lim:
+					continue
+				var d: int = _lev(word, vs, lim)
+				if d < bd:
+					bd = d
+					best = vs
+			if not best.is_empty():
+				word = best
+		out.append(word)
+	return " ".join(out)
+
+
+static func _build_vocab(ally_names: Array, ctx: Dictionary) -> Dictionary:
+	if _vocab.is_empty():
+		for rule in RULES:
+			for kw in (rule[1] as Array):
+				for w in String(kw).split(" ", false):
+					_vocab[w] = true
+		for k in TARGET_WORDS.keys():
+			for w in String(k).split(" ", false):
+				_vocab[w] = true
+		for w in DESCRIPTOR_WORDS:
+			_vocab[w] = true
+		for s in SquadStrategies.LIST:
+			for a in ((s as Dictionary)["aliases"] as Array):
+				for w in String(a).split(" ", false):
+					_vocab[w] = true
+		for w in ["everyone", "everybody", "please", "there", "their", "these", "those", "where", "about", "right", "behind", "nearest", "closest"]:
+			_vocab[w] = true
+	var v: Dictionary = _vocab.duplicate()
+	for n in ally_names:
+		v[String(n).to_lower()] = true
+	for s in (ctx.get("skills", []) as Array):
+		for a in ((s as Dictionary).get("aliases", []) as Array):
+			for w in String(a).split(" ", false):
+				v[w] = true
+	return v
+
+
+## Optimal-string-alignment distance (Levenshtein + adjacent swaps, so "sheild" -> "shield" is 1).
+static func _lev(a: String, b: String, limit: int) -> int:
+	var prev2: PackedInt32Array = []
+	var prev: PackedInt32Array = []
+	prev.resize(b.length() + 1)
+	for j in range(b.length() + 1):
+		prev[j] = j
+	for i in range(1, a.length() + 1):
+		var cur: PackedInt32Array = []
+		cur.resize(b.length() + 1)
+		cur[0] = i
+		var row_min: int = cur[0]
+		for j in range(1, b.length() + 1):
+			var cost: int = 0 if a[i - 1] == b[j - 1] else 1
+			cur[j] = mini(mini(prev[j] + 1, cur[j - 1] + 1), prev[j - 1] + cost)
+			if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+				cur[j] = mini(cur[j], prev2[j - 2] + 1)
+			row_min = mini(row_min, cur[j])
+		if row_min > limit:
+			return limit + 1
+		prev2 = prev
+		prev = cur
+	return prev[b.length()]
 
 
 static func _addressed(t: String, ally_names: Array) -> Array:

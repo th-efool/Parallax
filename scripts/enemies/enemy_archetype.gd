@@ -18,6 +18,10 @@ extends Resource
 @export var tint: Color = Color(1, 1, 1, 1)
 @export var emission_tint: Color = Color(0, 0, 0, 1)
 @export var hp_bar_color: Color = Color(0.95, 0.30, 0.25, 0.95)
+## Human description used by WorldIntel so players / the AI can say "the purple caster".
+@export var color_name: String = ""
+## Extra words players might use for this type (nicknames, silhouette cues).
+@export var look_words: String = ""
 ## Hand props to keep visible (KayKit names). Empty + `borrow_props` empty => unarmed.
 @export var keep_props: Array[String] = []
 ## [source_glb, prop_name, bone] triples flattened: ["res://...Knight.glb", "1H_Sword", "handslot.r", ...]

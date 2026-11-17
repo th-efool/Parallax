@@ -104,6 +104,36 @@ func _run() -> void:
 		if not String(cs[3]).is_empty():
 			ok = ok and String(d.get("target", "")) == String(cs[3])
 		_check("parse '%s'" % cs[0], ok, str(d))
+	# Natural-language parsing with live skill vocabulary (typos, skills, strategies, descriptions).
+	var ctx: Dictionary = {"skills": []}
+	for prof in AllySquadManager.load_profiles():
+		for s in prof.get_skills():
+			(ctx["skills"] as Array).append({"ally": prof.ally_name, "id": s.id, "name": s.display_name, "aliases": s.aliases})
+	_check("profiles_have_skills", (ctx["skills"] as Array).size() >= 10, "%d skills" % (ctx["skills"] as Array).size())
+	var nl: Array = [
+		["masacre them all", "massacre", "", ""],
+		["Sera smoke bomb now", "skill", "smoke_bomb", ""],
+		["heal Brannoc", "skill", "mending_light", "Brannoc"],
+		["Brannoc shield wall", "skill", "shield_wall", ""],
+		["shield wall", "strategy", "shield_wall", ""],
+		["surround the purple caster", "strategy", "surround", "desc:"],
+		["kill the purple one on the left", "attack", "", "desc:"],
+		["the guy with the axe!", "attack", "", "desc:"],
+		["everyone gang up on E2", "strategy", "focus_fire", "desc:"],
+		["Ivo zap the big green guy", "skill", "chain_arc", "desc:"],
+		["hold the line", "strategy", "hold_the_line", ""],
+		["divide and conquer", "strategy", "divide_and_conquer", ""],
+		["sheild wall guys", "strategy", "shield_wall", ""],
+	]
+	for cs in nl:
+		var o: Array = SquadCommandParser.parse(String(cs[0]), names, ctx)
+		var d0: Dictionary = o[0] if not o.is_empty() else {}
+		var ok0: bool = d0.get("verb", "") == cs[1]
+		if not String(cs[2]).is_empty():
+			ok0 = ok0 and (String(d0.get("skill", "")) == String(cs[2]) or String(d0.get("strategy", "")) == String(cs[2]))
+		if not String(cs[3]).is_empty():
+			ok0 = ok0 and String(d0.get("target", "")).begins_with(String(cs[3]))
+		_check("nl '%s'" % cs[0], ok0, str(d0))
 	var jump: Array = SquadCommandParser.parse("jump 3 times", names)
 	_check("parse_jump_count", int((jump[0] as Dictionary).get("count", 0)) == 3)
 	var multi: Array = SquadCommandParser.parse("Sera kite the brute then Ivo nuke", names)

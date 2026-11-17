@@ -72,6 +72,18 @@ var _dash_timer: float = 0.0
 var _dash_hit_cb: Callable = Callable()
 var _dash_target: EnemyAI = null
 var _regen_acc: float = 0.0
+# Skills & buffs.
+var _skill_cd: Dictionary = {}       # skill id -> seconds remaining
+var _skill_scan: float = 0.0
+var _skill_gap: float = 0.0
+var _dmg_buff: float = 0.0
+var _dmg_buff_t: float = 0.0
+var _dr: float = 0.0                 # damage reduction 0..1
+var _dr_t: float = 0.0
+var _ward_hp: float = 0.0
+var _ward_t: float = 0.0
+var _ward_fx: MeshInstance3D = null
+var last_skill: String = ""
 
 
 func setup(p: AllyProfile, mgr: Node, slot: int) -> void:
@@ -147,7 +159,17 @@ func apply_damage(amount: int, source: Node = null) -> bool:
 		return false
 	if _action == "dodge":
 		return false
-	amount = maxi(1, int(round(float(amount) * profile.damage_taken_mult)))
+	var amt_f: float = float(amount) * profile.damage_taken_mult * (1.0 - _dr)
+	if _ward_hp > 0.0:
+		var absorbed: float = minf(_ward_hp, amt_f)
+		_ward_hp -= absorbed
+		amt_f -= absorbed
+		if _ward_hp <= 0.0:
+			_clear_ward()
+		if amt_f <= 0.5:
+			GoreFXScript.sparks(self, global_position + Vector3.UP * 1.1, Vector3.UP, Color(0.7, 0.85, 1.0), 8)
+			return true
+	amount = maxi(1, int(round(amt_f)))
 	health = maxi(0, health - amount)
 	health_changed.emit(self, health, max_health)
 	_combat_quiet = 0.0
@@ -424,6 +446,12 @@ func _physics_process(delta: float) -> void:
 		_finish_frame(delta)
 		return
 	_check_self_preservation()
+	_skill_scan -= delta
+	if _skill_scan <= 0.0:
+		_skill_scan = 0.4
+		if _auto_skills(player):
+			_finish_frame(delta)
+			return
 	if _retreating:
 		_run_retreat_self(delta, player)
 		_finish_frame(delta)
@@ -450,6 +478,21 @@ func _tick_timers(delta: float) -> void:
 	_charge_cd = maxf(0.0, _charge_cd - delta)
 	_stagger_timer = maxf(0.0, _stagger_timer - delta)
 	_speak_cd = maxf(0.0, _speak_cd - delta)
+	_skill_gap = maxf(0.0, _skill_gap - delta)
+	for k in _skill_cd.keys():
+		_skill_cd[k] = maxf(0.0, float(_skill_cd[k]) - delta)
+	if _dmg_buff_t > 0.0:
+		_dmg_buff_t -= delta
+		if _dmg_buff_t <= 0.0:
+			_dmg_buff = 0.0
+	if _dr_t > 0.0:
+		_dr_t -= delta
+		if _dr_t <= 0.0:
+			_dr = 0.0
+	if _ward_t > 0.0:
+		_ward_t -= delta
+		if _ward_t <= 0.0:
+			_clear_ward()
 	_combat_quiet += delta
 	_idle_chatter -= delta
 	if _idle_chatter <= 0.0:
@@ -515,6 +558,14 @@ func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
 			_run_combo_part(delta, player, cmd)
 		"peel":
 			_run_peel(delta, player, cmd)
+		"skill":
+			_run_skill(delta, player, cmd)
+		"surround":
+			_run_surround(delta, player, cmd)
+		"overwatch":
+			_run_overwatch(delta, player, cmd)
+		"ambush":
+			_run_ambush(delta, player, cmd)
 		"hit_and_run":
 			_run_hit_and_run(delta, player, cmd)
 		"hunt":
@@ -570,7 +621,7 @@ func _run_hold(delta: float, cmd: SquadCommand) -> void:
 		cmd.data["spot"] = cmd.args.get("spot", global_position) as Vector3
 		cmd.step = "holding " + String(cmd.args.get("lane", "")) if cmd.args.has("lane") else "holding"
 	var spot: Vector3 = cmd.data["spot"]
-	var near: EnemyAI = _nearest_enemy(global_position, 3.5)
+	var near: EnemyAI = _nearest_enemy(global_position, float(cmd.args.get("engage_r", 3.5)))
 	if near != null:
 		_fight(near, delta)
 		return
@@ -901,10 +952,10 @@ func _run_nuke(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 ## Channels the AoE. Artillery uses its full nuke; others throw a weaker version (profile numbers).
 ## `track` keeps the ring on a moving enemy until the last 0.3 s.
-func begin_nuke(pos: Vector3, on_release: Callable = Callable(), track: Node3D = null) -> void:
-	var channel: float = profile.nuke_channel_sec
-	var radius: float = profile.nuke_radius
-	var dmg: int = profile.nuke_damage
+func begin_nuke(pos: Vector3, on_release: Callable = Callable(), track: Node3D = null, channel_override: float = -1.0, radius_override: float = -1.0, dmg_override: int = -1) -> void:
+	var channel: float = profile.nuke_channel_sec if channel_override < 0.0 else channel_override
+	var radius: float = profile.nuke_radius if radius_override < 0.0 else radius_override
+	var dmg: int = int(round(float(profile.nuke_damage if dmg_override < 0 else dmg_override) * (1.0 + _dmg_buff)))
 	set_facing(pos - global_position)
 	_show_cast_ring(pos, radius, channel)
 	_play(["Spellcast_Long", "Spellcasting", "Spellcast_Raise"], channel, true)
@@ -1292,6 +1343,563 @@ func _run_solo_lure(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				finish_current("solo detonate")
 
 
+# ------------------------------------------------------------------ signature skills (AllySkill data)
+
+func skill_remaining(s: AllySkill) -> float:
+	return float(_skill_cd.get(s.id, 0.0))
+
+
+func skill_ready(s: AllySkill) -> bool:
+	return s != null and skill_remaining(s) <= 0.0
+
+
+## HUD helper: [{name, remaining, cooldown, color}] for every skill.
+func get_skill_states() -> Array:
+	var out: Array = []
+	if profile == null:
+		return out
+	for s in profile.get_skills():
+		out.append({"name": s.display_name, "remaining": skill_remaining(s), "cooldown": s.cooldown, "color": s.color})
+	return out
+
+
+func add_damage_buff(frac: float, dur: float) -> void:
+	_dmg_buff = maxf(_dmg_buff, frac)
+	_dmg_buff_t = maxf(_dmg_buff_t, dur)
+
+
+func add_damage_reduction(frac: float, dur: float) -> void:
+	_dr = clampf(maxf(_dr, frac), 0.0, 0.9)
+	_dr_t = maxf(_dr_t, dur)
+
+
+func add_ward(amount: float, dur: float) -> void:
+	_ward_hp = maxf(_ward_hp, amount)
+	_ward_t = dur
+	if _ward_fx == null or not is_instance_valid(_ward_fx):
+		_ward_fx = MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.85
+		sm.height = 1.9
+		_ward_fx.mesh = sm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.albedo_color = Color(0.55, 0.75, 1.0, 0.18)
+		_ward_fx.material_override = m
+		_ward_fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_ward_fx.position = Vector3(0, 0.95, 0)
+		add_child(_ward_fx)
+	_ward_fx.visible = true
+
+
+func _clear_ward() -> void:
+	_ward_hp = 0.0
+	_ward_t = 0.0
+	if _ward_fx != null and is_instance_valid(_ward_fx):
+		_ward_fx.visible = false
+
+
+## Executes a skill on `target` (enemy / ally / player / null for self & area). Returns false when it can't.
+func use_skill(s: AllySkill, target: Node3D = null) -> bool:
+	if s == null or is_downed or not skill_ready(s):
+		return false
+	var ok: bool = false
+	match s.effect:
+		"war_cry":
+			ok = _skill_war_cry(s)
+		"shield_wall":
+			ok = _skill_shield_wall(s)
+		"ground_breaker":
+			ok = _skill_ground_breaker(s)
+		"shadowstep":
+			ok = _skill_shadowstep(s, target as EnemyAI)
+		"fan_of_blades":
+			ok = _skill_fan(s)
+		"smoke_bomb":
+			ok = _skill_smoke(s)
+		"flurry":
+			ok = _skill_flurry(s, target as EnemyAI)
+		"mending_light":
+			ok = _skill_mend(s, target)
+		"mirror_ward":
+			ok = _skill_ward(s, target)
+		"chain_arc":
+			ok = _skill_chain_arc(s, target as EnemyAI)
+		"mirror_barrage":
+			ok = _skill_barrage(s, target as EnemyAI)
+	if ok:
+		_skill_cd[s.id] = s.cooldown
+		_skill_gap = 1.5
+		last_skill = s.display_name
+		_combat_quiet = 0.0
+		if not s.voice_line.is_empty():
+			say(s.voice_line, "skill", 1)
+		if manager != null and manager.has_method("log_event"):
+			manager.call("log_event", get_display_name(), "skill " + s.display_name, (target.call("get_display_name") if target != null and target.has_method("get_display_name") else ""))
+	return ok
+
+
+func _skill_war_cry(s: AllySkill) -> bool:
+	var es: Array[EnemyAI] = _active_enemies(global_position, s.radius)
+	_play(["Taunt_Longer", "Taunt", "Cheer"], 0.9, true)
+	_start_action("taunt", 0.8, -1.0, Callable())
+	for e in es:
+		e.apply_taunt(self, 40.0, 3.0)
+		var away: Vector3 = e.global_position - global_position
+		e.add_knockback(Vector3(away.x, 0, away.z).normalized() * 3.0)
+	for a in get_tree().get_nodes_in_group("squad_ally"):
+		if a is SquadAlly and (a as SquadAlly).global_position.distance_to(global_position) <= 8.0:
+			(a as SquadAlly).add_damage_buff(s.power, s.duration)
+	GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.1, s.radius, s.color, 0.5, 0.3)
+	GameFeelScript.add_trauma(self, 0.2, global_position)
+	var sc: SquadCoordinator = SquadCoordinator.get_instance()
+	if sc != null:
+		sc.broadcast_noise(global_position, 14.0)
+	return true
+
+
+func _skill_shield_wall(s: AllySkill) -> bool:
+	add_damage_reduction(0.7, s.duration)
+	for a in get_tree().get_nodes_in_group("squad_ally"):
+		if a is SquadAlly and a != self and (a as SquadAlly).global_position.distance_to(global_position) <= s.radius:
+			(a as SquadAlly).add_damage_reduction(s.power, s.duration)
+	var es: Array[EnemyAI] = _active_enemies(global_position, 8.0)
+	es.sort_custom(func(x: EnemyAI, y: EnemyAI) -> bool: return x.global_position.distance_to(global_position) < y.global_position.distance_to(global_position))
+	for i in range(mini(3, es.size())):
+		es[i].apply_taunt(self, 30.0, 3.0)
+	_play(["Blocking", "Block", "Block_Hit"], 1.0, true)
+	_start_action("brace", 1.0, -1.0, Callable())
+	GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.05, s.radius, s.color, 0.6, 0.2)
+	return true
+
+
+func _skill_ground_breaker(s: AllySkill) -> bool:
+	_play(["2H_Melee_Attack_Chop", "1H_Melee_Attack_Jump_Chop", "1H_Melee_Attack_Chop"], 0.7, true)
+	_start_action("attack", 0.7, 0.35, func() -> void:
+		for e in _active_enemies(global_position, s.radius):
+			if e.apply_damage(int(round(s.power * (1.0 + _dmg_buff))), true, "ally_skill", self):
+				e.knock_down(s.duration, self)
+		GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.05, s.radius, s.color, 0.4, 0.4)
+		GoreFXScript.ground_crack(self, global_position, facing_direction, s.radius * 1.2, Color(1.0, 0.6, 0.25))
+		GoreFXScript.dust_puff(self, global_position, s.radius * 0.6, 30)
+		GameFeelScript.play_sound(self, "landing_slam", global_position, 0.0, 0.9)
+		GameFeelScript.add_trauma(self, 0.3, global_position))
+	return true
+
+
+func _skill_shadowstep(s: AllySkill, e: EnemyAI) -> bool:
+	if e == null or not _enemy_ok(e) or e.global_position.distance_to(global_position) > s.cast_range:
+		return false
+	var spot: Vector3 = e.global_position - e.get_facing_direction() * 1.1
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(spot + Vector3.UP * 1.2, spot + Vector3.DOWN * 2.0, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return false
+	GoreFXScript.dust_puff(self, global_position, 0.5, 14, Color(s.color.r, s.color.g, s.color.b, 0.5), 1.6)
+	global_position = (hit["position"] as Vector3) + Vector3.UP * 0.05
+	_last_pos = global_position
+	velocity = Vector3.ZERO
+	set_facing(e.global_position - global_position)
+	GoreFXScript.flash_light(self, global_position + Vector3.UP, s.color, 3.5, 0.25, 4.0)
+	_play(["Dualwield_Melee_Attack_Stab", "1H_Melee_Attack_Stab"], 0.45, true)
+	_start_action("attack", 0.45, 0.15, func() -> void:
+		if _enemy_ok(e):
+			e.apply_damage(int(round(s.power * (1.0 + _dmg_buff))), true, "ally_melee", self))
+	_engage_target = e
+	return true
+
+
+func _skill_fan(s: AllySkill) -> bool:
+	var es: Array[EnemyAI] = _active_enemies(global_position, s.radius)
+	if es.is_empty():
+		return false
+	es.sort_custom(func(x: EnemyAI, y: EnemyAI) -> bool: return x.global_position.distance_to(global_position) < y.global_position.distance_to(global_position))
+	_play(["Throw", "1H_Ranged_Shoot"], 0.5, true)
+	var n: int = mini(3, es.size())
+	_start_action("attack", 0.5, 0.2, func() -> void:
+		for i in range(n):
+			var e: EnemyAI = es[i]
+			if _enemy_ok(e):
+				e.apply_damage(int(round(s.power * (1.0 + _dmg_buff))), false, "ally_skill", self)
+				GoreFXScript.sparks(self, e.global_position + Vector3.UP, global_position - e.global_position, s.color, 12))
+	return true
+
+
+func _skill_smoke(s: AllySkill) -> bool:
+	for e in _active_enemies(global_position, s.radius):
+		e.forget(self)
+	add_damage_reduction(0.5, 1.0)
+	GoreFXScript.dust_puff(self, global_position, s.radius * 0.5, 60, Color(0.55, 0.58, 0.62, 0.75), 1.2)
+	GoreFXScript.flash_light(self, global_position + Vector3.UP, Color(0.8, 0.8, 0.85), 2.0, 0.3, 5.0)
+	_play(["Dodge_Backward", "Dodge_Left"], 0.4, true)
+	_start_action("dodge", 0.4, -1.0, Callable())
+	return true
+
+
+func _skill_flurry(s: AllySkill, e: EnemyAI) -> bool:
+	if e == null or not _enemy_ok(e) or e.global_position.distance_to(global_position) > s.cast_range + 0.5:
+		return false
+	set_facing(e.global_position - global_position)
+	_play(["Dualwield_Melee_Attack_Slice", "2H_Melee_Attack_Spinning", "Dualwield_Melee_Attack_Chop"], 1.2, true)
+	_start_action("attack", 1.25, -1.0, Callable())
+	for i in range(5):
+		get_tree().create_timer(0.15 + 0.2 * float(i), false, true).timeout.connect(func() -> void:
+			if is_instance_valid(self) and not is_downed and _enemy_ok(e) and global_position.distance_to(e.global_position) < s.cast_range + 1.0:
+				e.apply_damage(int(round(s.power * (1.0 + _dmg_buff))), false, "ally_melee", self)
+				GameFeelScript.play_sound(self, "enemy_hit", e.global_position + Vector3.UP, -8.0, 1.2))
+	return true
+
+
+func _skill_mend(s: AllySkill, target: Node3D) -> bool:
+	if target == null:
+		target = _lowest_friend(s.cast_range)
+	if target == null or target.global_position.distance_to(global_position) > s.cast_range:
+		return false
+	if target is SquadAlly:
+		var a: SquadAlly = target as SquadAlly
+		if a.is_downed or a.health >= a.max_health:
+			return false
+		a.health = mini(a.max_health, a.health + int(round(float(a.max_health) * s.power)))
+		a.health_changed.emit(a, a.health, a.max_health)
+	elif target is PlayerController:
+		var p: PlayerController = target as PlayerController
+		if p.health >= p.max_health:
+			return false
+		p.health = mini(p.max_health, p.health + int(round(float(p.max_health) * s.power)))
+		p.health_changed.emit(p.health, p.max_health)
+	else:
+		return false
+	set_facing(target.global_position - global_position)
+	_play(["Spellcast_Raise", "Spellcasting"], 0.6, true)
+	_start_action("emote", 0.6, -1.0, Callable())
+	GoreFXScript.flash_light(self, target.global_position + Vector3.UP, s.color, 4.0, 0.5, 4.0)
+	GoreFXScript.dust_puff(self, target.global_position, 0.6, 18, Color(s.color.r, s.color.g, s.color.b, 0.6), 1.8)
+	return true
+
+
+func _skill_ward(s: AllySkill, target: Node3D) -> bool:
+	if target == null:
+		target = _most_pressed_friend(s.cast_range)
+	if target == null or target.global_position.distance_to(global_position) > s.cast_range:
+		return false
+	if target is SquadAlly:
+		if (target as SquadAlly).is_downed:
+			return false
+		(target as SquadAlly).add_ward(s.power, s.duration)
+	elif target is PlayerController:
+		(target as PlayerController).add_ally_ward(int(s.power), s.duration)
+	else:
+		return false
+	_play(["Spellcast_Raise", "Spellcasting"], 0.5, true)
+	_start_action("emote", 0.5, -1.0, Callable())
+	GoreFXScript.flash_light(self, target.global_position + Vector3.UP, s.color, 3.0, 0.4, 3.5)
+	return true
+
+
+func _skill_chain_arc(s: AllySkill, first: EnemyAI) -> bool:
+	if first == null or not _enemy_ok(first) or first.global_position.distance_to(global_position) > s.cast_range:
+		return false
+	var hits: Array[EnemyAI] = [first]
+	var last: EnemyAI = first
+	for _i in range(2):
+		var nxt: EnemyAI = null
+		var bd: float = s.radius
+		for e in _active_enemies(last.global_position, s.radius):
+			if hits.has(e):
+				continue
+			var d: float = e.global_position.distance_to(last.global_position)
+			if d < bd:
+				bd = d
+				nxt = e
+		if nxt == null:
+			break
+		hits.append(nxt)
+		last = nxt
+	set_facing(first.global_position - global_position)
+	_play(["Spellcast_Shoot", "1H_Ranged_Shoot"], 0.45, true)
+	var mults: Array[float] = [1.0, 0.72, 0.5]
+	_start_action("channel", 0.45, 0.2, func() -> void:
+		var from: Vector3 = global_position + Vector3.UP * 1.3
+		for i in range(hits.size()):
+			var e: EnemyAI = hits[i]
+			if not _enemy_ok(e):
+				continue
+			e.apply_damage(int(round(s.power * mults[i] * (1.0 + _dmg_buff))), false, "ally_skill", self)
+			if not e.knockdown_immune:
+				e.enter_stunned(s.duration)
+			var to: Vector3 = e.global_position + Vector3.UP * 1.1
+			GoreFXScript.sparks(self, to, from - to, s.color, 16)
+			GoreFXScript.flash_light(self, to, s.color, 3.0, 0.15, 3.0)
+			from = to)
+	return true
+
+
+func _skill_barrage(s: AllySkill, e: EnemyAI) -> bool:
+	if e == null or not _enemy_ok(e) or e.global_position.distance_to(global_position) > s.cast_range:
+		return false
+	begin_nuke(e.global_position, Callable(), e, s.duration, s.radius, int(s.power))
+	return true
+
+
+## Autonomous skill use. Returns true when a skill fired this tick.
+func _auto_skills(player: Node3D) -> bool:
+	if profile == null or _skill_gap > 0.0 or not _action.is_empty() or _dash_timer > 0.0:
+		return false
+	var defensive_only: bool = _is_ceasefire()
+	for s in profile.get_skills():
+		if not skill_ready(s) or s.auto_use == "never":
+			continue
+		var tgt: Node3D = null
+		var go: bool = false
+		match s.auto_use:
+			"ally_low":
+				tgt = _lowest_friend(s.cast_range, 0.4)
+				go = tgt != null
+			"ally_pressed":
+				tgt = _most_pressed_friend(s.cast_range, 2)
+				go = tgt != null
+			"self_chased_low":
+				go = get_health_ratio() < 0.5 and not _enemies_targeting_me().filter(func(e: EnemyAI) -> bool: return e.global_position.distance_to(global_position) < 3.5).is_empty()
+		if not go and not defensive_only:
+			match s.auto_use:
+				"swarmed":
+					var origin: Vector3 = player.global_position if player != null else global_position
+					go = _active_enemies(global_position, 6.0).filter(func(e: EnemyAI) -> bool: return e.is_aggroed()).size() >= 3 \
+						or _active_enemies(origin, 5.0).filter(func(e: EnemyAI) -> bool: return e.is_aggroed()).size() >= 3
+				"protect":
+					go = _most_pressed_friend(s.radius, 2) != null or _enemies_targeting_me().size() >= 3
+				"cluster":
+					if s.effect == "mirror_barrage":
+						tgt = _best_cluster_enemy(s.cast_range, s.radius, 2)
+						go = tgt != null
+					else:
+						go = _active_enemies(global_position, s.radius).filter(func(e: EnemyAI) -> bool: return e.is_aggroed()).size() >= 2
+				"engaged":
+					if _engage_target != null and _enemy_ok(_engage_target) and _engage_target.global_position.distance_to(global_position) <= s.cast_range:
+						tgt = _engage_target
+						go = s.effect != "shadowstep" or _engage_target.get_current_target() != self or _engage_target.global_position.distance_to(global_position) > 3.0
+				"stunned_target":
+					for e in _active_enemies(global_position, s.cast_range + 0.5):
+						if e.is_stunned():
+							tgt = e
+							go = true
+							break
+		if go and use_skill(s, tgt):
+			return true
+	return false
+
+
+func _friends() -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	var p: Node3D = _player()
+	if p != null:
+		out.append(p)
+	for a in get_tree().get_nodes_in_group("squad_ally"):
+		if a is SquadAlly and not (a as SquadAlly).is_downed:
+			out.append(a as Node3D)
+	return out
+
+
+func _friend_ratio(n: Node3D) -> float:
+	if n is SquadAlly:
+		return (n as SquadAlly).get_health_ratio()
+	if n is PlayerController:
+		var p: PlayerController = n as PlayerController
+		return float(p.health) / float(maxi(1, p.max_health))
+	return 1.0
+
+
+func _lowest_friend(range_m: float, below: float = 0.98) -> Node3D:
+	var best: Node3D = null
+	var br: float = below
+	for f in _friends():
+		if f.global_position.distance_to(global_position) > range_m:
+			continue
+		var r: float = _friend_ratio(f)
+		if r < br:
+			br = r
+			best = f
+	return best
+
+
+func _most_pressed_friend(range_m: float, min_attackers: int = 1) -> Node3D:
+	var best: Node3D = null
+	var bn: int = min_attackers - 1
+	for f in _friends():
+		if f.global_position.distance_to(global_position) > range_m:
+			continue
+		if f is SquadAlly and (f as SquadAlly)._ward_hp > 0.0:
+			continue
+		var n: int = 0
+		for e in _active_enemies(f.global_position, 6.0):
+			if e.get_current_target() == f:
+				n += 1
+		if n > bn:
+			bn = n
+			best = f
+	return best
+
+
+func _best_cluster_enemy(range_m: float, radius: float, min_others: int) -> EnemyAI:
+	var best: EnemyAI = null
+	var bn: int = min_others - 1
+	for e in _active_enemies(global_position, range_m):
+		if not e.is_aggroed():
+			continue
+		var n: int = _active_enemies(e.global_position, radius).size() - 1
+		if n > bn:
+			bn = n
+			best = e
+	return best
+
+
+## Commanded skill ("Sera, smoke bomb", "Ivo heal Brannoc", Director `use_skill`).
+func _run_skill(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var s: AllySkill = profile.find_skill(String(cmd.args.get("skill", "")))
+	if s == null:
+		say("I don't know that move.", "refuse", 1)
+		finish_current("unknown skill")
+		return
+	if not skill_ready(s):
+		say("%s needs %ds." % [s.display_name, int(ceil(skill_remaining(s)))], "refuse", 1)
+		finish_current("cooldown")
+		return
+	var tsel: String = String(cmd.args.get("target", ""))
+	var tgt: Node3D = cmd.data.get("target_node", null) as Node3D
+	if tgt == null or not is_instance_valid(tgt):
+		match s.target_kind:
+			"enemy":
+				tgt = _resolve_enemy(tsel if not tsel.is_empty() else "nearest", player)
+				if tgt == null and _engage_target != null and _enemy_ok(_engage_target):
+					tgt = _engage_target
+				if tgt == null:
+					say("No target for %s." % s.display_name, "refuse", 1)
+					finish_current("no target")
+					return
+			"ally":
+				if tsel.is_empty():
+					tgt = _lowest_friend(40.0, 1.01) if s.effect == "mending_light" else _most_pressed_friend(40.0, 0)
+					if tgt == null:
+						tgt = player
+				elif tsel in ["me", "player", "you"]:
+					tgt = player
+				elif manager != null and manager.has_method("find_ally"):
+					tgt = manager.call("find_ally", tsel) as Node3D
+				if tgt == null:
+					tgt = player
+		cmd.data["target_node"] = tgt
+	cmd.step = s.display_name
+	var need: float = s.cast_range if s.target_kind in ["enemy", "ally"] else 0.0
+	if tgt != null and need > 0.0 and tgt.global_position.distance_to(global_position) > need - 0.3:
+		_move_to(tgt.global_position, profile.move_speed * 1.2, delta)
+		if cmd.timer > 10.0:
+			say("Can't get in range.", "refuse", 1)
+			finish_current("out of range")
+		return
+	if not use_skill(s, tgt):
+		say("%s fizzled." % s.display_name, "refuse", 1)
+	finish_current("used " + s.id)
+
+
+# ------------------------------------------------------------------ strategy primitives (surround / overwatch / ambush)
+
+## Surround slot: reach the given angle around the target (relative to the target->player axis), then fight.
+func _run_surround(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			finish_current("target down")
+			return
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+	var axis: Vector3 = (player.global_position - e.global_position) if player != null else -e.get_facing_direction()
+	axis.y = 0.0
+	if axis.length_squared() < 0.01:
+		axis = Vector3.FORWARD
+	var ang: float = deg_to_rad(float(cmd.args.get("angle", 120.0)))
+	var slot: Vector3 = e.global_position + axis.normalized().rotated(Vector3.UP, ang) * maxf(1.4, profile.attack_range * 0.85)
+	if not bool(cmd.data.get("in_slot", false)) and global_position.distance_to(slot) > 1.0:
+		cmd.step = "flanking"
+		_move_to(slot, profile.move_speed * 1.15, delta, false)
+		if cmd.timer > 6.0:
+			cmd.data["in_slot"] = true
+		return
+	cmd.data["in_slot"] = true
+	cmd.step = "attacking from " + String(cmd.args.get("side", "flank"))
+	_fight(e, delta)
+
+
+## Overwatch: hang back behind the player, never melee unless cornered, fire skills at clusters / threats.
+func _run_overwatch(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	cmd.step = "overwatch"
+	if player == null:
+		_halt(delta)
+		return
+	var c: Vector3 = _threat_centroid(player.global_position, 20.0)
+	var away: Vector3 = (player.global_position - c) if c != Vector3.INF else -(player.call("get_facing_direction") as Vector3)
+	away.y = 0.0
+	var spot: Vector3 = player.global_position + away.normalized() * 6.0
+	if global_position.distance_to(spot) > 1.2:
+		_move_to(spot, profile.move_speed, delta)
+	else:
+		_halt(delta)
+		if c != Vector3.INF:
+			set_facing(c - global_position)
+	# Offensive skills fire from range even if their auto rule wouldn't.
+	for s in profile.get_skills():
+		if not skill_ready(s) or s.target_kind != "enemy" or s.cast_range < 6.0:
+			continue
+		var t: EnemyAI = _best_cluster_enemy(s.cast_range, maxf(s.radius, 3.0), 1)
+		if t == null:
+			t = _nearest_enemy(global_position, s.cast_range)
+		if t != null and use_skill(s, t):
+			return
+	var close: EnemyAI = _nearest_enemy(global_position, 2.0)
+	if close != null and _attack_cd <= 0.0:
+		_melee(close)
+
+
+## Ambush: hold perfectly still at a spot until an enemy walks within `radius` (or one hits a squad-mate
+## nearby), then everyone in the ambush springs at once (the manager broadcasts the trigger).
+func _run_ambush(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		cmd.data["spot"] = cmd.args.get("spot", global_position) as Vector3
+	if bool(cmd.data.get("sprung", false)):
+		var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+		if e == null or not _enemy_ok(e):
+			e = _nearest_enemy(global_position, 10.0)
+			cmd.data["enemy"] = e
+		if e == null:
+			finish_current("ambush over")
+			return
+		cmd.step = "springing"
+		_fight(e, delta)
+		return
+	cmd.step = "lying in wait"
+	var spot: Vector3 = cmd.data["spot"]
+	if global_position.distance_to(spot) > 0.8:
+		_move_to(spot, profile.move_speed, delta)
+	else:
+		_halt(delta)
+	var trigger: EnemyAI = _nearest_enemy(spot, float(cmd.args.get("radius", 4.5)))
+	if trigger != null and trigger.is_aggroed():
+		if manager != null and manager.has_method("spring_ambush"):
+			manager.call("spring_ambush", trigger)
+		else:
+			cmd.data["sprung"] = true
+			cmd.data["enemy"] = trigger
+	if cmd.timer > 45.0:
+		finish_current("ambush timed out")
+	if player == null:
+		return
+
+
 # ------------------------------------------------------------------ peel / hit-and-run / errands
 
 ## Peel: pull the enemy that is on the player onto ourselves (taunt lock) and keep it busy.
@@ -1445,7 +2053,9 @@ func _run_interact(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	var tgt: Node3D = cmd.data.get("thing", null) as Node3D
 	if tgt == null or not is_instance_valid(tgt):
 		var want_chest: bool = String(cmd.args.get("target", "")) == "chest"
-		var groups: Array[String] = ["chest"] if want_chest else ["chest", "interactable_switch"]
+		var groups: Array[String] = ["chest"]
+		if not want_chest:
+			groups.append("interactable_switch")
 		var origin: Vector3 = player.global_position if player != null else global_position
 		var bd: float = 18.0
 		for grp in groups:
@@ -1755,7 +2365,7 @@ func _melee(e: EnemyAI) -> void:
 		clips = ["1H_Melee_Attack_Chop", "1H_Melee_Attack_Slice_Horizontal", "2H_Melee_Attack_Slice"]
 	clips.shuffle()
 	_play(clips, 0.55, true)
-	var dmg: int = int(round(float(profile.attack_damage) * (1.3 if _is_massacre() else 1.0)))
+	var dmg: int = int(round(float(profile.attack_damage) * (1.3 if _is_massacre() else 1.0) * (1.0 + _dmg_buff)))
 	_start_action("attack", 0.5, 0.24, func() -> void:
 		if _enemy_ok(e) and global_position.distance_to(e.global_position) <= profile.attack_range + 0.7:
 			if e.apply_damage(dmg, false, "ally_melee", self):

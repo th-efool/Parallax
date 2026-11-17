@@ -54,7 +54,7 @@ func current_priority() -> int:
 
 
 func speak(speaker: String, text: String, voice: String, instructions: String, prio: int) -> void:
-	if client == null or not SquadAIConfig.tts_enabled or not SquadAIConfig.is_online() or text.strip_edges().is_empty():
+	if client == null or not SquadAIConfig.tts_enabled or not SquadAIConfig.tts_available() or text.strip_edges().is_empty():
 		return
 	# Free-tier protection: cap voiced lines per minute (critical lines always pass).
 	var now: int = Time.get_ticks_msec()
@@ -120,8 +120,13 @@ func _on_done(id: int) -> void:
 		_stream_done = true
 
 
-func _on_failed(id: int, kind: String, _msg: String) -> void:
+func _on_failed(id: int, kind: String, msg: String) -> void:
 	if OpenAIClient.is_tts_kind(kind) and id == _req:
+		# Quota spent on that model: retry this same line once on the next TTS model in the fallback chain.
+		if msg.begins_with("QUOTA") and SquadAIConfig.tts_available() and not bool(_current.get("retried", false)):
+			_current["retried"] = true
+			_req = client.speak_stream(String(_current["text"]), String(_current["voice"]), String(_current["instructions"]))
+			return
 		_stream_done = true
 		_pending = PackedVector2Array()
 

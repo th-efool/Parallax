@@ -319,6 +319,22 @@ func apply_taunt(source: Node3D, bonus: float = -1.0, lock_sec: float = -1.0) ->
 	taunted.emit(source, lock)
 
 
+## Drops all threat on `source` (smoke bombs, stealth); if it was the target, the table is re-evaluated.
+func forget(source: Node) -> void:
+	if source == null:
+		return
+	var id: int = source.get_instance_id()
+	_threat.erase(id)
+	if _taunt_lock_id == id:
+		_taunt_lock_id = 0
+		_taunt_lock_timer = 0.0
+	if target_player == source and current_state == State.CHASE:
+		_lose_target()
+	elif target_player == source:
+		target_player = null
+		_select_target()
+
+
 ## Knockdown (charges, landing slams, detonations). Leaves the enemy STUNNED and taking bonus damage.
 func knock_down(duration: float = -1.0, source: Node = null) -> void:
 	if is_dead or not is_active or knockdown_immune:

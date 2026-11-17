@@ -98,8 +98,17 @@ func speak_stream(text: String, voice: String, style: String = "") -> int:
 				"speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
 			},
 		}
-		var url: String = "%s/models/%s:streamGenerateContent?alt=sse" % [SquadAIConfig.native_url(), SquadAIConfig.tts_model()]
-		return _start("tts_gemini", url, JSON.stringify(body).to_utf8_buffer(), "application/json", _goog())
+		var tm: String = SquadAIConfig.tts_model()
+		if tm.is_empty():
+			_seq += 1
+			call_deferred("_fail_deferred", _seq, "tts_gemini", "QUOTA: all Gemini TTS models are out of quota for today.")
+			return _seq
+		var url: String = "%s/models/%s:streamGenerateContent?alt=sse" % [SquadAIConfig.native_url(), tm]
+		var jid: int = _start("tts_gemini", url, JSON.stringify(body).to_utf8_buffer(), "application/json", _goog())
+		for jb in _jobs:
+			if jb.id == jid:
+				jb.model = tm
+		return jid
 	var b2: Dictionary = {
 		"model": SquadAIConfig.tts_model(),
 		"input": text,
@@ -150,6 +159,7 @@ class Job:
 	var calls: Dictionary = {}       # index -> {id, name, args}
 	var carry: PackedByteArray = PackedByteArray()    # odd PCM byte
 	var cancelled: bool = false
+	var model: String = ""
 
 
 func _start(kind: String, url_s: String, body: PackedByteArray, content_type: String, auth: PackedStringArray) -> int:
@@ -378,7 +388,12 @@ func _sse_data(j: Job, payload: String) -> void:
 
 func _finish(j: Job) -> bool:
 	if j.code >= 400 or j.code == 0:
-		request_failed.emit(j.id, j.kind, _error_message(j))
+		var msg: String = _error_message(j)
+		# Free-tier quota spent on this TTS model: skip it for the session; the TTS player retries the next one.
+		if j.code == 429 and j.kind == "tts_gemini" and not j.model.is_empty():
+			SquadAIConfig.mark_tts_exhausted(j.model)
+			msg = "QUOTA %s: %s" % [j.model, msg]
+		request_failed.emit(j.id, j.kind, msg)
 		return true
 	match j.kind:
 		"chat":
