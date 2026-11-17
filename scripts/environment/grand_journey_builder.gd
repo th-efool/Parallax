@@ -1667,56 +1667,16 @@ func _build_world_scenery() -> void:
 	for mdef in massifs:
 		# Each massif top sits a few cm lower than its neighbour so overlapping clamped tops never z-fight.
 		var top: Vector3 = (mdef[0] as Vector3) + Vector3(0, -0.035 * float(mi_idx % 5), 0)
-		var rk: MeshInstance3D = _rock(_scenery, "Massif", top, mdef[1], int(mdef[2]), rock_m, 1.0, 0.14, 14, false, true)
+		var rk: MeshInstance3D = _rock(_scenery, "Massif", top, mdef[1], int(mdef[2]), rock_m, 0.72, 0.24, 18, false, true)
 		rk.remove_meta("gj_batch")
 		mi_idx += 1
 
-	# Crags and spires around the route for parallax depth (4 shared meshes, MultiMesh batched).
+	# Continuous landscape: ridge crest under the route, forested valleys, river canyon, sunset lake,
+	# rolling mountain ring (replaces the old isolated crag spires + cloud sea). See JourneyTerrain.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2026
-	var variants: Array = []
-	for v in range(4):
-		variants.append(_with_lods(ProcMesh.rock_mesh(Vector3(1, 1, 1), 900 + v, 0.24, 12, 1.0, 0.55)))
-	var buckets: Array = [[], [], [], []]
-	var placed: int = 0
-	var guard: int = 0
-	var sun_h: Vector3 = SUN_HEADING.normalized()
-	while placed < 40 and guard < 2000:
-		guard += 1
-		var ang: float = rng.randf_range(0.0, TAU)
-		var dist: float = rng.randf_range(70.0, 300.0)
-		var center := Vector3(sin(ang) * dist, 0, 60.0 + cos(ang) * dist * 1.3)
-		# Keep a clear corridor around the route, and keep the sunset side (west/north-west) open for vistas.
-		if absf(center.x) < 45.0 and center.z > -90.0 and center.z < 230.0:
-			continue
-		var from_route := Vector3(center.x, 0, center.z - clampf(center.z, -60.0, 200.0)).normalized()
-		if center.x < 0.0 and from_route.dot(sun_h) > -0.2:
-			continue
-		var h: float = rng.randf_range(55.0, 115.0)
-		var w: float = h * rng.randf_range(0.22, 0.4)
-		var b := Basis(Vector3.UP, rng.randf_range(0, TAU)).scaled(Vector3(w, h, w * rng.randf_range(0.7, 1.3)))
-		# Bottoms well below the cloud deck (Y -32) so nothing reads as floating.
-		buckets[placed % 4].append(Transform3D(b, center + Vector3(0, -45.0 + h * rng.randf_range(0.2, 0.42), 0)))
-		placed += 1
-	for v in range(4):
-		var mmi := _multimesh(_scenery, "Crags%d" % v, variants[v], rock_m, buckets[v], false)
-		mmi.visibility_range_end = 900.0
-
-	# Distant mountain ranges (aerial-perspective silhouettes through fog).
-	var far_m: ShaderMaterial = _m_rock_far()
-	for i in range(18):
-		var ang: float = TAU * float(i) / 18.0 + rng.randf_range(-0.1, 0.1)
-		var dist: float = rng.randf_range(1200.0, 2300.0)
-		var mesh: ArrayMesh = _with_lods(ProcMesh.mountain_mesh(rng.randf_range(420.0, 700.0), rng.randf_range(260.0, 520.0), 700 + i))
-		_mesh(_scenery, "Mountain", mesh, far_m, Transform3D(Basis(Vector3.UP, rng.randf_range(0, TAU)), Vector3(sin(ang) * dist, -70.0, 60.0 + cos(ang) * dist)), false, 0.0, false)
-
-	# Sea of clouds
-	var cloud := PlaneMesh.new()
-	cloud.size = Vector2(9000, 9000)
-	var cm := ShaderMaterial.new()
-	if ResourceLoader.exists(CLOUD_SHADER):
-		cm.shader = load(CLOUD_SHADER) as Shader
-	_mesh(_scenery, "CloudSea", cloud, cm, Transform3D(Basis.IDENTITY, Vector3(0, -32.0, 60.0)), false)
+	var terrain = (load("res://scripts/environment/journey_terrain.gd") as GDScript).new(get_route_waypoints(), SUN_HEADING)
+	terrain.call("build", _scenery, _with_lods)
 
 	# Mirror-only floating isles with crystal crowns drifting around the summit.
 	var isles: Array[Node3D] = _zone("Zone_SkyIsles")

@@ -40,6 +40,65 @@ float noise2(vec2 p) {
 	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// --- Drifting cloud layer: a few sun-lit cumulus + high cirrus streaks on a curved sky plane.
+uniform float cloud_coverage : hint_range(0.0, 1.0) = 0.3;
+uniform vec2 cloud_wind = vec2(0.010, 0.004);
+uniform vec4 cloud_lit : source_color = vec4(1.0, 0.86, 0.70, 1.0);
+uniform vec4 cloud_shade : source_color = vec4(0.46, 0.44, 0.52, 1.0);
+
+float cnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	float a = hash13(vec3(i, 7.0));
+	float b = hash13(vec3(i + vec2(1.0, 0.0), 7.0));
+	float c = hash13(vec3(i + vec2(0.0, 1.0), 7.0));
+	float e = hash13(vec3(i + vec2(1.0, 1.0), 7.0));
+	return mix(mix(a, b, u.x), mix(c, e, u.x), u.y);
+}
+
+float cfbm(vec2 p, int oct) {
+	float v = 0.0;
+	float a = 0.5;
+	for (int i = 0; i < 6; i++) {
+		if (i >= oct) break;
+		v += cnoise(p) * a;
+		p = p * 2.02 + vec2(11.3, 4.7);
+		a *= 0.5;
+	}
+	return v;
+}
+
+// Returns rgb = cloud colour, a = coverage alpha.
+vec4 sky_clouds(vec3 d, vec3 s, bool cubemap_pass) {
+	if (d.y <= 0.005) return vec4(0.0);
+	vec2 uv = d.xz / (d.y + 0.12);
+	float t = TIME;
+	float cov = mix(cloud_coverage, 0.85, overcast);
+	// Cumulus: large shapes, eroded edges, slow drift; evolve over time so shapes keep changing.
+	vec2 cp = uv * 1.1 + t * cloud_wind;
+	int oct = cubemap_pass ? 3 : 5;
+	float shape = cfbm(cp + vec2(0.0, t * 0.003), oct);
+	float thr = 1.0 - cov;
+	float dens = smoothstep(thr * 0.62, thr * 0.62 + 0.22, shape);
+	// Self-shadow: sample toward the sun -> thinner side facing the sun gets lit.
+	vec2 sun_uv = normalize(s.xz + vec2(1e-4)) * 0.06;
+	float toward = cfbm(cp + sun_uv, oct);
+	float lit = clamp(0.55 + (shape - toward) * 6.0, 0.0, 1.0);
+	float sd = max(dot(d, s), 0.0);
+	vec3 col = mix(cloud_shade.rgb, cloud_lit.rgb * 1.5, lit);
+	// Silver lining around the sun and on thin edges.
+	col += cloud_lit.rgb * pow(sd, 12.0) * (1.0 - dens) * 3.0;
+	// High cirrus streaks.
+	float ci = cfbm(vec2(uv.x * 0.35 + t * cloud_wind.x * 2.5, uv.y * 2.2), cubemap_pass ? 2 : 4);
+	float cirrus = smoothstep(0.55, 0.85, ci) * 0.35 * (1.0 - overcast);
+	float a = max(dens, cirrus);
+	// Fade toward the horizon (distance haze) and very overhead stretching.
+	a *= smoothstep(0.0, 0.18, d.y);
+	col = mix(cloud_lit.rgb * 1.2 + pow(sd, 6.0) * 0.6, col, dens / max(a, 1e-3));
+	return vec4(col, clamp(a, 0.0, 1.0));
+}
+
 vec3 day_sky(vec3 d) {
 	float lon = atan(d.x, -d.z) + sky_rotation;
 	vec2 uv = vec2(lon / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
@@ -76,6 +135,12 @@ void sky() {
 	vec3 day = mirror_blend < 0.999 ? day_sky(d) : vec3(0.0);
 	vec3 night = mirror_blend > 0.001 ? night_sky(d, AT_CUBEMAP_PASS) : vec3(0.0);
 	vec3 col = mix(day, night, mirror_blend);
+	{
+		vec4 cl = sky_clouds(d, normalize(sun_dir), AT_CUBEMAP_PASS);
+		// Mirror: moonlit indigo clouds rim-lit by the moon.
+		vec3 ccol = mix(cl.rgb, vec3(0.16, 0.22, 0.42) * (0.6 + 0.8 * cl.rgb.r), mirror_blend);
+		col = mix(col, ccol, cl.a * 0.92);
+	}
 	float luma = dot(col, vec3(0.299, 0.587, 0.114));
 	// Storm: desaturate + darken toward a heavy grey deck, with rolling cloud bands near the horizon.
 	float band = noise2(vec2(atan(d.x, d.z) * 4.0 + TIME * 0.02, d.y * 9.0));
