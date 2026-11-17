@@ -1,11 +1,15 @@
 class_name SquadCoordinator
 extends Node
 ## Lightweight "co-op brain" shared by every EnemyAI (lazy singleton, no autoload needed).
-##  - Attack tokens: only N enemies may commit to an attack at once; the rest hold a ring around the
-##    player, circling and spacing themselves out instead of queueing in a line.
-##  - Rhythm: a minimum gap between attack starts so pressure comes in alternating beats, not a pile-on.
-##  - Pincer priority: enemies behind / beside the player win the next token, so they flank.
-##  - Alerts: the first enemy to spot the player calls the others in.
+##  - Per-target bookkeeping: which entity (player or a squad ally) each enemy is hunting.
+##  - Soft target cap: at most `max_enemies_per_target` enemies should pile onto one entity; extra enemies
+##    see a threat penalty for saturated targets and spread onto others (taunts ignore the cap).
+##  - Attack tokens (per target): only N enemies may commit to an attack on the same entity at once; the rest
+##    hold a ring around it, circling and spacing themselves out instead of queueing in a line.
+##  - Rhythm: a minimum gap between attack starts on the same target so pressure comes in beats.
+##  - Pincer priority: enemies behind / beside the target win the next token, so they flank.
+##  - Alert propagation: the first enemy to spot a target calls squad-mates within `join_radius` (or in the
+##    same encounter) straight into the fight; those within `alert_radius` come to investigate (ALERT).
 ##  - Threat reads: when the player winds up, nearby uncommitted enemies may side-step out of the arc.
 ##  - Last stand: when a squad is whittled down to one, the survivor becomes enraged.
 
@@ -14,14 +18,18 @@ const MAX_TOKEN_HOLD_SEC: float = 4.0
 static var _instance: Node = null
 
 var max_attackers: int = 2
+var max_enemies_per_target: int = 3
 var min_attack_gap: float = 0.42
-var alert_radius: float = 14.0
+var join_radius: float = 9.0
+var alert_radius: float = 18.0
 var engage_radius: float = 11.0
 
 var _members: Array[Node] = []
-var _tokens: Dictionary = {}       # enemy instance_id -> grant time (sec)
+var _tokens: Dictionary = {}        # enemy instance_id -> grant time (sec)
+var _token_target: Dictionary = {}  # enemy instance_id -> target instance_id
 var _waiting_since: Dictionary = {} # enemy instance_id -> first request time
-var _last_attack_start: float = -10.0
+var _enemy_target: Dictionary = {}  # enemy instance_id -> target instance_id
+var _last_attack_start: Dictionary = {} # target instance_id -> sec
 var _peak_engaged: int = 0
 
 
@@ -35,6 +43,12 @@ static func get_for(context: Node) -> SquadCoordinator:
 	context.get_tree().root.add_child.call_deferred(sc)
 	_instance = sc
 	return sc
+
+
+static func get_instance() -> SquadCoordinator:
+	if _instance != null and is_instance_valid(_instance):
+		return _instance as SquadCoordinator
+	return null
 
 
 static func notify_player_attack(player: Node3D, is_heavy: bool, windup: float) -> void:
@@ -60,6 +74,12 @@ func register(e: Node) -> void:
 func unregister(e: Node) -> void:
 	_members.erase(e)
 	release_token(e)
+	if e != null:
+		_enemy_target.erase(e.get_instance_id())
+
+
+func get_members() -> Array[Node]:
+	return _members
 
 
 func _prune() -> void:
@@ -73,23 +93,66 @@ func _prune() -> void:
 		var obj: Object = instance_from_id(int(id))
 		if obj == null or not is_instance_valid(obj) or now - float(_tokens[id]) > MAX_TOKEN_HOLD_SEC:
 			_tokens.erase(id)
+			_token_target.erase(id)
 		elif obj is EnemyBase and ((obj as EnemyBase).is_dead or not (obj as EnemyBase).is_active):
 			_tokens.erase(id)
+			_token_target.erase(id)
 
 
-## Enemies currently fighting (active, alive, chasing/attacking near the player).
-func get_engaged(player: Node3D) -> Array[EnemyAI]:
+# ------------------------------------------------------------------ per-target bookkeeping
+
+func set_enemy_target(e: Node, target: Node) -> void:
+	if e == null:
+		return
+	if target == null:
+		_enemy_target.erase(e.get_instance_id())
+	else:
+		_enemy_target[e.get_instance_id()] = target.get_instance_id()
+
+
+## Live enemies currently hunting `target` (optionally excluding one).
+func count_targeting(target: Node, exclude: Node = null) -> int:
+	if target == null:
+		return 0
+	var tid: int = target.get_instance_id()
+	var n: int = 0
+	for m in _members:
+		if m == exclude or not is_instance_valid(m):
+			continue
+		var e: EnemyAI = m as EnemyAI
+		if e == null or e.is_dead or not e.is_active:
+			continue
+		if int(_enemy_target.get(e.get_instance_id(), 0)) == tid and e.is_aggroed():
+			n += 1
+	return n
+
+
+func is_target_saturated(target: Node, asker: Node) -> bool:
+	return count_targeting(target, asker) >= max_enemies_per_target
+
+
+## Enemies currently fighting `target` (active, alive, aggroed on it and nearby).
+func get_engaged(target: Node3D) -> Array[EnemyAI]:
 	var out: Array[EnemyAI] = []
+	var tid: int = target.get_instance_id() if target != null else 0
 	for m in _members:
 		var e: EnemyAI = m as EnemyAI
 		if e == null or not is_instance_valid(e) or e.is_dead or not e.is_active or not e.is_inside_tree():
 			continue
-		if e.current_state == EnemyAI.State.IDLE:
+		if not e.is_aggroed():
 			continue
-		if player != null and e.global_position.distance_to(player.global_position) > engage_radius:
-			continue
+		if target != null:
+			if int(_enemy_target.get(e.get_instance_id(), 0)) != tid:
+				continue
+			if e.global_position.distance_to(target.global_position) > engage_radius:
+				continue
 		out.append(e)
 	return out
+
+
+## Every aggroed enemy (any target) — used by allies and the squad HUD.
+func get_aggroed_enemies() -> Array[EnemyAI]:
+	return get_engaged(null)
 
 
 func has_token(e: Node) -> bool:
@@ -100,26 +163,43 @@ func release_token(e: Node) -> void:
 	if e == null:
 		return
 	_tokens.erase(e.get_instance_id())
+	_token_target.erase(e.get_instance_id())
 	_waiting_since.erase(e.get_instance_id())
 
 
+func _tokens_on(target_id: int) -> int:
+	var n: int = 0
+	for id in _tokens.keys():
+		if int(_token_target.get(id, 0)) == target_id:
+			n += 1
+	return n
+
+
 ## Called every frame by an enemy that is in range and ready to swing. Returns true when it may commit.
-func request_attack_token(e: EnemyAI, player: Node3D) -> bool:
+func request_attack_token(e: EnemyAI, target: Node3D) -> bool:
 	_prune()
 	var id: int = e.get_instance_id()
 	if _tokens.has(id):
 		return true
+	if target == null:
+		return false
+	var tid: int = target.get_instance_id()
 	var now: float = _now()
 	if not _waiting_since.has(id):
 		_waiting_since[id] = now
-	var engaged: Array[EnemyAI] = get_engaged(player)
+	# Taunted enemies are locked on and never wait for a token.
+	if e.is_taunted():
+		_grant(id, tid, now)
+		return true
+	var engaged: Array[EnemyAI] = get_engaged(target)
 	var cap: int = max_attackers if engaged.size() >= 3 else maxi(1, mini(max_attackers, engaged.size()))
-	if _tokens.size() >= cap:
+	var on_target: int = _tokens_on(tid)
+	if on_target >= cap:
 		return false
-	if now - _last_attack_start < min_attack_gap and not _tokens.is_empty():
+	if now - float(_last_attack_start.get(tid, -10.0)) < min_attack_gap and on_target > 0:
 		return false
-	# Fairness + flanking: highest priority waiter wins.
-	var my_p: float = _priority(e, player, now)
+	# Fairness + flanking: highest priority waiter on the same target wins.
+	var my_p: float = _priority(e, target, now)
 	for other_id in _waiting_since.keys():
 		if int(other_id) == id or _tokens.has(other_id):
 			continue
@@ -132,30 +212,37 @@ func request_attack_token(e: EnemyAI, player: Node3D) -> bool:
 		if oe.is_dead or not oe.is_active or stale:
 			_waiting_since.erase(other_id)
 			continue
-		if _priority(oe, player, now) > my_p + 0.05:
+		if int(_enemy_target.get(int(other_id), 0)) != tid:
+			continue
+		if _priority(oe, target, now) > my_p + 0.05:
 			return false
-	_tokens[id] = now
-	_waiting_since.erase(id)
-	_last_attack_start = now
+	_grant(id, tid, now)
 	return true
 
 
-func _priority(e: EnemyAI, player: Node3D, now: float) -> float:
+func _grant(id: int, tid: int, now: float) -> void:
+	_tokens[id] = now
+	_token_target[id] = tid
+	_waiting_since.erase(id)
+	_last_attack_start[tid] = now
+
+
+func _priority(e: EnemyAI, target: Node3D, now: float) -> float:
 	var wait: float = now - float(_waiting_since.get(e.get_instance_id(), now))
 	var p: float = wait
-	if player != null and player.has_method("get_facing_direction"):
-		var pf: Vector3 = player.call("get_facing_direction")
-		var to_e: Vector3 = e.global_position - player.global_position
+	if target != null and target.has_method("get_facing_direction"):
+		var pf: Vector3 = target.call("get_facing_direction")
+		var to_e: Vector3 = e.global_position - target.global_position
 		to_e.y = 0.0
 		if to_e.length_squared() > 0.001:
-			# Behind the player (dot < 0) scores up to +1.2 s of "virtual waiting".
+			# Behind the target (dot < 0) scores up to +1.2 s of "virtual waiting".
 			p += clampf(-pf.dot(to_e.normalized()), 0.0, 1.0) * 1.2
 	return p
 
 
 ## Point on the holding ring for a non-attacking enemy: spaced from squad-mates, drifting to flank.
-func get_ring_position(e: EnemyAI, player: Node3D, radius: float, orbit_sign: float) -> Vector3:
-	var center: Vector3 = player.global_position
+func get_ring_position(e: EnemyAI, target: Node3D, radius: float, orbit_sign: float) -> Vector3:
+	var center: Vector3 = target.global_position
 	var rel: Vector3 = e.global_position - center
 	rel.y = 0.0
 	if rel.length_squared() < 0.01:
@@ -163,7 +250,7 @@ func get_ring_position(e: EnemyAI, player: Node3D, radius: float, orbit_sign: fl
 	var my_ang: float = atan2(rel.z, rel.x)
 	var push: float = 0.0
 	var spacing: float = deg_to_rad(62.0)
-	for m in get_engaged(player):
+	for m in get_engaged(target):
 		if m == e:
 			continue
 		var r2: Vector3 = m.global_position - center
@@ -173,9 +260,9 @@ func get_ring_position(e: EnemyAI, player: Node3D, radius: float, orbit_sign: fl
 		var d: float = wrapf(my_ang - atan2(r2.z, r2.x), -PI, PI)
 		if absf(d) < spacing:
 			push += (spacing - absf(d)) * (1.0 if d >= 0.0 else -1.0) * 1.6
-	# Drift toward the player's flank/back when standing in front of them.
-	if player.has_method("get_facing_direction"):
-		var pf: Vector3 = player.call("get_facing_direction")
+	# Drift toward the target's flank/back when standing in front of it.
+	if target.has_method("get_facing_direction"):
+		var pf: Vector3 = target.call("get_facing_direction")
 		var front: float = pf.dot(rel.normalized())
 		if front > 0.3:
 			var side: float = signf(pf.cross(rel.normalized()).y)
@@ -203,25 +290,38 @@ func get_separation(e: EnemyAI, radius: float = 1.6) -> Vector3:
 	return push
 
 
-## The first enemy to see the player calls nearby idle squad-mates into the fight.
-func alert(source: EnemyAI, player: Node3D) -> void:
+## The first enemy to see a target calls nearby squad-mates in (join) or over to investigate (alert).
+func alert(source: EnemyAI, target: Node3D) -> void:
 	for m in _members:
 		var e: EnemyAI = m as EnemyAI
 		if e == null or e == source or not is_instance_valid(e) or e.is_dead or not e.is_active:
 			continue
-		if e.current_state != EnemyAI.State.IDLE:
+		if e.current_state != EnemyAI.State.IDLE and e.current_state != EnemyAI.State.ALERT:
 			continue
 		var same_encounter: bool = not source.encounter_id.is_empty() and e.encounter_id == source.encounter_id
-		if same_encounter or e.global_position.distance_to(source.global_position) <= alert_radius:
-			e.receive_alert(player, source)
+		var d: float = e.global_position.distance_to(source.global_position)
+		if same_encounter or d <= join_radius:
+			e.receive_alert(target, source, true)
+		elif d <= alert_radius:
+			e.receive_alert(target, source, false)
 
 
-func is_last_standing(e: EnemyAI, player: Node3D) -> bool:
-	var engaged: Array[EnemyAI] = get_engaged(player)
+## A loud event (ally war-cry, detonation) makes idle enemies within `radius` investigate.
+func broadcast_noise(at: Vector3, radius: float) -> void:
+	for m in _members:
+		var e: EnemyAI = m as EnemyAI
+		if e == null or not is_instance_valid(e) or e.is_dead or not e.is_active:
+			continue
+		if e.global_position.distance_to(at) <= radius:
+			e.hear_noise(at)
+
+
+func is_last_standing(e: EnemyAI, target: Node3D) -> bool:
+	var engaged: Array[EnemyAI] = get_engaged(null)
 	_peak_engaged = maxi(_peak_engaged, engaged.size())
 	if engaged.is_empty():
 		_peak_engaged = 0
-	return _peak_engaged >= 2 and engaged.size() == 1 and engaged[0] == e
+	return _peak_engaged >= 2 and engaged.size() == 1 and engaged[0] == e and target != null
 
 
 func _on_player_attack(player: Node3D, is_heavy: bool, windup: float) -> void:

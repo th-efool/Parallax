@@ -373,10 +373,25 @@ func _process_enemy(ai: EnemyAI, delta: float) -> void:
 			_play_directional_locomotion(ai)
 		EnemyAI.State.IDLE:
 			_tl_active = false
-			if _actor is ShieldedGuard and (_actor as ShieldedGuard).is_shield_raised():
+			if Vector2(ai.velocity.x, ai.velocity.z).length() > 0.3:
+				_play_directional_locomotion(ai)
+			elif _actor is ShieldedGuard and (_actor as ShieldedGuard).is_shield_raised():
 				play_candidates(["Blocking", "Block", "Idle_Combat"], -1.0, false, true)
 			else:
 				play_candidates(["Idle_Combat", "Idle", "Idle_A"], -1.0, false, true)
+		EnemyAI.State.ALERT, EnemyAI.State.RETURNING, EnemyAI.State.FLEEING:
+			_tl_active = false
+			_play_directional_locomotion(ai)
+		EnemyAI.State.STUNNED:
+			_tl_active = false
+			var el: float = ai.get_state_elapsed()
+			var remain: float = ai.get_state_duration() - el
+			if el < 0.5:
+				play_candidates(["Lie_Down", "Hit_B"], 0.5, false, false)
+			elif remain < 0.65:
+				play_candidates(["Lie_StandUp", "Idle"], maxf(0.2, remain), false, false)
+			else:
+				play_candidates(["Lie_Idle", "Lie_Pose", "Hit_B"], -1.0, false, true)
 
 
 ## Strafe / back-pedal / run chosen from velocity relative to facing (enemies circle while waiting).
@@ -424,6 +439,9 @@ func _on_enemy_state_changed(new_state: int) -> void:
 		EnemyAI.State.DEAD:
 			_tl_active = false
 			play_candidates(["Death_A", "Death_B"], -1.0, true, false)
+		EnemyAI.State.STUNNED:
+			_tl_active = false
+			play_candidates(["Lie_Down", "Hit_B"], 0.5, true, false)
 
 
 func _on_enemy_attack_telegraphed(attack_name: String, windup_sec: float) -> void:
@@ -452,7 +470,7 @@ func _configure_animation_loops() -> void:
 		"Idle", "Idle_A", "Idle_B", "Idle_Combat",
 		"Running_A", "Running_B", "Walking_A", "Walking_B", "Walking_Backwards",
 		"Running_Strafe_Left", "Running_Strafe_Right",
-		"Jump_Idle", "Block", "Blocking",
+		"Jump_Idle", "Block", "Blocking", "Lie_Idle", "Spellcasting", "2H_Melee_Idle",
 	]
 	for base_name in loop_names:
 		for cand in [base_name, "Animations/" + base_name]:

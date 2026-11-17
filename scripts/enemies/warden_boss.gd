@@ -80,6 +80,12 @@ func _init() -> void:
 	knockback_scale = 0.15
 	evade_skill = 0.0
 	attack_lunge_speed = 0.0
+	# Boss aggro: never knocked down, never turned by a backstab, never leashes out of its arena, never flees.
+	knockdown_immune = true
+	backstab_staggers = false
+	max_chase_distance = 80.0
+	flee_health_ratio = 0.0
+	show_state_icon = false
 
 
 func step_ai(delta: float) -> void:

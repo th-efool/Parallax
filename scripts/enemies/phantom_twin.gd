@@ -27,6 +27,8 @@ func _init() -> void:
 	evade_skill = 0.7
 	knockback_scale = 1.3
 	ring_margin = 1.2
+	flee_health_ratio = 0.25
+	flee_duration = 2.2
 
 
 func start_windup(custom_windup: float = -1.0) -> void:

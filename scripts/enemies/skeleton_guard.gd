@@ -22,6 +22,7 @@ func _init() -> void:
 	attack_name = "skeleton_slash"
 	section_id = EncounterDirector.Section.HALL_COMBAT
 	encounter_id = "hall_of_echoes"
+	flee_health_ratio = 0.15
 
 
 func reset_hall_hint_flag() -> void:

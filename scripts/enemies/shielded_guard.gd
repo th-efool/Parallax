@@ -33,6 +33,10 @@ func _init() -> void:
 	evade_skill = 0.15
 	max_flinch_chain = 1
 	attack_lunge_speed = 4.0
+	# Disciplined: never breaks, holds aggro longer, shrugs off backstab turn-arounds a little faster.
+	flee_health_ratio = 0.0
+	threat_decay_per_sec = 0.06
+	backstab_stagger = 0.4
 
 
 func is_shield_raised() -> bool:
