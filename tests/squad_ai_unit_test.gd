@@ -86,6 +86,16 @@ func _run() -> void:
 		["Ivo dance", "dance", ["Ivo"], ""],
 		["hold here", "hold", [], ""],
 		["stop", "stop", [], ""],
+		["split up", "split", [], ""],
+		["peel it off me", "peel", [], ""],
+		["Sera, hit and run the caster", "hit_and_run", ["Sera"], "caster"],
+		["Ivo, attack Sera's target", "attack", ["Ivo"], "ally:Sera"],
+		["Brannoc, take aggro", "taunt", ["Brannoc"], ""],
+		["guard the objective", "bodyguard", [], "objective"],
+		["go hunt some wildlife", "hunt", [], ""],
+		["open the chest", "interact", [], "chest"],
+		["smash that pillar", "destroy", [], ""],
+		["Brannoc, guard me. Sera and Ivo, kite and nuke the skeleton.", "bodyguard", ["Brannoc"], "player"],
 	]
 	for cs in cases:
 		var out: Array = SquadCommandParser.parse(String(cs[0]), names)
@@ -116,8 +126,9 @@ func _run() -> void:
 	if comms != null:
 		var notes: Array[String] = []
 		comms.notify.connect(func(t: String, lv: String) -> void: notes.append(lv + ":" + t))
-		SquadAIConfig._file_key = "sk-test-not-a-real-key"
-		SquadAIConfig.base_url = "http://127.0.0.1:9/v1"
+		SquadAIConfig.provider_pref = "openai"
+		SquadAIConfig._env_keys["openai"] = "sk-test-not-a-real-key"
+		SquadAIConfig.base_url_override = "http://127.0.0.1:9/v1"
 		comms.submit_utterance("everyone ceasefire", "chat")
 		var t0: int = Time.get_ticks_msec()
 		while Time.get_ticks_msec() - t0 < 12000 and not notes.any(func(n: String) -> bool: return n.begins_with("error")):
@@ -134,6 +145,7 @@ func _run() -> void:
 		sera.apply_damage(99999, null)
 		var prompt: String = comms.build_system_prompt(mgr.find_ally("Ivo"))
 		_check("prompt_live_roster", prompt.contains("Sera (skirmisher") and prompt.contains("DOWN"), "")
-		SquadAIConfig._file_key = ""
+		SquadAIConfig.force_offline()
+		SquadAIConfig.base_url_override = ""
 	print("[unit] SUMMARY %d checks, %d failed" % [_checks, _fails])
 	quit(1 if _fails > 0 else 0)

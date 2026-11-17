@@ -17,7 +17,14 @@ const NUMBER_WORDS: Dictionary = {
 const RULES: Array = [
 	["ceasefire", ["ceasefire", "cease fire", "hold fire", "stop fighting", "weapons down", "stand down", "peace", "don't attack", "do not attack"]],
 	["massacre", ["massacre", "kill them all", "kill everything", "kill everyone", "go wild", "no mercy", "all out", "all-out", "slaughter", "berserk", "bloodbath"]],
-	["scatter", ["scatter", "spread out", "disperse", "split up", "take cover", "run!", "get away"]],
+	["scatter", ["scatter", "spread out", "disperse", "take cover", "run!", "get away"]],
+	["split", ["split up", "split the squad", "flank them", "pincer", "left and right", "split"]],
+	["peel", ["peel", "get it off me", "get them off me", "off me", "help me"]],
+	["hit_and_run", ["hit and run", "hit-and-run", "harass", "skirmish"]],
+	["assist", ["'s target", "same target", "assist", "help "]],
+	["hunt", ["hunt", "wildlife", "animals", "chase the bird", "chase the deer", "go chase"]],
+	["destroy", ["destroy", "smash", "wreck", "topple", "break the", "knock over"]],
+	["interact", ["chest", "open the", "pull the lever", "flip the switch", "use the switch", "interact", "loot"]],
 	["combo_kite_nuke", ["kite and nuke", "kite nuke", "kite & nuke", "kite + nuke", "kite them and nuke", "kite them so", "bunch them up"]],
 	["combo_charge_finish", ["charge and finish", "charge finish", "charge & finish", "knock down and finish", "charge then finish", "charge in and finish"]],
 	["combo_lure_detonate", ["lure and detonate", "lure detonate", "lure them into", "trap", "lure & detonate", "lure them", "mine"]],
@@ -25,7 +32,7 @@ const RULES: Array = [
 	["bodyguard", ["bodyguard", "guard", "protect", "cover me", "cover ", "defend", "escort", "keep me safe", "watch my back"]],
 	["kite", ["kite", "run circles", "draw them", "lead them around", "distract"]],
 	["nuke", ["nuke", "blast", "explode", "bomb", "fireball", "aoe", "big spell", "cast"]],
-	["taunt", ["taunt", "provoke", "draw aggro", "pull aggro", "get their attention"]],
+	["taunt", ["taunt", "provoke", "aggro", "get their attention"]],
 	["retreat", ["retreat", "fall back", "back off", "regroup", "get back"]],
 	["stop", ["cancel", "stop", "never mind", "nevermind", "abort", "belay"]],
 	["auto_off", ["don't engage", "dont engage", "passive", "no auto"]],
@@ -42,7 +49,7 @@ const RULES: Array = [
 const TARGET_WORDS: Dictionary = {
 	"brute": "brute", "big one": "brute", "grave": "brute", "caster": "caster", "hexcaster": "caster",
 	"mage": "caster", "wizard": "caster", "stalker": "stalker", "shade": "stalker", "rogue": "stalker",
-	"phantom": "phantom", "ghost": "phantom", "twin": "phantom", "shield": "shield", "guard ": "shield",
+	"phantom": "phantom", "ghost": "phantom", "twin": "phantom", "shield": "shield",
 	"knight": "shield", "skeleton": "skeleton", "warden": "warden", "boss": "warden",
 	"strongest": "strongest", "toughest": "strongest", "weakest": "weakest", "wounded": "weakest",
 	"nearest": "nearest", "closest": "nearest", "that one": "nearest", "them": "nearest",
@@ -55,7 +62,8 @@ static func parse(text: String, ally_names: Array) -> Array:
 	var raw: String = text.strip_edges()
 	if raw.is_empty():
 		return out
-	var t: String = " " + raw.to_lower().replace(",", " ").replace(".", " ").replace("?", " ") + " "
+	# Sentence boundaries are clause boundaries too ("Brannoc, guard me. Sera, kite them.").
+	var t: String = " " + raw.to_lower().replace(". ", " ; ").replace("! ", " ; ").replace("? ", " ; ").replace(",", " ").replace(".", " ").replace("?", " ") + " "
 	# Multi-clause: "Sera kite them then Ivo nuke" -> split on then / and then / ;
 	var clauses: PackedStringArray = _split_clauses(t)
 	var carry_allies: Array = []
@@ -111,6 +119,19 @@ static func _parse_clause(t: String, ally_names: Array, carry_allies: Array) -> 
 			cmd["target"] = who if not who.is_empty() else ("player" if verb == "bodyguard" else "")
 			if verb == "bodyguard" and (t.contains(" me ") or t.contains(" me") or t.contains("my back")):
 				cmd["target"] = "player"
+			if verb == "bodyguard" and who.is_empty() and (t.contains("objective") or t.contains("gate") or t.contains("switch") or t.contains("lever")):
+				cmd["target"] = "objective"
+		"assist":
+			# "attack Sera's target" / "help Brannoc" -> attack whatever that ally is fighting.
+			cmd["verb"] = "attack"
+			var mate: String = _named_other(t, ally_names, allies)
+			cmd["target"] = "ally:" + mate if not mate.is_empty() else "nearest"
+		"taunt":
+			if t.contains("aggro") or t.contains("attention"):
+				cmd["area"] = true
+		"interact":
+			if t.contains("chest") or t.contains("loot"):
+				cmd["target"] = "chest"
 	if not cmd.has("target"):
 		var tgt: String = _target_word(t)
 		if not tgt.is_empty():

@@ -634,18 +634,26 @@ func _build_squad_comms_rows(rows: VBoxContainer) -> void:
 	MenuStyle.style_label(status, 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var refresh_status := func() -> void:
-		status.text = ("Online: %s via %s (key from %s)." % [SquadAIConfig.model, SquadAIConfig.base_url, SquadAIConfig.key_source()]) if SquadAIConfig.is_online() \
-			else "Offline: no API key. Typed orders use the built-in keyword parser; voice needs a key. Set OPENAI_API_KEY or paste a key below (stored only in user://squad_ai.cfg, never in the project)."
-	_make_text_row(rows, "Model", SquadAIConfig.model, false, func(t: String) -> void:
-		SquadAIConfig.model = t if not t.strip_edges().is_empty() else "gpt-4o"
+		status.text = ("Online: %s via %s." % [SquadAIConfig.describe(), SquadAIConfig.base_url()]) if SquadAIConfig.is_online() \
+			else "Offline: no API key. Typed orders use the built-in keyword parser; voice needs a key. Set GEMINI_API_KEY (free tier, preferred) or OPENAI_API_KEY, a .env file, or paste a key below (stored only in user://squad_ai.cfg, never in the project)."
+	var prov_opt: OptionButton = _make_option_row(rows, "AI Provider", ["Auto (Gemini first)", "Gemini", "OpenAI"], func(idx: int) -> void:
+		SquadAIConfig.provider_pref = SquadAIConfig.PROVIDERS[clampi(idx, 0, 2)]
 		SquadAIConfig.save()
 		refresh_status.call())
-	_make_text_row(rows, "API Base URL", SquadAIConfig.base_url, false, func(t: String) -> void:
-		SquadAIConfig.base_url = t.strip_edges() if not t.strip_edges().is_empty() else "https://api.openai.com/v1"
+	prov_opt.select(maxi(0, SquadAIConfig.PROVIDERS.find(SquadAIConfig.provider_pref)))
+	_make_text_row(rows, "Model override (blank = default)", SquadAIConfig.model_override, false, func(t: String) -> void:
+		SquadAIConfig.model_override = t.strip_edges()
 		SquadAIConfig.save()
 		refresh_status.call())
-	_make_text_row(rows, "API Key (optional)", "", true, func(t: String) -> void:
-		SquadAIConfig.set_file_key(t)
+	_make_text_row(rows, "Chat base URL override", SquadAIConfig.base_url_override, false, func(t: String) -> void:
+		SquadAIConfig.base_url_override = t.strip_edges()
+		SquadAIConfig.save()
+		refresh_status.call())
+	_make_text_row(rows, "Gemini API Key (optional)", "", true, func(t: String) -> void:
+		SquadAIConfig.set_file_key("gemini", t)
+		refresh_status.call())
+	_make_text_row(rows, "OpenAI API Key (optional)", "", true, func(t: String) -> void:
+		SquadAIConfig.set_file_key("openai", t)
 		refresh_status.call())
 	rows.add_child(status)
 	refresh_status.call()

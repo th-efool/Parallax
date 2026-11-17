@@ -32,6 +32,8 @@ extends Resource
 ## Health ratio below which the ally falls back to heal (disabled during MASSACRE).
 @export var retreat_threshold: float = 0.3
 @export var regen_per_sec: float = 3.0
+## Incoming damage multiplier (Echoes are mirror-hardened; keeps companions alive without god-mode).
+@export var damage_taken_mult: float = 0.6
 
 @export_group("Abilities")
 ## Subset of: taunt, charge, bodyguard, kite, lure, nuke, mine, finisher, revive.
@@ -44,6 +46,8 @@ extends Resource
 @export_group("Voice")
 ## OpenAI TTS voice id (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer, verse).
 @export var tts_voice: String = "onyx"
+## Gemini prebuilt TTS voice (Puck, Charon, Kore, Fenrir, Algenib, Iapetus, ...), used when the provider is Gemini.
+@export var gemini_voice: String = "Charon"
 @export var tts_instructions: String = "Gravelly, calm veteran soldier."
 ## event -> Array of lines. Events: ack, refuse, confused, engage, taunt, retreat, low_hp, downed, revived,
 ## kill, combo_ready, combo_go, massacre, ceasefire, scatter, dance, jump, idle, revive_other, mission_lock.

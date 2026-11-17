@@ -20,6 +20,7 @@ var _req: int = -1
 var _pending := PackedVector2Array()
 var _stream_done: bool = false
 var _idle_frames: int = 0
+var _recent: Array[int] = []
 
 
 func _ready() -> void:
@@ -55,6 +56,12 @@ func current_priority() -> int:
 func speak(speaker: String, text: String, voice: String, instructions: String, prio: int) -> void:
 	if client == null or not SquadAIConfig.tts_enabled or not SquadAIConfig.is_online() or text.strip_edges().is_empty():
 		return
+	# Free-tier protection: cap voiced lines per minute (critical lines always pass).
+	var now: int = Time.get_ticks_msec()
+	_recent.assign(_recent.filter(func(t: int) -> bool: return now - t < 60000))
+	if prio < 3 and _recent.size() >= SquadAIConfig.tts_per_minute:
+		return
+	_recent.append(now)
 	var item: Dictionary = {"speaker": speaker, "text": text, "voice": voice, "instructions": instructions, "prio": prio}
 	if not _current.is_empty() and prio > int(_current.get("prio", 0)):
 		interrupt()
@@ -114,7 +121,7 @@ func _on_done(id: int) -> void:
 
 
 func _on_failed(id: int, kind: String, _msg: String) -> void:
-	if kind == "tts" and id == _req:
+	if OpenAIClient.is_tts_kind(kind) and id == _req:
 		_stream_done = true
 		_pending = PackedVector2Array()
 

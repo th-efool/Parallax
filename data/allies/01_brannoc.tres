@@ -28,6 +28,7 @@ nuke_damage = 25
 nuke_radius = 2.6
 nuke_channel_sec = 1.6
 tts_voice = "onyx"
+gemini_voice = "Algenib"
 tts_instructions = "Deep, gravelly, calm veteran shield-captain. Short sentences."
 voice_lines = {
 "ack": ["On it.", "Understood.", "Aye.", "Consider it done."],
@@ -54,5 +55,13 @@ voice_lines = {
 "idle": ["Quiet. Too quiet.", "Keep your eyes on the mirrors."],
 "revive_other": ["Hold on, I've got you."],
 "mission_lock": ["Mission first. I'll get to that after."],
-"bodyguard": ["I'm your shield.", "Nothing reaches you."]
+"bodyguard": ["I'm your shield.", "Nothing reaches you."],
+"complain": ["I held a gate for nine days. Now I jump on command.", "Is this a war or a festival?", "My knees were not built for this."],
+"banter": ["Sera, you call that footwork? I call it panic.", "Ivo, does your mirror ever show you anything useful?", "Quiet roads make me nervous."],
+"banter_reply": ["Steady, lad.", "Hmph. Fair point.", "Aye, aye."],
+"peel": ["Off them! Face me instead!", "That one's mine."],
+"hunt": ["Fine. I'll chase the birds."],
+"destroy": ["Stand back. Stone's coming down."],
+"interact": ["Let me get that."],
+"substitute": ["I'll cover it."]
 }

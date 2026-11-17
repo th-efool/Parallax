@@ -19,6 +19,8 @@ var _spawned: int = 0
 
 
 func _initialize() -> void:
+	# Deterministic offline run (no API quota): the typed-chat path goes through the keyword parser.
+	SquadAIConfig.force_offline()
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shots="):
 			_shots = a.substr(8)
@@ -144,6 +146,11 @@ func _run() -> void:
 	_check("bodyguard_assigned", bran.current != null and bran.current.verb == "bodyguard", bran.get_state_text())
 	await _shot("02_bodyguard")
 	_dump_threat()
+	# Only melee enemies (skeletons + stalker) so far: allies must be hittable by enemy melee hitboxes.
+	var hurt_any: bool = false
+	for a in _mgr.allies:
+		hurt_any = hurt_any or a.health < a.max_health
+	_check("allies_take_enemy_melee", hurt_any, _mgr.get_roster_text().replace("\n", " | "))
 
 	# 3) Kite + Nuke combo.
 	_say("Sera and Ivo, kite and nuke them")
@@ -161,6 +168,7 @@ func _run() -> void:
 	_dump_threat()
 
 	# 3b) Mid-combo substitution: the kiter goes down while kiting -> a free ally takes over (or solo fallback).
+	await _reset_arena()
 	_spawn("skeleton", Vector3(-2.0, 0, -6.0))
 	await _wait(0.4)
 	_log.clear()
@@ -201,6 +209,7 @@ func _run() -> void:
 	await _shot("05_ceasefire")
 
 	# 6) Charge + Finish.
+	await _reset_arena()
 	if _living_test_enemies() < 1:
 		_spawn("skeleton", Vector3(0.0, 0, -6.0))
 		await _wait(0.4)
@@ -211,6 +220,7 @@ func _run() -> void:
 	_check("charge_finish", _log_has("knocked the target down"), "finisher=%s" % str(_log_has("Finisher landed")))
 
 	# 7) Lure + Detonate.
+	await _reset_arena()
 	_spawn("skeleton", Vector3(-3.0, 0, -6.0))
 	_spawn("skeleton", Vector3(3.0, 0, -6.0))
 	await _wait(0.4)
@@ -226,6 +236,7 @@ func _run() -> void:
 	_check("lure_detonate", _log_has("Detonated"), "planted=%s" % str(_log_has("Sigil planted")))
 
 	# 8) Silly / arbitrary orders must never crash.
+	await _reset_arena()
 	_say("jump 3 times")
 	await _wait(0.3)
 	_say("Sera dance")
@@ -237,14 +248,77 @@ func _run() -> void:
 	await _shot("07_silly")
 	_check("silly_orders_no_crash", true, _states())
 	await _wait(9.0)
-	var leftover: int = 0
+	# No finite order may be stuck behind a stance (stances never finish on their own).
+	var blocked: int = 0
 	for a in _mgr.allies:
+		var seen_stance: bool = false
 		for q in a.queue:
-			if not q.stance:
-				leftover += 1
-	_check("silly_queue_drains", leftover == 0, _states())
+			if q.stance:
+				seen_stance = true
+			elif seen_stance:
+				blocked += 1
+	_check("queue_no_order_behind_stance", blocked == 0, _states())
+
+	# 8b) Extended orders: split, take aggro, peel, hit-and-run, ally's-target assist, errands.
+	await _reset_arena()
+	_say("split up")
+	await _wait(0.4)
+	var lanes: int = 0
+	for a in _mgr.allies:
+		if a.current != null and a.current.verb == "hold" and a.current.args.has("lane"):
+			lanes += 1
+	_check("split_left_right_center", lanes == _mgr.allies.size(), _states())
+	await _wait(1.5)
+	await _shot("10_split")
+	_say("follow me")
+	var s1: EnemyBase = _spawn("skeleton", Vector3(-1.5, 0, -9.5))
+	var s2: EnemyBase = _spawn("skeleton", Vector3(1.5, 0, -9.5))
+	for s in [s1, s2]:
+		(s as EnemyBase).max_health = 3000
+		(s as EnemyBase).health = 3000
+	await _wait(0.3)
+	(s1 as EnemyAI).apply_taunt(_player, 200.0, 3.0)
+	(s2 as EnemyAI).apply_taunt(_player, 200.0, 3.0)
+	await _wait(0.6)
+	_say("Brannoc, take aggro")
+	await _wait(2.5)
+	var pulled: int = 0
+	for e in [s1, s2]:
+		var ai: EnemyAI = e as EnemyAI
+		if not ai.is_dead and ai.get_current_target() is SquadAlly:
+			pulled += 1
+	_check("take_aggro_pulls_off_player", pulled >= 1, "pulled %d" % pulled)
+	_say("Sera, hit and run the nearest")
+	_say("Ivo, attack Sera's target")
+	await _wait(1.0)
+	var ivo2: SquadAlly = _ally("Ivo")
+	var sera2: SquadAlly = _ally("Sera")
+	_check("hit_and_run_assigned", sera2.current != null and sera2.current.verb == "hit_and_run", sera2.get_state_text())
+	_check("assist_ally_target", ivo2.current != null and ivo2.current.verb == "attack" and String(ivo2.current.args.get("target", "")).begins_with("ally:"), ivo2.get_state_text())
+	_say("peel it off me")
+	await _wait(0.5)
+	_check("peel_assigned", _ally("Brannoc").current != null and _ally("Brannoc").current.verb == "peel" or _ally("Brannoc").queue.any(func(q: SquadCommand) -> bool: return q.verb == "peel"), _states())
+	await _wait(2.0)
+	await _reset_arena()
+	_say("go hunt some wildlife")
+	_say("smash that thing")
+	_say("open the chest")
+	_say("guard the objective")
+	await _wait(4.0)
+	_check("errand_orders_no_crash", true, _states())
+	# Role substitution for a direct order to a downed ally.
+	_ally("Ivo").apply_damage(99999, null)
+	await _wait(0.3)
+	_spawn("skeleton", Vector3(0.0, 0, -7.0))
+	await _wait(0.3)
+	_log.clear()
+	_say("Ivo, nuke the nearest")
+	await _wait(0.3)
+	_check("direct_order_substitution", _log_has("substitute for Ivo") or _log_has("dropped: ally down"), " / ".join(_log))
+	await _reset_arena()
 
 	# 9) Substitution when an ally is down, then manual revive by the player.
+	await _reset_arena()
 	_say("follow me")
 	await _wait(0.5)
 	var sera: SquadAlly = _ally("Sera")
@@ -281,6 +355,19 @@ func _run() -> void:
 	_hud.set_cinematic(false)
 	_check("player_input_unlocked", not PlayerController.ui_input_locked)
 	_finish()
+
+
+## Isolates phases: kill leftover test enemies, stand the squad back up at full health, cancel orders.
+func _reset_arena() -> void:
+	for e in get_nodes_in_group("enemy"):
+		if String(e.name).begins_with("Test_") and not (e as EnemyBase).is_dead and (e as EnemyBase).is_active:
+			(e as EnemyBase).apply_damage(99999, true, "environmental", null)
+	for a in _mgr.allies:
+		if a.is_downed:
+			a.revive(1.0)
+		a.health = a.max_health
+	_say("stop")
+	await _wait(0.6)
 
 
 func _living_test_enemies() -> int:

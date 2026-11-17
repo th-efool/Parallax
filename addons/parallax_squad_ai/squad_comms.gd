@@ -30,6 +30,7 @@ var _pending: Dictionary = {}       # request id -> {ally, user_text, via, spoke
 var _stt_req: int = -1
 var _manager: AllySquadManager = null
 var _last_roster_text: String = ""
+var _last_tts_warn: int = -100000
 
 
 func _ready() -> void:
@@ -66,8 +67,7 @@ func _bind_manager() -> void:
 		_manager.command_logged.connect(_on_command_logged)
 		_manager.roster_changed.connect(_on_roster_changed)
 		_manager.combo_progress.connect(func(_k: String, t: String) -> void: log_entry.emit({"source": "combo", "who": "squad", "what": t, "result": ""}))
-	var mode_txt: String = "online — %s via %s" % [SquadAIConfig.model, SquadAIConfig.key_source()] if SquadAIConfig.is_online() else "offline — keyword orders"
-	notify.emit("Squad comms %s. Enter: chat   V: push-to-talk" % mode_txt, "info")
+	notify.emit("Squad comms %s. Enter: chat   V: push-to-talk" % SquadAIConfig.describe(), "info")
 
 
 func is_online() -> bool:
@@ -119,7 +119,7 @@ func begin_voice() -> void:
 		return
 	if not is_online():
 		_set_mic("unavailable")
-		notify.emit("Voice orders need an API key (OPENAI_API_KEY). Type orders with Enter instead.", "warn")
+		notify.emit("Voice orders need an API key (GEMINI_API_KEY or OPENAI_API_KEY). Type orders with Enter instead.", "warn")
 		return
 	if mic_state == "transcribing":
 		return
@@ -170,8 +170,8 @@ const TOOLS: Array = [
 		"description": "Give an order to one or more squad allies. Call once per distinct order; call several in parallel for multi-part orders.",
 		"parameters": {"type": "object", "properties": {
 			"allies": {"type": "array", "items": {"type": "string"}, "description": "Ally names from the roster, or [\"all\"]."},
-			"action": {"type": "string", "enum": ["follow", "hold", "attack", "retreat", "taunt", "bodyguard", "kite", "nuke", "revive", "jump", "dance", "emote", "status", "stop", "auto_engage_on", "auto_engage_off"]},
-			"target": {"type": "string", "description": "Enemy selector (nearest, strongest, weakest, brute, caster, stalker, phantom, shield, skeleton, warden) — or for bodyguard/revive an ally name or 'player'."},
+			"action": {"type": "string", "enum": ["follow", "hold", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "jump", "dance", "emote", "status", "stop", "auto_engage_on", "auto_engage_off"]},
+			"target": {"type": "string", "description": "Enemy selector (nearest, strongest, weakest, brute, caster, stalker, phantom, shield, skeleton, warden, or 'ally:<Name>' = that ally's target). For bodyguard: an ally name, 'player' or 'objective'. For revive: an ally name. For interact: 'chest' or blank. take_aggro pulls everything off the player; peel pulls one enemy off the player; split spreads the squad left/right/center."},
 			"count": {"type": "integer", "description": "Repetitions for jump (1-12)."},
 			"emote": {"type": "string", "enum": ["wave", "cheer", "sit", "bow", "salute", "spin", "flex"]}
 		}, "required": ["allies", "action"]}}},
@@ -279,7 +279,10 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 		var tc: Array = []
 		for c2 in calls:
 			var cd2: Dictionary = c2 as Dictionary
-			tc.append({"id": String(cd2.get("id", "")), "type": "function", "function": {"name": String(cd2.get("name", "")), "arguments": String(cd2.get("raw_args", "{}"))}})
+			var tce: Dictionary = {"id": String(cd2.get("id", "")), "type": "function", "function": {"name": String(cd2.get("name", "")), "arguments": String(cd2.get("raw_args", "{}"))}}
+			if cd2.has("extra_content"):
+				tce["extra_content"] = cd2["extra_content"]
+			tc.append(tce)
 		assistant["tool_calls"] = tc
 	hist.append(assistant)
 	hist.append_array(tool_msgs)
@@ -317,6 +320,9 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 				cmd["enabled"] = action == "auto_engage_on"
 			if action == "emote":
 				cmd["text"] = String(args.get("emote", "cheer"))
+			if action == "take_aggro":
+				cmd["verb"] = "taunt"
+				cmd["area"] = true
 			return cmd
 		"start_combo":
 			return {"verb": "combo_" + String(args.get("combo", "")), "allies": allies, "target": String(args.get("target", "nearest"))}
@@ -326,13 +332,15 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 
 
 func _on_request_failed(id: int, kind: String, message: String) -> void:
-	if kind == "stt" and id == _stt_req:
+	if OpenAIClient.is_stt_kind(kind) and id == _stt_req:
 		_stt_req = -1
 		_set_mic("idle")
 		notify.emit("Voice transcription failed: %s" % message, "error")
 		return
-	if kind == "tts":
-		notify.emit("Ally voice unavailable: %s" % message, "warn")
+	if OpenAIClient.is_tts_kind(kind):
+		if Time.get_ticks_msec() - _last_tts_warn > 30000:
+			_last_tts_warn = Time.get_ticks_msec()
+			notify.emit("Ally voice unavailable: %s" % message, "warn")
 		return
 	if kind == "chat" and _pending.has(id):
 		var rec: Dictionary = _pending[id]
@@ -346,7 +354,8 @@ func _on_request_failed(id: int, kind: String, message: String) -> void:
 func _voice(ally: SquadAlly, text: String, prio: int) -> void:
 	if text.is_empty() or ally == null:
 		return
-	tts.speak(ally.get_display_name(), text, ally.profile.tts_voice, ally.profile.tts_instructions, prio)
+	var voice: String = ally.profile.gemini_voice if SquadAIConfig.provider() == "gemini" else ally.profile.tts_voice
+	tts.speak(ally.get_display_name(), text, voice, ally.profile.tts_instructions, prio)
 
 
 func _on_ally_spoke(ally_name: String, text: String, _event: String, priority: int, _voice_id: String) -> void:

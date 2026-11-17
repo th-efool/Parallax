@@ -28,6 +28,7 @@ nuke_damage = 22
 nuke_radius = 2.4
 nuke_channel_sec = 1.2
 tts_voice = "nova"
+gemini_voice = "Puck"
 tts_instructions = "Quick, cocky, playful duelist. Light and teasing."
 voice_lines = {
 "ack": ["You got it.", "Easy.", "On my way!", "Say less."],
@@ -54,5 +55,13 @@ voice_lines = {
 "idle": ["Anyone else hear whispering?", "I'm bored."],
 "revive_other": ["Up you get, big guy."],
 "mission_lock": ["Mid-job! Queueing that."],
-"kite": ["Come on, follow me!", "Running laps!"]
+"kite": ["Come on, follow me!", "Running laps!"],
+"complain": ["Seriously? Again?", "I died for this. Literally died. For this.", "If anyone asks, this was my idea."],
+"banter": ["Brannoc, do you ever smile, or is the helmet stuck?", "Ivo, read me something boring so I can nap.", "Race you to the next gate."],
+"banter_reply": ["Ha! Sure.", "Whatever you say, boss.", "Mm-hm."],
+"peel": ["Hey ugly, over here instead!", "Peeling it off you!"],
+"hunt": ["Ooh, wildlife! Tally-ho!"],
+"destroy": ["Smashing things? Finally, my specialty."],
+"interact": ["Ooh, shiny. Got it."],
+"substitute": ["Swapping in!"]
 }

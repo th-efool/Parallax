@@ -147,6 +147,7 @@ func apply_damage(amount: int, source: Node = null) -> bool:
 		return false
 	if _action == "dodge":
 		return false
+	amount = maxi(1, int(round(float(amount) * profile.damage_taken_mult)))
 	health = maxi(0, health - amount)
 	health_changed.emit(self, health, max_health)
 	_combat_quiet = 0.0
@@ -166,8 +167,10 @@ func apply_damage(amount: int, source: Node = null) -> bool:
 	if get_health_ratio() < 0.35 and not _low_hp_warned:
 		_low_hp_warned = true
 		say_event("low_hp", 2)
-	# Being hit pulls an idle ally into the fight (unless told to hold fire).
-	if source is EnemyAI and _engage_target == null and not _is_ceasefire():
+	# Being hit pulls an idle ally into the fight (unless told to hold fire). Mission lock: an ally on a
+	# mission ignores stray hits and keeps to its task.
+	var on_mission: bool = current != null and current.is_mission()
+	if source is EnemyAI and _engage_target == null and not _is_ceasefire() and not on_mission:
 		_engage_target = source as EnemyAI
 	return true
 
@@ -183,6 +186,23 @@ func _build_body() -> void:
 	col.shape = cap
 	col.position = Vector3(0, 0.875, 0)
 	add_child(col)
+	# Enemy melee hitboxes (mask Player|Hitbox, affects_player) land on this "friendly" hurtbox, which routes to
+	# apply_damage(amount, attacker). Player sweeps skip player-type hurtboxes, so there is no friendly fire.
+	var hurt := Hurtbox3D.new()
+	hurt.name = "Hurtbox3D"
+	hurt.owner_actor_path = NodePath("..")
+	hurt.is_player_hurtbox = true
+	hurt.is_enemy_hurtbox = false
+	hurt.collision_layer = RealmManager.LAYER_HITBOX
+	hurt.collision_mask = 0
+	hurt.monitoring = false
+	var hcs := CollisionShape3D.new()
+	var hbox := BoxShape3D.new()
+	hbox.size = Vector3(0.8, 1.8, 0.8)
+	hcs.shape = hbox
+	hcs.position = Vector3(0, 0.9, 0)
+	hurt.add_child(hcs)
+	add_child(hurt)
 	var vis := Node3D.new()
 	vis.name = "VisualRoot"
 	add_child(vis)
@@ -493,6 +513,16 @@ func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
 			_run_emote(cmd)
 		"combo_kite_nuke", "combo_charge_finish", "combo_lure_detonate":
 			_run_combo_part(delta, player, cmd)
+		"peel":
+			_run_peel(delta, player, cmd)
+		"hit_and_run":
+			_run_hit_and_run(delta, player, cmd)
+		"hunt":
+			_run_hunt(delta, player, cmd)
+		"destroy":
+			_run_destroy(delta, player, cmd)
+		"interact":
+			_run_interact(delta, player, cmd)
 		_:
 			# say / status / stop / auto_engage are resolved instantly by the manager.
 			finish_current("ok")
@@ -532,13 +562,13 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 	else:
 		_halt(delta)
 		var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else facing_direction
-		set_facing(facing_direction.slerp(pf, clampf(4.0 * delta, 0.0, 1.0)))
+		set_facing(_turn_toward(facing_direction, pf, 4.0 * delta))
 
 
 func _run_hold(delta: float, cmd: SquadCommand) -> void:
 	if not cmd.data.has("spot"):
-		cmd.data["spot"] = global_position
-		cmd.step = "holding"
+		cmd.data["spot"] = cmd.args.get("spot", global_position) as Vector3
+		cmd.step = "holding " + String(cmd.args.get("lane", "")) if cmd.args.has("lane") else "holding"
 	var spot: Vector3 = cmd.data["spot"]
 	var near: EnemyAI = _nearest_enemy(global_position, 3.5)
 	if near != null:
@@ -587,6 +617,28 @@ func _run_attack(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 
 func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	# "Take aggro": pull every enemy currently on the player onto this ally (single-enemy taunts never
+	# touch the rest of a group).
+	if bool(cmd.args.get("area", false)) and player != null:
+		var on_player: Array[EnemyAI] = []
+		for en in _active_enemies(player.global_position, 10.0):
+			if en.get_current_target() == player:
+				on_player.append(en)
+		if on_player.is_empty():
+			say("Nothing's on you right now.", "refuse", 1)
+			finish_current("nothing on player")
+			return
+		if global_position.distance_to(player.global_position) > 5.0:
+			_move_to(player.global_position, profile.move_speed * 1.2, delta)
+			return
+		_taunt_cd = profile.taunt_cooldown
+		_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
+		_start_action("taunt", 0.55, -1.0, Callable())
+		say_event("taunt", 1)
+		for en in on_player:
+			en.apply_taunt(self, -1.0, 4.0)
+		finish_current("took aggro x%d" % on_player.size())
+		return
 	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
 	if e == null:
 		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
@@ -598,23 +650,26 @@ func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	if global_position.distance_to(e.global_position) > 7.0:
 		_move_to(e.global_position, profile.move_speed, delta)
 		return
-	_do_taunt(e, true)
+	_do_taunt(e, false)
 	finish_current("taunted")
 
 
 # ------------------------------------------------------------------ bodyguard
 
 func _run_bodyguard(delta: float, player: Node3D, cmd: SquadCommand) -> void:
-	var ward: Node3D = _resolve_ward(String(cmd.args.get("target", "player")), player)
+	var ward: Node3D = cmd.data.get("ward", null) as Node3D
+	if ward == null or not is_instance_valid(ward):
+		ward = _resolve_ward(String(cmd.args.get("target", "player")), player)
+		cmd.data["ward"] = ward
 	if ward == null:
 		_run_follow(delta, player, cmd)
 		return
-	if ward is SquadAlly and (ward as SquadAlly).is_downed:
-		# Ward fell: pick them up if we can, else guard the player.
-		if profile.has_ability("revive"):
-			_revive_target(ward as SquadAlly, delta, cmd)
-		else:
-			_run_follow(delta, player, cmd)
+	# Ward died: stand down cleanly (no auto-revive; that is a separate order).
+	var ward_dead: bool = (ward is SquadAlly and (ward as SquadAlly).is_downed) \
+		or (ward is PlayerController and (ward as PlayerController).current_state == PlayerController.State.DEAD)
+	if ward_dead:
+		say("%s is down. Standing by." % (ward.call("get_display_name") if ward.has_method("get_display_name") else "The ward"), "bodyguard_lost", 2)
+		finish_current("ward down")
 		return
 	if cmd.step.is_empty():
 		say_event("bodyguard", 1, profile.line("ack"))
@@ -688,10 +743,20 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 		cmd.step = "approach"
 	match cmd.step:
 		"approach":
+			cmd.data["approach_t"] = float(cmd.data.get("approach_t", 0.0)) + delta
+			if float(cmd.data["approach_t"]) > 9.0:
+				_kite_fallback(cmd, e, "Can't reach it — I'll fight from here.")
+				return
 			if global_position.distance_to(e.global_position) > 5.0:
 				_move_to(e.global_position, profile.move_speed * 1.1, delta)
 			else:
 				cmd.step = "provoke"
+		"fallback":
+			# Phase failed: plain fight on the target; a combo partner still gets its signal.
+			if not _enemy_ok(e):
+				finish_current("fallback done")
+				return
+			_fight(e, delta)
 		"provoke":
 			if _taunt_cd <= 0.0:
 				_do_taunt(e, false)
@@ -715,7 +780,11 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 				cmd.data["ang"] = atan2(global_position.z - e.global_position.z, global_position.x - e.global_position.x)
 				say_event("kite", 0, profile.line("taunt"))
 			elif float(cmd.data["confirm_t"]) > 1.4:
-				cmd.step = "provoke"
+				cmd.data["provoke_fails"] = int(cmd.data.get("provoke_fails", 0)) + 1
+				if int(cmd.data["provoke_fails"]) >= 3:
+					_kite_fallback(cmd, e, "It won't take the bait — fighting it head-on.")
+				else:
+					cmd.step = "provoke"
 		"sustain":
 			_circle_kite(delta, cmd, e)
 			cmd.data["sustain_t"] = float(cmd.data.get("sustain_t", 0.0)) + delta
@@ -753,6 +822,18 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 			_halt(delta)
 
 
+## Report a failed tactic phase and fall back to a straight fight. In a combo the partner is still
+## signalled (the payload lands on the fight instead of a kited cluster).
+func _kite_fallback(cmd: SquadCommand, e: EnemyAI, why: String) -> void:
+	say(why, "phase_failed", 2)
+	cmd.step = "fallback"
+	if manager != null and manager.has_method("log_event"):
+		manager.call("log_event", get_display_name(), "kite phase failed", why)
+	if cmd.combo_id > 0 and not cmd.data.get("ready_sent", false):
+		cmd.data["ready_sent"] = true
+		_post_combo(cmd, "ready", {"center": e.global_position if _enemy_ok(e) else global_position})
+
+
 func _circle_kite(delta: float, cmd: SquadCommand, e: EnemyAI) -> void:
 	var center: Vector3 = cmd.data.get("center", e.global_position)
 	# Drift the centre slowly toward the pack so the circle stays around the enemies chasing us.
@@ -769,9 +850,14 @@ func _circle_kite(delta: float, cmd: SquadCommand, e: EnemyAI) -> void:
 	if float(cmd.data["repath"]) <= 0.0:
 		cmd.data["repath"] = 0.4
 		if not _point_walkable(wp):
+			# Blocked: reverse and swing wider (a tighter circle would let the chaser catch us).
 			cmd.data["dir"] = -dirn
-			cmd.data["radius"] = maxf(3.2, r - 0.8)
-			cmd.data["center"] = center.lerp(global_position, 0.3)
+			cmd.data["radius"] = minf(8.5, r + 1.0)
+			cmd.data["blocked"] = int(cmd.data.get("blocked", 0)) + 1
+			# Repeatedly boxed in at max width: pull the circle toward open ground (our own position).
+			if r >= 8.4:
+				cmd.data["center"] = center.lerp(global_position, 0.5)
+				cmd.data["radius"] = KITE_RADIUS
 	_move_to(wp, profile.move_speed * 0.95, delta, false)
 	# Keep one eye on the chaser.
 	set_facing(e.global_position - global_position)
@@ -1206,6 +1292,193 @@ func _run_solo_lure(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				finish_current("solo detonate")
 
 
+# ------------------------------------------------------------------ peel / hit-and-run / errands
+
+## Peel: pull the enemy that is on the player onto ourselves (taunt lock) and keep it busy.
+func _run_peel(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			finish_current("peeled target down")
+			return
+		var best: EnemyAI = null
+		var bd: float = INF
+		if player != null:
+			for en in _active_enemies(player.global_position, 12.0):
+				var d: float = en.global_position.distance_to(player.global_position) - (5.0 if en.get_current_target() == player else 0.0)
+				if d < bd:
+					bd = d
+					best = en
+		if best == null:
+			say("Nothing on you to peel.", "refuse", 1)
+			finish_current("nothing to peel")
+			return
+		cmd.data["enemy"] = best
+		e = best
+		say_event("peel", 2, profile.line("taunt"))
+	cmd.step = "peeling"
+	if e.get_current_target() != self and _taunt_cd <= 0.0 and global_position.distance_to(e.global_position) < 7.0:
+		_do_taunt(e, false)
+		return
+	_fight(e, delta)
+	if cmd.timer > 15.0:
+		finish_current("peel held")
+
+
+## Hit-and-run: dart in, one strike, sprint out, breathe, repeat.
+func _run_hit_and_run(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			say_event("kill", 0)
+			finish_current("target down")
+			return
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("No target for a raid.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+		cmd.step = "in"
+	match cmd.step:
+		"in":
+			if global_position.distance_to(e.global_position) > profile.attack_range:
+				_move_to(e.global_position, profile.move_speed * 1.3, delta, false)
+			elif _attack_cd <= 0.0:
+				_melee(e)
+				cmd.step = "out"
+				cmd.data["out_t"] = 0.0
+		"out":
+			cmd.data["out_t"] = float(cmd.data.get("out_t", 0.0)) + delta
+			var away: Vector3 = global_position - e.global_position
+			away.y = 0.0
+			if away.length() < 5.5 and float(cmd.data["out_t"]) < 2.0:
+				_move_dir(away.normalized(), profile.move_speed * 1.3, delta)
+			else:
+				_halt(delta)
+				set_facing(e.global_position - global_position)
+				if float(cmd.data["out_t"]) > 2.2:
+					cmd.step = "in"
+	if cmd.timer > 16.0:
+		finish_current("raid over")
+
+
+## Hunt wildlife: ambient creatures have no health, so a "hunt" is an exuberant chase that scatters them.
+func _run_hunt(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var prey: Node3D = cmd.data.get("prey", null) as Node3D
+	if prey == null or not is_instance_valid(prey):
+		var best: Node3D = null
+		var bd: float = 30.0
+		var origin: Vector3 = player.global_position if player != null else global_position
+		for n in get_tree().get_nodes_in_group("ambient_creature"):
+			if n is Node3D and (n as Node3D).is_visible_in_tree():
+				var d: float = (n as Node3D).global_position.distance_to(origin)
+				if d < bd and absf((n as Node3D).global_position.y - origin.y) < 4.0:
+					bd = d
+					best = n as Node3D
+		if best == null:
+			say("No wildlife around here.", "refuse", 1)
+			finish_current("no wildlife")
+			return
+		cmd.data["prey"] = best
+		prey = best
+		say_event("hunt", 1, "Tally-ho!")
+	cmd.step = "chasing"
+	if global_position.distance_to(prey.global_position) > 2.5:
+		_move_to(prey.global_position, profile.move_speed * 1.2, delta)
+	else:
+		if prey.has_method("receive_fear"):
+			prey.call("receive_fear", 1.0, global_position, 0.0)
+		var fd: FaunaDirector = FaunaDirector.get_for(self)
+		if fd != null:
+			fd.emit_disturbance(global_position, 6.0, 1.0, "hunt")
+		_play(["Cheer", "Taunt"], 0.8, true)
+		_start_action("emote", 0.8, -1.0, Callable())
+		finish_current("scattered the wildlife")
+		return
+	if cmd.timer > 12.0:
+		say("Too quick for me.", "refuse", 0)
+		finish_current("prey escaped")
+
+
+## Destroy a prop: only safe breakables (the cracked pillar can crush enemies; crates; the gallery support).
+## The boss's central mirror plane is never touched by allies.
+func _run_destroy(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var prop: BreakableProp = cmd.data.get("prop", null) as BreakableProp
+	if prop == null or not is_instance_valid(prop):
+		var origin: Vector3 = player.global_position if player != null else global_position
+		var bd: float = 20.0
+		for n in get_tree().get_nodes_in_group("breakable"):
+			var bp: BreakableProp = n as BreakableProp
+			if bp == null or bp.current_state != BreakableProp.PropState.INTACT or not bp.is_visible_in_tree():
+				continue
+			if bp.prop_kind == BreakableProp.PropKind.CENTRAL_MIRROR_PLANE:
+				continue
+			var d: float = bp.global_position.distance_to(origin)
+			if d < bd:
+				bd = d
+				prop = bp
+		if prop == null:
+			say("Nothing here I'm allowed to smash.", "refuse", 1)
+			finish_current("no breakable")
+			return
+		cmd.data["prop"] = prop
+		say_event("destroy", 1, profile.line("ack"))
+	cmd.step = "smashing"
+	var goal: Vector3 = prop.global_position
+	if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() > 2.2:
+		_move_to(goal, profile.move_speed, delta)
+		if cmd.timer > 12.0:
+			say("Can't get to it.", "refuse", 1)
+			finish_current("unreachable")
+		return
+	set_facing(goal - global_position)
+	_play(["2H_Melee_Attack_Chop", "1H_Melee_Attack_Chop"], 0.6, true)
+	_start_action("attack", 0.6, 0.3, func() -> void:
+		if is_instance_valid(prop):
+			prop.trigger_break(true))
+	finish_current("smashed")
+
+
+## Interact: pull a lever / switch / chest for the player (only things that currently accept it).
+func _run_interact(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	var tgt: Node3D = cmd.data.get("thing", null) as Node3D
+	if tgt == null or not is_instance_valid(tgt):
+		var want_chest: bool = String(cmd.args.get("target", "")) == "chest"
+		var groups: Array[String] = ["chest"] if want_chest else ["chest", "interactable_switch"]
+		var origin: Vector3 = player.global_position if player != null else global_position
+		var bd: float = 18.0
+		for grp in groups:
+			for n in get_tree().get_nodes_in_group(grp):
+				if n is SquadAlly or not (n is Node3D) or not n.has_method("interact"):
+					continue
+				if n.has_method("can_interact") and not bool(n.call("can_interact")):
+					continue
+				var d: float = (n as Node3D).global_position.distance_to(origin)
+				if d < bd:
+					bd = d
+					tgt = n as Node3D
+		if tgt == null:
+			say("No chest around here." if want_chest else "Nothing here to use.", "refuse", 1)
+			finish_current("nothing to interact")
+			return
+		cmd.data["thing"] = tgt
+		say_event("interact", 1, profile.line("ack"))
+	cmd.step = "using"
+	if global_position.distance_to(tgt.global_position) > 1.8:
+		_move_to(tgt.global_position, profile.move_speed, delta)
+		if cmd.timer > 14.0:
+			say("Can't reach it.", "refuse", 1)
+			finish_current("unreachable")
+		return
+	_play(["Interact", "PickUp", "Use_Item"], 0.6, true)
+	_start_action("emote", 0.6, -1.0, Callable())
+	var ok: bool = bool(tgt.call("interact"))
+	finish_current("used" if ok else "refused")
+	if not ok:
+		say("It won't budge from this side.", "refuse", 1)
+
+
 # ------------------------------------------------------------------ revive
 
 func _run_revive(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -1326,21 +1599,35 @@ func _run_emote(cmd: SquadCommand) -> void:
 
 # ------------------------------------------------------------------ self-preservation / downed
 
+## Priority ladder: PANIC orders > direct orders > self-preservation at critical HP > autonomous combat > idle.
+## Below `retreat_threshold` an ally on autonomous duty (follow / hold / no order) falls back; a direct order
+## or mission keeps it fighting until HP turns *critical* (half the threshold). Never during massacre / panic.
+## The interrupted command stays current and resumes once recovered.
 func _check_self_preservation() -> void:
-	if _is_massacre():
+	if _is_massacre() or (current != null and current.priority >= SquadCommand.Priority.PANIC):
 		_retreating = false
 		return
 	var r: float = get_health_ratio()
-	if not _retreating and r < profile.retreat_threshold:
+	var direct: bool = current != null and not (current.verb in ["follow", "hold"]) and current.priority >= SquadCommand.Priority.ORDER
+	var critical: bool = r < profile.retreat_threshold * 0.5
+	if not _retreating and (critical or (r < profile.retreat_threshold and not direct)):
 		_retreating = true
 		say_event("retreat", 2)
 	elif _retreating and r > profile.retreat_threshold + 0.25:
 		_retreating = false
+		if current != null:
+			say("Back in it — resuming %s." % current.describe(), "resume", 1)
 
 
 func _run_retreat_self(delta: float, player: Node3D) -> void:
 	if player == null:
 		_halt(delta)
+		return
+	# Cornered: something is right on us — swing back once instead of eating hits in the back.
+	var cornered: EnemyAI = _nearest_enemy(global_position, 1.8)
+	if cornered != null and cornered.get_current_target() == self and _attack_cd <= 0.0:
+		set_facing(cornered.global_position - global_position)
+		_melee(cornered)
 		return
 	var c: Vector3 = _threat_centroid(global_position, 14.0)
 	var anchor: Vector3 = player.global_position
@@ -1637,8 +1924,16 @@ func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
 	var cur := Vector3(velocity.x, 0.0, velocity.z).move_toward(d * speed, 30.0 * delta)
 	velocity.x = cur.x
 	velocity.z = cur.z
-	set_facing(facing_direction.slerp(d, clampf(10.0 * delta, 0.0, 1.0)))
+	set_facing(_turn_toward(facing_direction, d, 10.0 * delta))
 	_apply_gravity_and_move(delta)
+
+
+## Yaw-only turn (Vector3.slerp on near-parallel vectors trips Basis axis normalisation errors).
+func _turn_toward(cur: Vector3, target: Vector3, t: float) -> Vector3:
+	if Vector2(target.x, target.z).length_squared() < 0.0001:
+		return cur
+	var a: float = lerp_angle(atan2(cur.x, cur.z), atan2(target.x, target.z), clampf(t, 0.0, 1.0))
+	return Vector3(sin(a), 0.0, cos(a))
 
 
 func _halt(delta: float) -> void:
@@ -1823,6 +2118,22 @@ func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
 
 func _resolve_ward(sel: String, player: Node3D) -> Node3D:
 	if sel.is_empty() or sel == "player" or sel == "me":
+		return player
+	if sel == "objective":
+		# Nearest live objective: an un-activated switch / lever, else a mechanism target.
+		var best: Node3D = null
+		var bd: float = 30.0
+		for grp in ["interactable_switch", "mechanism_target"]:
+			for n in get_tree().get_nodes_in_group(grp):
+				if n is SquadAlly or not (n is Node3D):
+					continue
+				var d: float = (n as Node3D).global_position.distance_to(player.global_position if player != null else global_position)
+				if d < bd:
+					bd = d
+					best = n as Node3D
+		if best != null:
+			return best
+		say("No objective nearby — guarding you instead.", "refuse", 1)
 		return player
 	if manager != null and manager.has_method("find_ally"):
 		var a: SquadAlly = manager.call("find_ally", sel) as SquadAlly

@@ -102,6 +102,7 @@ func _bind_hud() -> void:
 func _physics_process(delta: float) -> void:
 	_watch_player()
 	_tick_combos(delta)
+	_tick_banter(delta)
 	_roster_timer -= delta
 	if _roster_dirty and _roster_timer <= 0.0:
 		_roster_dirty = false
@@ -117,6 +118,28 @@ func _watch_player() -> void:
 	if _player_was_dead and not dead:
 		regroup(true)
 	_player_was_dead = dead
+
+
+var _banter_timer: float = 45.0
+
+## Ambient banter between two allies when no fight is on (subtitle-only chatter, personality lines only).
+func _tick_banter(delta: float) -> void:
+	_banter_timer -= delta
+	if _banter_timer > 0.0:
+		return
+	_banter_timer = randf_range(50.0, 95.0)
+	var living: Array[SquadAlly] = get_living()
+	if living.size() < 2 or _player == null:
+		return
+	if not _active_enemies_near(_player.global_position, 18.0).filter(func(e: EnemyAI) -> bool: return e.is_aggroed()).is_empty():
+		return
+	living.shuffle()
+	var a: SquadAlly = living[0]
+	var b: SquadAlly = living[1]
+	a.say_event("banter", 0)
+	get_tree().create_timer(2.4).timeout.connect(func() -> void:
+		if is_instance_valid(b) and not b.is_downed:
+			b.say_event("banter_reply", 0))
 
 
 ## Teleport the squad to formation around the player (full heal on respawn / new run).
@@ -253,6 +276,16 @@ func _active_enemies_near(pos: Vector3, radius: float) -> Array[EnemyAI]:
 
 func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 	var sel: String = selector.strip_edges().to_lower()
+	# "ally:Sera" / "Sera's target": whatever that ally is fighting.
+	if sel.begins_with("ally:") or sel.ends_with("'s target"):
+		var mate: SquadAlly = find_ally(sel.trim_prefix("ally:").trim_suffix("'s target"))
+		if mate != null:
+			var et: EnemyAI = mate._engage_target
+			if (et == null or not is_instance_valid(et)) and mate.current != null:
+				et = mate.current.data.get("enemy", null) as EnemyAI
+			if et != null and is_instance_valid(et) and not et.is_dead and et.is_active:
+				return et
+		sel = "nearest"
 	var cands: Array[EnemyAI] = _active_enemies_near(near, 25.0)
 	if cands.is_empty():
 		return null
@@ -377,6 +410,29 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 			_cancel_combos_for(addressed)
 			_log(source, ", ".join(_names(addressed)), "stop", "cleared")
 			return "orders cancelled"
+		"split":
+			return _split_squad(addressed, source)
+	# Role-based substitution: an addressed ally who is DOWN hands the order to a stand-in.
+	if verb != "revive" and verb != "massacre" and verb != "ceasefire":
+		var named_explicitly: bool = (c.get("allies", []) is Array) and not (c.get("allies", []) as Array).is_empty() and not ((c.get("allies", []) as Array).has("all"))
+		if named_explicitly:
+			var rebuilt: Array[SquadAlly] = []
+			for a0 in addressed:
+				if not a0.is_downed:
+					rebuilt.append(a0)
+					continue
+				var rp: Array = ROLE_FOR_VERB.get(verb, ["", ""]) as Array
+				var sub: SquadAlly = _pick_for(String(rp[1]), String(rp[0]), addressed, [])
+				if sub != null and not rebuilt.has(sub):
+					rebuilt.append(sub)
+					sub.say("%s is down — I'll %s instead." % [a0.get_display_name(), verb.replace("_", " ")], "substitute", 2)
+					_log(source, sub.get_display_name(), "substitute for " + a0.get_display_name(), verb)
+				else:
+					_log(source, a0.get_display_name(), desc, "dropped: ally down, no substitute")
+			if rebuilt.is_empty():
+				return "dropped: no ally available"
+			addressed = rebuilt
+	_maybe_complain(verb, c, addressed)
 	var outcomes: PackedStringArray = []
 	var first_spoken: bool = false
 	for a in addressed:
@@ -393,6 +449,46 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 	_log(source, ", ".join(_names(addressed)), desc, "; ".join(outcomes))
 	_roster_dirty = true
 	return "; ".join(outcomes)
+
+
+## Split the squad across the player's left / centre / right (works for any ally count).
+func _split_squad(list: Array[SquadAlly], source: String) -> String:
+	if _player == null:
+		return "no player"
+	var f: Vector3 = _player.call("get_facing_direction") as Vector3
+	var r := Vector3(-f.z, 0.0, f.x)
+	var living: Array[SquadAlly] = []
+	for a in list:
+		if not a.is_downed:
+			living.append(a)
+	var lanes: Array[String] = ["left", "right", "center"]
+	var parts: PackedStringArray = []
+	for i in range(living.size()):
+		var lane: String = lanes[i % 3]
+		var depth: float = 4.0 + float(i / 3) * 2.5
+		var side: float = -4.5 if lane == "left" else (4.5 if lane == "right" else 0.0)
+		var spot: Vector3 = _player.global_position + f * depth + r * side
+		var hold := SquadCommand.make("hold", {"spot": spot, "lane": lane}, source)
+		_route(living[i], hold)
+		living[i].say("Taking the %s." % lane, "ack", 1)
+		parts.append("%s→%s" % [living[i].get_display_name(), lane])
+	_log(source, "squad", "split", ", ".join(parts))
+	return "split: " + ", ".join(parts)
+
+
+## Personality flavour only: allies grumble at weird / repeated silly orders (never changes mechanics).
+var _silly_count: Dictionary = {}
+
+func _maybe_complain(verb: String, c: Dictionary, list: Array[SquadAlly]) -> void:
+	if not verb in ["jump", "dance", "emote"]:
+		return
+	for a in list:
+		var key: String = a.get_display_name()
+		_silly_count[key] = int(_silly_count.get(key, 0)) + 1
+		if (verb == "jump" and int(c.get("count", 1)) > 4) or int(_silly_count[key]) >= 3:
+			a.say_event("complain", 1)
+			_silly_count[key] = 0
+			return
 
 
 func _route(a: SquadAlly, cmd: SquadCommand) -> String:
@@ -463,8 +559,7 @@ func _recipients(c: Dictionary) -> Array[SquadAlly]:
 		return out
 	# Defaults per verb.
 	var verb: String = String(c.get("verb", ""))
-	var role_pref: Dictionary = {"bodyguard": ["vanguard", "bodyguard"], "kite": ["skirmisher", "kite"], "nuke": ["artillery", "nuke"],
-		"taunt": ["vanguard", "taunt"]}
+	var role_pref: Dictionary = ROLE_FOR_VERB
 	if role_pref.has(verb):
 		var pick: SquadAlly = _pick_for(String(role_pref[verb][1]), String(role_pref[verb][0]), [], [])
 		if pick != null:
@@ -492,6 +587,18 @@ func _recipients(c: Dictionary) -> Array[SquadAlly]:
 		if l != null and verb == "say":
 			out.append(l)
 			return out
+	if verb in ["interact", "hunt"]:
+		# One errand-runner: the living ally closest to the player.
+		var best2: SquadAlly = null
+		var bd2: float = INF
+		for a in get_living():
+			var d2: float = a.global_position.distance_to(_player.global_position) if _player != null else 0.0
+			if d2 < bd2:
+				bd2 = d2
+				best2 = a
+		if best2 != null:
+			out.append(best2)
+		return out
 	for a in allies:
 		out.append(a)
 	return out
@@ -537,6 +644,13 @@ func _names(list: Array) -> Array[String]:
 
 
 # ------------------------------------------------------------------ combos
+
+## verb -> [preferred role, ability] for default recipients and role-based substitution.
+const ROLE_FOR_VERB: Dictionary = {
+	"bodyguard": ["vanguard", "bodyguard"], "kite": ["skirmisher", "kite"], "nuke": ["artillery", "nuke"],
+	"taunt": ["vanguard", "taunt"], "peel": ["vanguard", "taunt"], "hit_and_run": ["skirmisher", "kite"],
+	"destroy": ["vanguard", "charge"],
+}
 
 const COMBO_PARTS: Dictionary = {
 	"combo_kite_nuke": [["kiter", "kite", "skirmisher"], ["nuker", "nuke", "artillery"]],
@@ -699,6 +813,13 @@ func _tick_combos(delta: float) -> void:
 			if not is_instance_valid(a) or a.is_downed:
 				_substitute(int(id), String(part))
 				return
+			# Self-preservation pauses the half; if it drags on, hand the half to someone healthier.
+			var rkey: String = "retreat_" + String(part)
+			rec[rkey] = (float(rec.get(rkey, 0.0)) + delta) if a._retreating else 0.0
+			if float(rec[rkey]) > 4.0:
+				rec[rkey] = 0.0
+				_substitute(int(id), String(part))
+				return
 			if a.current != cmd and not a.queue.has(cmd):
 				# Preempted by a panic order or cancelled: the combo yields.
 				_abort_combo(int(id), "%s was pulled off the combo" % a.get_display_name())
@@ -773,7 +894,9 @@ func _substitute(id: int, part: String) -> void:
 		parts[part] = sub
 		rec["cmd_" + part] = cmd
 		_route(sub, cmd)
-		sub.say("%s is down — I'll take their part!" % gone.get_display_name(), "combo_go", 2)
+		if not gone.is_downed and gone.current != null and gone.current.combo_id == id:
+			gone.finish_current("substituted")
+		sub.say("%s is out — I'll take their part!" % gone.get_display_name(), "combo_go", 2)
 		combo_progress.emit(kind, "Substitution: %s -> %s (%s)" % [gone.get_display_name(), sub.get_display_name(), part])
 		return
 	# Nobody free: survivor goes solo.
@@ -795,7 +918,9 @@ func _substitute(id: int, part: String) -> void:
 			survivor.assign(solo)
 		else:
 			_route(survivor, solo)
-		survivor.say("%s is down. Doing this alone!" % gone.get_display_name(), "combo_go", 2)
+		if not gone.is_downed and gone.current != null and gone.current.combo_id == id:
+			gone.finish_current("substituted")
+		survivor.say("%s is out. Doing this alone!" % gone.get_display_name(), "combo_go", 2)
 		combo_progress.emit(kind, "Solo fallback: %s" % survivor.get_display_name())
 	else:
 		_abort_combo(id, "no one left to run it")
@@ -858,6 +983,11 @@ func _on_ally_revived(a: SquadAlly) -> void:
 
 func _on_ally_command_finished(_a: SquadAlly, _cmd: SquadCommand, _result: String) -> void:
 	_roster_dirty = true
+
+
+## Public hook for allies to post a log line (phase failures etc.).
+func log_event(who: String, what: String, result: String) -> void:
+	_log("event", who, what, result)
 
 
 func _log(source: String, who: String, what: String, result: String) -> void:
