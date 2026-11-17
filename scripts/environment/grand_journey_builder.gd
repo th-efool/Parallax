@@ -37,6 +37,8 @@ const HDRI_SUN_U: float = 0.6069
 
 var _pbr_cache: Dictionary = {}
 var _std_cache: Dictionary = {}
+## Environmental set dressing & realm storytelling pass (JourneySetDressing). Off = bare architecture.
+@export var enable_set_dressing: bool = true
 var _scenery: Node3D = null
 var _decor: Node3D = null
 var _anim_tweens: Array[Tween] = []
@@ -73,6 +75,9 @@ func build_greybox() -> void:
 	for st in stages:
 		add_child(st)
 	add_child(_decor)
+	# Environmental set dressing & realm storytelling (see JourneySetDressing for the art direction).
+	if enable_set_dressing:
+		(load("res://scripts/environment/journey_set_dressing.gd") as GDScript).new(self).call("build")
 	add_child(_scenery)
 	_build_world_scenery()
 	_build_occluders()

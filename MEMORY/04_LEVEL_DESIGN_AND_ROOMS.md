@@ -45,6 +45,31 @@
   - There is **no terrain collision**: the world kill plane still catches falls. Use `JourneyTerrain.height(x, z)` and `route_distance(x, z)` to place anything on the ground.
   - Sky: `journey_sky.gdshader` adds a drifting cumulus + cirrus layer (`cloud_coverage` 0.3, rises with `overcast`).
 - **Decor** (`LevelRoot/Decor/Zone*/{Shared,RealityDressing,MirrorDressing}`): braziers (fire in Reality, cobalt spirit-flame in Mirror, `RealmTorchLight`), cloth banners (`banner_cloth.gdshader`, sun / moon emblems), crystal clusters (Mirror). No colliders.
+- **Set dressing & realm storytelling** (2026-11-17, `scripts/environment/journey_set_dressing.gd`, `LevelRoot/Decor/Dress_*/{Shared,RealityDressing,MirrorDressing}`; toggle `GrandJourneyBuilder.enable_set_dressing`).
+  - **Realm thesis:** the two realms are two *times* of one place.
+    - **Reality** is the fortress now: abandoned after the Warden's purge, looted, weathered.
+    - **Mirror** is the moon's memory of it at its height: things are whole, set and lit, and every death site carries a glowing moon sigil.
+    - Keep new dressing consistent with this.
+  - **Per zone (Reality → Mirror):**
+
+    | Zone | Reality | Mirror |
+    | :--- | :--- | :--- |
+    | Pilgrim road | Broken handcart, crates and barrel on the terrace; milestones with travellers' stone cairns | Spectral cairns, and a drifting lantern procession beyond the east parapets |
+    | Overlook | Shrine (stele + bronze disc) with burnt-out candles, a dead wreath and a dropped satchel | Ghost candles, a fresh wreath and a lit moon rune |
+    | Forecourt | Siege aftermath: crate/table barricade (east edge), planted swords and fallen shields with scorch/blood decals, spears, collapsed gate-tower rubble and a fallen column, a scorched gatehouse face | A sigil at every fallen defender, and a spectral moon standard above the gate |
+    | Sunlit stair | Sparse burnt candles, a fallen marble finial on the landing, moss | Votive ghost candles on every flight |
+    | Hall | Overturned tables as barricades, broken benches, spilled goblets, a crashed chandelier with a scorch decal, tattered banners, grime | The feast set: tables standing with ghost goblets and candles, the chandelier lit and hanging at Y+9. Everything stays at |x| ≥ 8.2, so the combat floor is clear |
+    | Rampart | Arrow bundles on the curtain wall, a toppled spear rack | Sentry lanterns |
+    | Aqueduct | Dry channels (x ±3.85) with grime and debris, a fallen drum | Channels flowing with animated moonlit water |
+    | Clock tower | Workbench with loose gears (SE corner), a rusted gear heap (NW), crates | 7 spectral gears suspended at Y 15–26, turning (tween on a `Spinner` child) |
+    | Processional | Dust-dry offerings and a dead wreath at the plinths, a trampled banner | Ghost-candle fields, a lantern line |
+    | Colosseum | 4 execution posts at R 12.6 (52/128/232/308°) with rusted chains and stains; weapon heaps in both tunnel mouths (x ±2.45, z 139 / 169); broken spears and bones on the sand margin; a toppled cage (W); prisoners' tally-mark decals in the south tunnel walls | Chains of light, a sigil where each prisoner knelt, glowing tally marks |
+    | Summit | A knight's grave (−5.6, 10, 197.8): mound, sword, helm, fresh wreath (someone still visits), wildflowers | The knight himself, spectral, keeping vigil facing the sunset, with candles and a sigil |
+  - **Tech:**
+    - Procedural props use the project materials plus a world-triplanar noise wood grain; MegaKit flora is the only glb reuse (KayKit barrels/crates clashed and were replaced).
+    - Static pieces, including non-bobbing spectral ones, go through `_static_batch`. Lanterns are one MultiMesh per zone with a per-instance bob in the shader. Gears are separate because they are animated.
+    - Decals use procedural textures (scorch / blood / moss / grime / sigil / tally). Emissive decals use premultiplied RGB.
+    - **No colliders were added.** A/B at 1600×900: +2–8% draw calls, FPS within run-to-run noise.
 
 ## 2.x Legacy Greybox Coordinate Table (kept for `colosseum_greybox.tscn` / reference only)
 
