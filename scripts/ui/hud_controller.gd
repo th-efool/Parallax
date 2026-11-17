@@ -149,6 +149,8 @@ func _apply_readability_pass() -> void:
 	if _root_ctrl.has_meta("hud_readability"):
 		return
 	_root_ctrl.set_meta("hud_readability", true)
+	if _root_ctrl.get_node_or_null("FinisherPrompt") == null:
+		_root_ctrl.add_child(FinisherPrompt.new())
 	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
 	if brand != null:
 		brand.visible = false

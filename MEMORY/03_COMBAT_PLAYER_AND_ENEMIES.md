@@ -80,6 +80,17 @@
 - Multipliers: `0–2` hits = **x1**, `3–5` hits = **x2**, `6+` hits = **x3**.
 - Resets to `x1` on timeout (`4.0 s`) OR when player takes enemy/hazard damage. **Realm shift (`Q`) preserves combo.**
 
+### 2.2b Critical Hits & Finishers (2026-11-17)
+- **Critical hit** (`PlayerController._try_open_finisher_window`): a non-killing sword hit by a chain ender (`light_3`, `heavy`, `heavy_spin` = defs with `finisher: true`) always crits; other light hits crit at `crit_chance_light = 0.12`. Deflected hits never crit. Cooldown `finisher_cooldown_sec = 2.5` after a finisher.
+- **Window**: `finisher_window_sec = 1.1` real seconds at `finisher_slowmo_scale = 0.35`; frame hitches > 50 ms are credited back. Press one of three inputs (read from the input buffer, so it works mid-attack):
+  | Input | Finisher (`ATTACK_DEFS`) | Damage | Shape / effect |
+  | :--- | :--- | :--- | :--- |
+  | `light_attack` (LMB) | `fin_rend` "REND" | 4 × 28 (blade re-armed 4× across a 0.48 s active phase, `multi: 4`) | 170° arc, reach 2.9 |
+  | `heavy_attack` (RMB) | `fin_sunder` "SUNDER" | 120 | 360° reach 3.6, knockback 13, 8 radial ground cracks, light pillar, double shockwave |
+  | `dodge` (Shift) | `fin_phantom` "PHANTOM STEP" | 95 | Blinks 1.5 m behind the target (wall-safe ray, only if target < 6 m), cyan afterimage + streak, camera swings round |
+- Finishers run as `State.HEAVY_ATTACK`, grant i-frames for 80% of their duration, score `+150 finisher` (combo-multiplied, `ScoreManager.POINTS_FINISHER`).
+- Signals: `finisher_window_opened(duration, options)`, `finisher_window_closed(chosen)`, `finisher_executed(name)`. VFX in `scripts/player/finisher_fx.gd`; HUD prompt `scripts/ui/finisher_prompt.gd` (`FinisherPrompt`, auto-added under `HUD/RootControl`).
+
 ### 2.3 Authored Breakables (One-Week Deterministic Pattern)
 Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `AnimationPlayer` animations + explicit single-tick `Area3D` / `ShapeCast` volumes + optional non-colliding `RigidBody3D` cosmetic rubble afterward. Each break event fires **at most once** (idempotent until section reset).
 

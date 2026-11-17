@@ -10,6 +10,7 @@ const GameFeelScript := preload("res://scripts/core/game_feel.gd")
 const GoreFXScript := preload("res://scripts/core/gore_fx.gd")
 const SquadCoordinatorScript := preload("res://scripts/enemies/squad_coordinator.gd")
 const PlayerFeelRigScript := preload("res://scripts/player/player_feel_rig.gd")
+const FinisherFXScript := preload("res://scripts/player/finisher_fx.gd")
 
 enum State {
 	LOCOMOTION = 0,
@@ -46,6 +47,10 @@ signal landed(impact_speed: float)
 signal skidded()
 signal landing_slam_triggered(impact_position: Vector3, radius: float, damage: int)
 signal interact_requested()
+## Critical-hit finisher window (see MEMORY/03 "Finishers"). Durations are real seconds.
+signal finisher_window_opened(duration: float, options: Array)
+signal finisher_window_closed(chosen: String)
+signal finisher_executed(finisher_name: String)
 
 ## Per-attack timing & feel. Clip times are seconds into the KayKit clip (contact = blade peak speed,
 ## measured from the rig's hand.r velocity). `lunge` = metres travelled when no target is magnetised.
@@ -83,7 +88,31 @@ const ATTACK_DEFS: Dictionary = {
 		"hitstop": 0.085, "trauma": 0.50, "twist": 0.0, "fov_kick": 4.0, "trail": 1.4,
 		"finisher": true, "ring": 2.8,
 	},
+	# --- Finishers: only startable inside the critical-hit window. "multi" = re-armed swings in the active phase.
+	"fin_rend": {
+		"clip": "1H_Melee_Attack_Slice_Diagonal", "clip_start": 0.10, "clip_contact": 0.42, "clip_end": 0.82,
+		"windup": 0.07, "active": 0.48, "recovery": 0.30, "cancel": 0.6,
+		"lunge": 1.4, "reach": 2.9, "arc": 170.0, "knockback": 4.0, "multi": 4,
+		"hitstop": 0.045, "trauma": 0.30, "twist": 0.6, "fov_kick": 4.0, "trail": 1.8,
+		"finisher_move": true, "damage": 28, "display": "REND",
+	},
+	"fin_sunder": {
+		"clip": "1H_Melee_Attack_Jump_Chop", "clip_start": 0.20, "clip_contact": 0.80, "clip_end": 1.40,
+		"windup": 0.34, "active": 0.12, "recovery": 0.46, "cancel": 0.7,
+		"lunge": 1.6, "reach": 3.6, "arc": 360.0, "knockback": 13.0,
+		"hitstop": 0.17, "trauma": 0.95, "twist": 0.0, "fov_kick": -7.0, "trail": 2.0,
+		"finisher_move": true, "damage": 120, "crack": 5.0, "ring": 4.2, "display": "SUNDER",
+	},
+	"fin_phantom": {
+		"clip": "1H_Melee_Attack_Stab", "clip_start": 0.10, "clip_contact": 0.40, "clip_end": 0.85,
+		"windup": 0.06, "active": 0.10, "recovery": 0.34, "cancel": 0.6,
+		"lunge": 0.6, "reach": 2.7, "arc": 150.0, "knockback": 7.0,
+		"hitstop": 0.15, "trauma": 0.55, "twist": 0.0, "fov_kick": 8.0, "trail": 1.6,
+		"finisher_move": true, "damage": 95, "blink": 1.5, "display": "PHANTOM STEP",
+	},
 }
+## Window options: input buffer key -> finisher attack.
+const FINISHER_BY_INPUT: Dictionary = {"light": "fin_rend", "heavy": "fin_sunder", "dodge": "fin_phantom"}
 
 @export_group("Health & Survival")
 @export var max_health: int = 100
@@ -128,6 +157,12 @@ const ATTACK_DEFS: Dictionary = {
 @export var magnet_range: float = 4.8
 @export var magnet_half_angle_deg: float = 75.0
 @export var magnet_stop_distance: float = 1.25
+
+@export_group("Finishers")
+@export var finisher_window_sec: float = 1.1
+@export var finisher_slowmo_scale: float = 0.35
+@export var crit_chance_light: float = 0.12
+@export var finisher_cooldown_sec: float = 2.5
 
 @export_group("Node References")
 @export var camera_pivot_path: NodePath = NodePath("CameraPivot")
@@ -186,6 +221,11 @@ var _buffer_action: String = ""
 var _buffer_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _prev_move_dir: Vector3 = Vector3.ZERO
+var _finisher_window_end_ms: int = 0
+var _finisher_cooldown_end_ms: int = 0
+var _finisher_last_tick_ms: int = 0
+var _finisher_target: Node3D = null
+var _multi_tick: int = 0
 
 
 func _ready() -> void:
@@ -376,6 +416,7 @@ func _physics_process(delta: float) -> void:
 
 	_update_camera_pivot()
 	_poll_action_inputs(delta)
+	_update_finisher_window()
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
@@ -523,6 +564,7 @@ func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State) 
 	_attack_heavy = heavy
 	_attack_elapsed = 0.0
 	_attack_hits = 0
+	_multi_tick = 0
 
 	var has_input: bool = _last_move_input_dir.length_squared() > 0.001
 	var dir_hint: Vector3 = _last_move_input_dir if has_input else get_facing_direction()
@@ -596,6 +638,17 @@ func _process_attack_state(delta: float) -> void:
 				v_a = 0.0
 		velocity.x = fwd.x * v_a
 		velocity.z = fwd.z * v_a
+		# Multi-hit finishers re-arm the blade N times across the active phase (one hit per target per tick).
+		var multi: int = int(current_attack.get("multi", 0))
+		if multi > 1:
+			var tick: int = mini(multi - 1, int((_attack_elapsed - w) / maxf(0.01, a / float(multi))))
+			if tick > _multi_tick:
+				_multi_tick = tick
+				var hbm: Hitbox3D = get_sword_hitbox()
+				if hbm != null:
+					hbm.end_swing()
+					hbm.begin_swing(_attack_damage, true, "player_heavy")
+				FinisherFXScript.rend_slash(self, tick)
 		_sweep_strike_targets()
 	else:
 		if attack_phase == AttackPhase.ACTIVE or attack_phase == AttackPhase.WINDUP:
@@ -658,6 +711,10 @@ func _enter_strike() -> void:
 		_spawn_ground_crack(float(current_attack["crack"]))
 	if current_attack.has("ring"):
 		GoreFXScript.shockwave_ring(self, global_position, float(current_attack["ring"]), _realm_color(0.9), 0.32, 0.22)
+	if bool(current_attack.get("finisher_move", false)):
+		FinisherFXScript.on_strike(self, current_attack_name)
+		if current_attack_name == "fin_rend":
+			FinisherFXScript.rend_slash(self, 0)
 
 
 func _enter_recovery() -> void:
@@ -764,6 +821,115 @@ func _on_sword_hit_landed(target: Node, _damage_dealt: int, _is_heavy_hit: bool,
 	if killed:
 		_maybe_kill_cam()
 	hit_confirmed.emit(target, current_attack_name if source_type != "player_landing" else "landing_plunge", killed)
+	if not killed and source_type != "player_landing" and target is EnemyBase:
+		_try_open_finisher_window(target as Node3D)
+
+
+# ------------------------------------------------------------------ finishers
+
+func is_finisher_window_open() -> bool:
+	return _finisher_window_end_ms > Time.get_ticks_msec()
+
+
+## A critical hit: the chain enders (light_3 / heavy / heavy_spin) always crit; other light hits crit at `crit_chance_light`.
+func _try_open_finisher_window(target: Node3D) -> void:
+	if is_finisher_window_open() or Time.get_ticks_msec() < _finisher_cooldown_end_ms:
+		return
+	if bool(current_attack.get("finisher_move", false)):
+		return
+	var crit: bool = bool(current_attack.get("finisher", false)) or randf() < crit_chance_light
+	if not crit:
+		return
+	open_finisher_window(target)
+
+
+func open_finisher_window(target: Node3D) -> void:
+	_finisher_target = target
+	_finisher_window_end_ms = Time.get_ticks_msec() + int(finisher_window_sec * 1000.0)
+	_finisher_last_tick_ms = Time.get_ticks_msec()
+	GameFeelScript.slowmo(self, finisher_slowmo_scale, finisher_window_sec)
+	FinisherFXScript.critical_flash(self, target)
+	finisher_window_opened.emit(finisher_window_sec, [
+		{"input": "light_attack", "name": "REND", "kind": "rend"},
+		{"input": "heavy_attack", "name": "SUNDER", "kind": "sunder"},
+		{"input": "dodge", "name": "PHANTOM STEP", "kind": "phantom"},
+	])
+
+
+func _update_finisher_window() -> void:
+	if _finisher_window_end_ms == 0:
+		return
+	# Frame hitches (first-time VFX shader compiles) must not eat the real-time window: any frame
+	# gap beyond 50 ms is credited back.
+	var now_ms: int = Time.get_ticks_msec()
+	var gap: int = now_ms - _finisher_last_tick_ms
+	if _finisher_last_tick_ms > 0 and gap > 50:
+		_finisher_window_end_ms += gap - 50
+	_finisher_last_tick_ms = now_ms
+	if now_ms >= _finisher_window_end_ms or current_state == State.DEAD or current_state == State.STAGGER:
+		_close_finisher_window("")
+		return
+	if not FINISHER_BY_INPUT.has(_buffer_action):
+		return
+	var fin: String = String(FINISHER_BY_INPUT[_consume_buffer()])
+	_close_finisher_window(fin)
+	start_finisher(fin)
+
+
+func _close_finisher_window(chosen: String) -> void:
+	_finisher_window_end_ms = 0
+	var gf: GameFeel = GameFeelScript.get_instance(self)
+	if gf != null:
+		gf.clear_time_effects()
+	if chosen.is_empty():
+		_finisher_target = null
+	finisher_window_closed.emit(chosen)
+
+
+## Launches a finisher regardless of the current attack's cancel window (the crit window is the gate).
+func start_finisher(fin_name: String) -> bool:
+	var def: Dictionary = get_attack_def(fin_name)
+	if def.is_empty() or current_state == State.DEAD:
+		return false
+	_abort_attack()
+	if current_state == State.DODGE:
+		_set_state(State.LOCOMOTION, 0.0)
+	var tgt: Node3D = _finisher_target if is_instance_valid(_finisher_target) and not (_finisher_target as EnemyBase).is_dead else null
+	if def.has("blink") and tgt != null and tgt.global_position.distance_to(global_position) < 6.0:
+		# Phantom Step: vanish into a mirror afterimage and reappear behind the target.
+		var from: Vector3 = global_position
+		var away: Vector3 = tgt.global_position - from
+		away.y = 0.0
+		away = away.normalized() if away.length_squared() > 0.001 else get_facing_direction()
+		var dest: Vector3 = tgt.global_position + away * float(def["blink"])
+		dest.y = global_position.y
+		# Never blink through a wall: stop short of world geometry (World_Shared/Reality/Mirror = layers 3-5).
+		var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+		var probe_from: Vector3 = Vector3(tgt.global_position.x, global_position.y + 0.9, tgt.global_position.z)
+		var q := PhysicsRayQueryParameters3D.create(probe_from, dest + Vector3.UP * 0.9, 0b11100)
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty():
+			dest = Vector3((hit["position"] as Vector3).x, global_position.y, (hit["position"] as Vector3).z) - away * 0.45
+		FinisherFXScript.phantom_blink(self, from, dest)
+		global_position = dest
+		set_facing_direction(-away)
+		camera_yaw = atan2(away.x, away.z)  # swing the camera round so the target stays in view
+	combo_step = 0
+	_combo_window_timer = 0.0
+	_begin_attack(fin_name, int(def.get("damage", 60)), true, State.HEAVY_ATTACK)
+	if tgt != null:
+		current_target = tgt
+	_finisher_target = null
+	_finisher_cooldown_end_ms = Time.get_ticks_msec() + int(finisher_cooldown_sec * 1000.0)
+	_update_hurtbox_invulnerability(true)
+	get_tree().create_timer(get_attack_total_duration(fin_name) * 0.8, true, false, true).timeout.connect(func() -> void:
+		if is_instance_valid(self) and current_state != State.DODGE:
+			_update_hurtbox_invulnerability(false))
+	var rs: Node = _get_run_state()
+	if rs != null and rs.has_method("add_score_event"):
+		rs.call("add_score_event", "finisher", true, "")
+	finisher_executed.emit(fin_name)
+	return true
 
 
 ## Last enemy of a fight dies -> brief dramatic slow motion.

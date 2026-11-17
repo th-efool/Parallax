@@ -15,6 +15,7 @@ const POINTS_MIRROR_KILL: int = 200
 const POINTS_ENVIRONMENTAL_KILL: int = 250
 const POINTS_NO_HIT_ENCOUNTER: int = 500
 const POINTS_WARDEN_DEFEAT: int = 1000
+const POINTS_FINISHER: int = 150
 const MAX_TIME_BONUS: int = 1000
 const COMBO_DECAY_SECONDS: float = 4.0
 
@@ -236,4 +237,6 @@ func _get_base_points(type: String) -> int:
 			return POINTS_NO_HIT_ENCOUNTER
 		"warden_defeat":
 			return POINTS_WARDEN_DEFEAT
+		"finisher":
+			return POINTS_FINISHER
 	return 0

@@ -13,6 +13,7 @@
 | **Environmental Kill** | `+250` | Yes (`x1 / x2 / x3`) | Bonus when authored hazard (e.g., Cracked Pillar) deals the killing blow. |
 | **Mirror Kill (Realm Trick)** | `+200` | Yes (`x1 / x2 / x3`) | Bonus when any enemy is killed while `current_realm == MIRROR`. |
 | **No-Hit Encounter** | `+500` | **No** (flat) | Awarded once at encounter end if player took `0` damage during that encounter. |
+| **Finisher** | `+150` | Yes (`x1 / x2 / x3`) | Each critical-hit finisher executed (Rend / Sunder / Phantom Step — see `03` §2.2b). |
 | **Warden Defeat** | `+1,000` | **No** (flat) | One-time boss completion award at Warden HP `<= 0`. |
 | **Completion Time Bonus** | `0` to `+1,000` | **No** (flat) | **`TimeBonus = max(0, 1000 - int(elapsed_seconds))`** (`400` at 10 min; `0` at 16m40s). |
 
