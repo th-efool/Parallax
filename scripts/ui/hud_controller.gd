@@ -29,7 +29,7 @@ var displayed_max_hp: int = 100
 var hp_text: String = "100 / 100"
 
 var active_realm_chip: String = "REALITY"
-var shift_key_text: String = "[Q]"
+var shift_key_text: String = "Q"
 var shift_rejection_flash_timer: float = 0.0
 var last_shift_rejection_reason: String = ""
 
@@ -143,10 +143,87 @@ func _empty_box(pad_h: int = 0, pad_v: int = 0) -> StyleBoxEmpty:
 
 ## Applies fonts, custom-drawn frames, combo bar, merged label, toast banner. Idempotent; works for
 ## both the generated tree and a scene-authored HUD (uses the *_path exports / known node names).
+## Gameplay readability: no title logo in the HUD (MEMORY/05 §2.1), the solid header band becomes a
+## soft top fade, and dark corner scrims sit behind the top-left/top-right clusters so text reads on bright skies.
+func _apply_readability_pass() -> void:
+	if _root_ctrl.has_meta("hud_readability"):
+		return
+	_root_ctrl.set_meta("hud_readability", true)
+	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
+	if brand != null:
+		brand.visible = false
+	var band: PanelContainer = get_node_or_null("RootControl/TopHeaderBand") as PanelContainer
+	if band != null:
+		var grad := Gradient.new()
+		grad.set_color(0, Color(0.02, 0.02, 0.04, 0.55))
+		grad.set_color(1, Color(0.02, 0.02, 0.04, 0.0))
+		var gt := GradientTexture2D.new()
+		gt.gradient = grad
+		gt.fill_from = Vector2(0.5, 0.0)
+		gt.fill_to = Vector2(0.5, 1.0)
+		gt.width = 4
+		gt.height = 64
+		var sbt := StyleBoxTexture.new()
+		sbt.texture = gt
+		band.add_theme_stylebox_override("panel", sbt)
+		band.offset_bottom = 40.0
+	for corner: Vector2 in [Vector2(0, 0), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1)]:
+		var g := Gradient.new()
+		var a0: float = 0.78 if corner.y == 0.0 else 0.6
+		g.set_color(0, Color(0.0, 0.0, 0.02, a0))
+		g.set_color(1, Color(0.0, 0.0, 0.02, 0.0))
+		g.add_point(0.55, Color(0.0, 0.0, 0.02, a0 * 0.55))
+		var rt := GradientTexture2D.new()
+		rt.gradient = g
+		rt.fill = GradientTexture2D.FILL_RADIAL
+		rt.fill_from = corner
+		# Radius = 1 texture unit, so the fade reaches zero exactly at the far edges (no hard rectangle).
+		rt.fill_to = corner + Vector2(1.0 if corner.x == 0.0 else -1.0, 0.0)
+		rt.width = 128
+		rt.height = 128
+		var tr := TextureRect.new()
+		tr.name = "CornerScrim_%d%d" % [int(corner.x), int(corner.y)]
+		tr.texture = rt
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tr.anchor_left = corner.x
+		tr.anchor_right = corner.x
+		tr.anchor_top = corner.y
+		tr.anchor_bottom = corner.y
+		var w: float = 620.0
+		var h: float = 260.0 if corner.y == 0.0 else 230.0
+		tr.offset_left = -w if corner.x == 1.0 else 0.0
+		tr.offset_right = 0.0 if corner.x == 1.0 else w
+		tr.offset_top = -h if corner.y == 1.0 else 0.0
+		tr.offset_bottom = 0.0 if corner.y == 1.0 else h
+		_root_ctrl.add_child(tr)
+		_root_ctrl.move_child(tr, 0)
+	# Larger, outlined vitals and score text.
+	var hpb: Control = get_node_or_null(hp_bar_path) as Control if not hp_bar_path.is_empty() else null
+	if hpb != null:
+		hpb.custom_minimum_size = Vector2(340, 22)
+	for p: NodePath in [score_label_path, combo_label_path, timer_label_path, hp_label_path]:
+		var l: Label = get_node_or_null(p) as Label if not p.is_empty() else null
+		if l != null:
+			l.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+			l.add_theme_constant_override("outline_size", 5)
+	var wl: Label = get_node_or_null("RootControl/BottomLeftWeapon/SwordSlotLabel") as Label
+	if wl != null:
+		wl.add_theme_font_size_override("font_size", 14)
+		wl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		wl.add_theme_constant_override("outline_size", 4)
+	var qk: Label = get_node_or_null(shift_key_label_path) as Label if not shift_key_label_path.is_empty() else null
+	if qk != null:
+		qk.add_theme_stylebox_override("normal", _keycap_style())
+		qk.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+
 func _wire_visuals() -> void:
 	_root_ctrl = get_node_or_null("RootControl") as Control
 	if _root_ctrl == null:
 		return
+	_apply_readability_pass()
 	# --- Fonts ---
 	_style_hud_label(get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as Label, true, 30)
 	_style_hud_label(_section_title_label, true, 16)
@@ -180,7 +257,7 @@ func _wire_visuals() -> void:
 			var boss_flag: bool = bool(entry[1])
 			pb.draw.connect(func() -> void: _paint_bar(pb, boss_flag))
 	if _hp_bar != null:
-		_hp_bar.custom_minimum_size = Vector2(290, 20)
+		_hp_bar.custom_minimum_size = Vector2(340, 22)
 	if _boss_bar != null:
 		_boss_bar.custom_minimum_size = Vector2(560, 22)
 	if _stamina_bar != null:
@@ -245,7 +322,11 @@ func _wire_visuals() -> void:
 			klbl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			_style_hud_label(klbl, false, 14)
 		var vlbl: Label = (_action_slots[act] as Dictionary).get("verb") as Label
-		_style_hud_label(vlbl, false, 12)
+		_style_hud_label(vlbl, false, 14)
+		if vlbl != null:
+			vlbl.add_theme_color_override("font_color", Color(0.93, 0.88, 0.76, 0.95))
+			vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+			vlbl.add_theme_constant_override("outline_size", 4)
 
 	# --- Interact plate (chamfered, painted) ---
 	if _interact_panel != null:
@@ -372,7 +453,7 @@ func refresh_input_prompts() -> void:
 		interact_lbl = String(store.call("get_action_display_label", "interact"))
 		shift_lbl = String(store.call("get_action_display_label", "dimension_shift"))
 
-	shift_key_text = "[%s]" % shift_lbl
+	shift_key_text = shift_lbl
 	attack_prompt_text = "%s ATTACK  |  %s HEAVY  |  %s DODGE  |  " % [lmb_lbl, rmb_lbl, dodge_lbl]
 	landing_prompt_text = "%s LAND" % land_lbl
 	interact_prompt_text = "[%s] %s" % [interact_lbl, interact_action_verb]
@@ -1237,7 +1318,7 @@ func _build_styled_hud_tree() -> void:
 
 	var shift_key_lbl := Label.new()
 	shift_key_lbl.name = "ShiftKeyLabel"
-	shift_key_lbl.text = "[Q]"
+	shift_key_lbl.text = "Q"
 	shift_key_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shift_key_lbl.add_theme_font_size_override("font_size", 13)
 	shift_key_lbl.add_theme_color_override("font_color", Color(0.95, 0.90, 0.78, 0.95))
