@@ -241,6 +241,8 @@ func _build_body() -> void:
 			i += 3
 		if profile.tint != Color(1, 1, 1, 1):
 			_tint(model, profile.tint)
+		if profile.role == "artillery":
+			_attach_staff(model, profile.color)
 	_bridge = CharacterAnimationBridge.new()
 	_bridge.name = "CharacterAnimationBridge"
 	_bridge.actor_path = NodePath("..")
@@ -292,6 +294,72 @@ func _tint(node: Node, c: Color) -> void:
 				mi.set_surface_override_material(s, m)
 	for ch in node.get_children():
 		_tint(ch, c)
+
+
+## Artillery casters hold a crystal staff instead of a sword. It is placed exactly where the rig's (hidden)
+## 1H_Sword sits, so it follows the hand with the right grip; falls back to the handslot.r bone.
+const STAFF_LENGTH: float = 1.45
+
+
+func _attach_staff(model: Node3D, col: Color) -> void:
+	var holder: Node3D = null
+	var grip := Transform3D.IDENTITY
+	var sword: Node3D = model.find_child("1H_Sword", true, false) as Node3D
+	if sword != null and sword.get_parent() is Node3D:
+		holder = sword.get_parent() as Node3D
+		grip = sword.transform
+	else:
+		var skels: Array[Node] = model.find_children("*", "Skeleton3D", true, false)
+		if skels.is_empty():
+			return
+		var skel: Skeleton3D = skels[0] as Skeleton3D
+		if skel.find_bone("handslot.r") < 0:
+			return
+		var att := BoneAttachment3D.new()
+		att.name = "CasterStaffSlot"
+		att.bone_name = "handslot.r"
+		skel.add_child(att)
+		holder = att
+	var pivot := Node3D.new()
+	pivot.name = "CasterStaff"
+	pivot.transform = grip
+	holder.add_child(pivot)
+	var shaft := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.025
+	cyl.bottom_radius = 0.032
+	cyl.height = STAFF_LENGTH
+	cyl.radial_segments = 8
+	shaft.mesh = cyl
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.36, 0.24, 0.14)
+	wood.roughness = 0.9
+	shaft.material_override = wood
+	shaft.position = Vector3(0, STAFF_LENGTH * 0.25, 0)
+	pivot.add_child(shaft)
+	var gem := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.09
+	sm.height = 0.18
+	sm.radial_segments = 10
+	sm.rings = 5
+	gem.mesh = sm
+	var gm := StandardMaterial3D.new()
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.albedo_color = col.lightened(0.3)
+	gm.emission_enabled = true
+	gm.emission = col
+	gm.emission_energy_multiplier = 2.5
+	gem.material_override = gm
+	gem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	gem.position = Vector3(0, STAFF_LENGTH * 0.75 + 0.06, 0)
+	pivot.add_child(gem)
+	var glow := OmniLight3D.new()
+	glow.light_color = col
+	glow.light_energy = 0.7
+	glow.omni_range = 2.0
+	glow.position = gem.position
+	pivot.add_child(glow)
 
 
 func _refresh_label() -> void:
@@ -1759,19 +1827,95 @@ func _skill_chain_arc(s: AllySkill, first: EnemyAI) -> bool:
 	_play(["Spellcast_Shoot", "1H_Ranged_Shoot"], 0.45, true)
 	var mults: Array[float] = [1.0, 0.72, 0.5]
 	_start_action("channel", 0.45, 0.2, func() -> void:
-		var from: Vector3 = global_position + Vector3.UP * 1.3
-		for i in range(hits.size()):
-			var e: EnemyAI = hits[i]
-			if not _enemy_ok(e):
-				continue
-			e.apply_damage(int(round(s.power * mults[i] * (1.0 + _dmg_buff))), false, "ally_skill", self)
-			if not e.knockdown_immune:
-				e.enter_stunned(s.duration)
-			var to: Vector3 = e.global_position + Vector3.UP * 1.1
-			GoreFXScript.sparks(self, to, from - to, s.color, 16)
-			GoreFXScript.flash_light(self, to, s.color, 3.0, 0.15, 3.0)
-			from = to)
+		_chain_arc_hop(s, hits, mults, 0, global_position + Vector3.UP * 1.35 + facing_direction * 0.4))
 	return true
+
+
+## Chain Arc: a visible bolt flies to each target in turn; damage and stun land on arrival, then the next bolt
+## jumps from that enemy to the next one.
+func _chain_arc_hop(s: AllySkill, hits: Array[EnemyAI], mults: Array[float], i: int, from: Vector3) -> void:
+	if i >= hits.size():
+		return
+	var e: EnemyAI = hits[i]
+	if not _enemy_ok(e):
+		_chain_arc_hop(s, hits, mults, i + 1, from)
+		return
+	_launch_bolt(from, e, s.color, 26.0, 0.09, func() -> void:
+		if not _enemy_ok(e):
+			return
+		e.apply_damage(int(round(s.power * mults[i] * (1.0 + _dmg_buff))), false, "ally_skill", self)
+		if not e.knockdown_immune:
+			e.enter_stunned(s.duration)
+		var at: Vector3 = e.global_position + Vector3.UP * 1.1
+		GoreFXScript.sparks(self, at, at - from, s.color, 16)
+		GoreFXScript.flash_light(self, at, s.color, 3.0, 0.15, 3.0)
+		_chain_arc_hop(s, hits, mults, i + 1, at))
+
+
+## Glowing projectile from `from` that homes on `target` at `speed` m/s; `on_hit` runs when it arrives.
+func _launch_bolt(from: Vector3, target: Node3D, col: Color, speed: float, radius: float, on_hit: Callable) -> void:
+	var host: Node = GoreFXScript.host_for(self)
+	if host == null or not is_instance_valid(target):
+		on_hit.call()
+		return
+	var mi := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = radius
+	sph.height = radius * 2.0
+	sph.radial_segments = 8
+	sph.rings = 4
+	mi.mesh = sph
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col.lightened(0.35)
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 3.0
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	host.add_child(mi)
+	mi.global_position = from
+	var dur: float = clampf(from.distance_to(target.global_position + Vector3.UP) / maxf(1.0, speed), 0.06, 0.6)
+	var tw := mi.create_tween()
+	tw.tween_method(func(k: float) -> void:
+		if is_instance_valid(mi) and is_instance_valid(target):
+			mi.global_position = from.lerp(target.global_position + Vector3.UP * 1.0, k), 0.0, 1.0, dur)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(mi):
+			mi.queue_free()
+		on_hit.call())
+	GameFeelScript.play_sound(self, "whoosh_light", from, -10.0, 1.5)
+
+
+## Artillery basic attack: hold 5.5-9.5 m from the target and fire bolts (_fire_bolt); back away from
+## anything on us, staff-swipe only when cornered.
+func _ranged_engage(e: EnemyAI, delta: float) -> void:
+	var to_e: Vector3 = e.global_position - global_position
+	to_e.y = 0.0
+	var d: float = to_e.length()
+	var close: EnemyAI = _nearest_enemy(global_position, 2.6)
+	if close != null and close.get_current_target() == self:
+		var away: Vector3 = global_position - close.global_position
+		away.y = 0.0
+		if away.length_squared() > 0.01 and _side_open(away.normalized()):
+			_move_dir(away.normalized(), profile.move_speed * 1.15, delta)
+			return
+		if _attack_cd <= 0.0 and global_position.distance_to(close.global_position) <= profile.attack_range + 0.3:
+			set_facing(close.global_position - global_position)
+			_melee(close)
+		else:
+			_halt(delta)
+		return
+	if d > RANGED_MAX:
+		_move_to(e.global_position - to_e.normalized() * (RANGED_MAX - 1.5), profile.move_speed, delta)
+		return
+	if d < RANGED_MIN and d > 0.01:
+		_move_dir(-to_e.normalized(), profile.move_speed, delta)
+		return
+	_halt(delta)
+	set_facing(to_e)
+	if _attack_cd <= 0.0:
+		_fire_bolt(e)
 
 
 func _skill_barrage(s: AllySkill, e: EnemyAI) -> bool:
@@ -2804,6 +2948,10 @@ func _fight(e: EnemyAI, delta: float) -> void:
 	_combat_quiet = 0.0
 	if _hazard_dodge(delta):
 		return
+	# Casters fight from range with visible bolts (no sword); berserk massacre still wades in.
+	if profile.role == "artillery" and not _is_massacre():
+		_ranged_engage(e, delta)
+		return
 	# Distinct attack slot per ally around the enemy (no stacking on one spot).
 	var to_e: Vector3 = e.global_position - global_position
 	to_e.y = 0.0
@@ -3314,7 +3462,7 @@ func _player() -> Node3D:
 
 
 func _enemy_ok(e: EnemyAI) -> bool:
-	return e != null and is_instance_valid(e) and not e.is_dead and e.is_active and e.is_inside_tree()
+	return e != null and is_instance_valid(e) and not e.is_dead and e.is_active and e.is_inside_tree() and e.is_hittable_now()
 
 
 func _active_enemies(center: Vector3, radius: float) -> Array[EnemyAI]:

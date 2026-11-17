@@ -64,6 +64,12 @@ func trigger_pit_death(actor: Node) -> bool:
 		var eb: EnemyBase = actor as EnemyBase
 		if eb.is_dead:
 			return false
+		# Bosses are never killed by falling: put them back on their spawn spot.
+		if eb is WardenBoss:
+			var wb: WardenBoss = eb as WardenBoss
+			wb.global_position = wb.get_home_position()
+			wb.velocity = Vector3.ZERO
+			return true
 		eb.apply_damage(maxi(9999, eb.health), true, "environmental", self)
 		pit_fall_triggered.emit(eb)
 		return true

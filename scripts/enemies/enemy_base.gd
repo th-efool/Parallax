@@ -22,6 +22,13 @@ const GameFeelScript := preload("res://scripts/core/game_feel.gd")
 @export_group("Stats")
 @export var max_health: int = 100
 @export var heavy_attack_staggers: bool = true
+## Bosses: the Execution finisher (instant kill at low HP) does not apply.
+@export var execute_immune: bool = false
+
+## Global enemy durability multiplier (2026-11-18: "enemies need at least 2.5x the health"). Applied once to the
+## authored max_health in _ready(), so scripted enemies and data-driven archetypes are all covered.
+const HEALTH_SCALE: float = 2.5
+var _health_scaled: bool = false
 
 @export_group("Node Paths")
 @export var hurtbox_path: NodePath = NodePath("Hurtbox3D")
@@ -59,6 +66,9 @@ func _ready() -> void:
 	fwd.y = 0.0
 	if fwd.length_squared() > 0.001:
 		facing_direction = fwd.normalized()
+	if not _health_scaled:
+		_health_scaled = true
+		max_health = maxi(1, int(round(float(max_health) * HEALTH_SCALE)))
 	health = max_health
 
 	if EncounterDirector.instance != null:
@@ -204,6 +214,12 @@ func get_attack_hitbox() -> Hitbox3D:
 
 func _modify_incoming_damage(amount: int, _is_heavy: bool, _source_type: String) -> int:
 	return amount
+
+
+## Virtual: false while this enemy can't be hurt in the current realm (Mirror-only phantoms in Reality).
+## Allies skip such targets.
+func is_hittable_now() -> bool:
+	return true
 
 
 func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:

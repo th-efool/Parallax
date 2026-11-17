@@ -942,7 +942,7 @@ func _on_sword_hit_landed(target: Node, _damage_dealt: int, _is_heavy_hit: bool,
 	# Execution: anything left at or below the threshold after the plunge is finished outright.
 	if not killed and current_attack.has("execute") and target is EnemyBase:
 		var eb: EnemyBase = target as EnemyBase
-		if float(eb.health) <= float(eb.max_health) * float(current_attack["execute"]):
+		if not eb.execute_immune and float(eb.health) <= float(eb.max_health) * float(current_attack["execute"]):
 			eb.apply_damage(eb.health + 999, true, "player_execution", self)
 			killed = eb.is_dead
 			if killed:

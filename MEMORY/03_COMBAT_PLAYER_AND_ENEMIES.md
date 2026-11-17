@@ -120,7 +120,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 | Enemy | Count | Realm Affinity | HP | Damage | Core Counterplay |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Skeleton Guard** | 2 | `BOTH_STATEFUL` (was REALITY_ONLY) | `100` | `15` (melee) | Standard combat in Reality or bait into Cracked Pillar fall zone. |
-| **Phantom Twin** | 2 | `BOTH_STATEFUL` (was MIRROR_ONLY; still spectral blood) | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
+| **Phantom Twin** | 2 | `BOTH_STATEFUL` — fights ONLY in the Mirror (2026-11-18): immune, harmless and translucent in Reality | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
 | **Shielded Guard** | 1 | `BOTH_STATEFUL` | `250` | `20` (shield bash) | Frontal shield blocks light hits & absorbs heavy in Reality. Shift to Mirror: reflection is shieldless -> Heavy staggers & kills. |
 | **The Warden (Boss)** | 1 | `BOTH_STATEFUL` -> Merged | `1,000` (shared) | `20` Cleave / `25` Lunge | Phase 1: Dodge in Reality, shift to Mirror during `1.4 s` recovery chest-rune opening. Phase 2 (`<=500 HP`): Realms merge, dodge faster chain & kill in Reality. |
 | **Hollow Hexcaster** *(archetype)* | 1 | `both` | `70` | `12` (hex bolt, `11 m/s`) | Ranged caster on Skeleton_Warrior (purple tint, hand orb). Holds `7 m`, strafes, fires a dodgeable bolt (`0.8 s` wind-up, `Spellcast_Shoot`). Close the gap; flees at `30%` HP. |

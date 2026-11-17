@@ -31,7 +31,11 @@ signal boss_defeated()
 @export var phase1_windup_duration: float = 0.90
 @export var phase1_recovery_window: float = 1.40
 @export var phase1_reality_armor_cap: int = 5
+## Legacy absolute value (kept for the inspector). Phase 2 now starts at 50 % of max_health (see
+## _phase2_threshold), so the global HEALTH_SCALE can't shift it.
 @export var phase2_hp_threshold: int = 500
+## Phase 2: max damage a single hit can deal (stops 3 allies + finishers deleting the second half in seconds).
+@export var phase2_max_hit: int = 120
 @export var phase2_transition_duration: float = 1.60
 @export var phase2_windup_duration: float = 0.65
 @export var phase2_recovery_window: float = 0.85
@@ -88,11 +92,18 @@ func _init() -> void:
 	show_state_icon = false
 	# The Warden has its own Mirror mechanic (chest rune) — no generic insight bonus.
 	mirror_damage_mult = 1.0
+	# Never executed by the player's Execution finisher.
+	execute_immune = true
 
 
 func step_ai(delta: float) -> void:
 	if is_dead:
 		return
+	# Fall safety: knockback or a lunge off the arena edge must never kill the boss (world kill plane below
+	# y ~ -6). Snap back to the spawn spot instead.
+	if global_position.y < get_home_position().y - 4.0:
+		global_position = get_home_position()
+		velocity = Vector3.ZERO
 
 	if current_phase == Phase.PHASE_2_TRANSITION:
 		_transition_timer = maxf(0.0, _transition_timer - delta)
@@ -271,9 +282,15 @@ func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) 
 		return 0
 	if source_type == "environmental":
 		return amount
+	if current_phase == Phase.PHASE_2_MERGED:
+		return mini(amount, phase2_max_hit)
 	if is_vulnerable_to_full_damage():
 		return amount
 	return mini(amount, phase1_reality_armor_cap)
+
+
+func _phase2_threshold() -> int:
+	return int(round(float(max_health) * 0.5))
 
 
 func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:
@@ -281,7 +298,7 @@ func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:
 
 
 func _on_damage_taken(_final_damage: int, _is_heavy: bool, _source_type: String) -> void:
-	if current_phase == Phase.PHASE_1_SPLIT and health > 0 and health <= phase2_hp_threshold:
+	if current_phase == Phase.PHASE_1_SPLIT and health > 0 and health <= _phase2_threshold():
 		_trigger_phase2_transition()
 
 
@@ -340,6 +357,7 @@ func _on_enemy_reset() -> void:
 
 
 func _die(source_type: String) -> void:
+	print("[Warden] defeated by '%s' (phase %d, last attacker %s)" % [source_type, int(current_phase), str(_last_attacker)])
 	if is_chest_rune_exposed:
 		is_chest_rune_exposed = false
 		chest_rune_exposed_changed.emit(false, 0.0)

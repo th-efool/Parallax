@@ -1,17 +1,21 @@
 class_name PhantomTwin
 extends EnemyAI
-## Stage 02 Hall of Echoes Mirror-only spectral combatant (80 HP, 20 dmg lunge, 1.0s recovery).
-## Slaying in Mirror awards base +100 Enemy Kill and +200 Mirror Kill (multiplied by active combo).
+## Hall of Echoes spectral combatant ("dark enemy"). It exists in both realms but only FIGHTS in the Mirror:
+##  - Reality: translucent ghost that stalks you; it can't be hurt (hits pass through with a cyan shimmer),
+##    never starts an attack, and its hitbox can't damage anyone.
+##  - Mirror (or realms merged): solid, hurtable and dangerous (lunge).
+## Killing it in the Mirror still earns the Mirror Kill bonus.
 
 @export var lunge_speed: float = 9.5
 @export var lunge_trigger_range: float = 4.2
+## Opacity loss in Reality (GeometryInstance3D.transparency on every mesh).
+@export var reality_ghost_transparency: float = 0.6
 
 var _lunge_direction: Vector3 = Vector3.FORWARD
+var _shimmer_cd: int = 0
 
 
 func _init() -> void:
-	# Realm redesign (2026-11-17): visible and fightable in both realms (still a spectral ghost to look at);
-	# killing it in the Mirror still earns the Mirror Kill bonus.
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	max_health = 80
 	health = 80
@@ -33,12 +37,65 @@ func _init() -> void:
 	flee_duration = 2.2
 
 
-## Still a ghost: cyan ichor and spectral gibs even though it now exists in both realms.
+func _ready() -> void:
+	super._ready()
+	call_deferred("_apply_ghost_look")
+
+
+## Still a ghost: cyan ichor and spectral gibs.
 func is_spectral() -> bool:
 	return true
 
 
+func _mirror_now() -> bool:
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	return rm == null or rm.is_merged or rm.current_realm == RealmManager.Realm.MIRROR
+
+
+func is_hittable_now() -> bool:
+	return _mirror_now()
+
+
+## Hitbox3D veto: in Reality the phantom's strikes pass through everyone.
+func can_damage_target(_target: Node) -> bool:
+	return _mirror_now()
+
+
+func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) -> int:
+	if source_type == "environmental" or _mirror_now():
+		return amount
+	_phase_shimmer()
+	return 0
+
+
+func _phase_shimmer() -> void:
+	var now: int = Time.get_ticks_msec()
+	if now < _shimmer_cd or not is_inside_tree():
+		return
+	_shimmer_cd = now + 250
+	GoreFXScript.sparks(self, global_position + Vector3.UP * 1.2, Vector3.UP, Color(0.55, 0.9, 1.0), 10)
+
+
+func on_realm_changed(_active_realm: int) -> void:
+	_apply_ghost_look()
+
+
+func _apply_ghost_look() -> void:
+	if not is_inside_tree():
+		return
+	var vis: Node = get_node_or_null(visual_root_path)
+	if vis == null:
+		return
+	var t: float = 0.0 if _mirror_now() else clampf(reality_ghost_transparency, 0.0, 0.95)
+	for mi in vis.find_children("*", "GeometryInstance3D", true, false):
+		(mi as GeometryInstance3D).transparency = t
+
+
 func start_windup(custom_windup: float = -1.0) -> void:
+	if not _mirror_now():
+		# A Mirror creature can't touch anyone in Reality: give the attack token back and keep stalking.
+		_release_token()
+		return
 	var p: Node3D = _resolve_target_player()
 	if p != null:
 		var dir: Vector3 = p.global_position - global_position

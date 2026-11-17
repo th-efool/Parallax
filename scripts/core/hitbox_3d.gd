@@ -80,6 +80,9 @@ func try_hit_target(candidate: Node) -> bool:
 		return false
 	if hit_targets_this_swing.has(logical_target):
 		return false
+	# Owner veto (e.g. a Mirror-only phantom can't touch anyone while the player is in Reality).
+	if my_owner != null and my_owner.has_method("can_damage_target") and not bool(my_owner.call("can_damage_target", logical_target)):
+		return false
 
 	# Filter target category
 	var is_target_player: bool = (hurtbox != null and hurtbox.is_player_hurtbox) or logical_target.is_in_group("player")
