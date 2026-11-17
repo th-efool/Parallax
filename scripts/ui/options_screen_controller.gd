@@ -579,6 +579,13 @@ func _build_default_ui() -> void:
 	gp_rows.add_child(reset_lb_btn)
 	reset_leaderboard_button_path = get_path_to(reset_lb_btn)
 
+	# SQUAD COMMS (Squad AI plugin; saved separately in user://squad_ai.cfg, applied immediately)
+	var comms_tab := VBoxContainer.new()
+	comms_tab.name = "Squad_Comms"
+	tabs.add_child(comms_tab)
+	tabs.set_tab_title(4, "Squad Comms")
+	_build_squad_comms_rows(_make_tab_scroll(comms_tab, "CommsRows"))
+
 	# BOTTOM ACTION BAR
 	var bottom_bar := HBoxContainer.new()
 	bottom_bar.name = "BottomActionBar"
@@ -606,6 +613,64 @@ func _build_default_ui() -> void:
 	MenuStyle.style_button(back_btn, 17, 40.0)
 	bottom_bar.add_child(back_btn)
 	back_button_path = get_path_to(back_btn)
+
+
+func _build_squad_comms_rows(rows: VBoxContainer) -> void:
+	SquadAIConfig.ensure_loaded()
+	var mode_opt: OptionButton = _make_option_row(rows, "Comms Mode", ["Voice + Chat", "Chat only", "Voice only"], func(idx: int) -> void:
+		SquadAIConfig.mode = SquadAIConfig.MODES[clampi(idx, 0, 2)]
+		SquadAIConfig.save())
+	mode_opt.select(maxi(0, SquadAIConfig.MODES.find(SquadAIConfig.mode)))
+	_make_toggle_row(rows, "Ally Voices (streamed TTS)", SquadAIConfig.tts_enabled, func(on: bool) -> void:
+		SquadAIConfig.tts_enabled = on
+		SquadAIConfig.save())
+	_make_toggle_row(rows, "Subtitles", SquadAIConfig.show_subtitles, func(on: bool) -> void:
+		SquadAIConfig.show_subtitles = on
+		SquadAIConfig.save())
+	_make_toggle_row(rows, "Command History Log (L)", SquadAIConfig.show_command_log, func(on: bool) -> void:
+		SquadAIConfig.show_command_log = on
+		SquadAIConfig.save())
+	var status := Label.new()
+	MenuStyle.style_label(status, 15)
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var refresh_status := func() -> void:
+		status.text = ("Online: %s via %s (key from %s)." % [SquadAIConfig.model, SquadAIConfig.base_url, SquadAIConfig.key_source()]) if SquadAIConfig.is_online() \
+			else "Offline: no API key. Typed orders use the built-in keyword parser; voice needs a key. Set OPENAI_API_KEY or paste a key below (stored only in user://squad_ai.cfg, never in the project)."
+	_make_text_row(rows, "Model", SquadAIConfig.model, false, func(t: String) -> void:
+		SquadAIConfig.model = t if not t.strip_edges().is_empty() else "gpt-4o"
+		SquadAIConfig.save()
+		refresh_status.call())
+	_make_text_row(rows, "API Base URL", SquadAIConfig.base_url, false, func(t: String) -> void:
+		SquadAIConfig.base_url = t.strip_edges() if not t.strip_edges().is_empty() else "https://api.openai.com/v1"
+		SquadAIConfig.save()
+		refresh_status.call())
+	_make_text_row(rows, "API Key (optional)", "", true, func(t: String) -> void:
+		SquadAIConfig.set_file_key(t)
+		refresh_status.call())
+	rows.add_child(status)
+	refresh_status.call()
+
+
+func _make_text_row(parent: Node, title: String, initial: String, secret: bool, on_submit: Callable) -> LineEdit:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var lbl := Label.new()
+	lbl.text = title
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	MenuStyle.style_label(lbl, 17)
+	row.add_child(lbl)
+	var le := LineEdit.new()
+	le.custom_minimum_size = Vector2(320, 36)
+	le.text = initial
+	le.secret = secret
+	le.placeholder_text = "press Enter to save" if secret else ""
+	le.text_submitted.connect(on_submit)
+	le.focus_exited.connect(func() -> void:
+		if not secret or not le.text.is_empty():
+			on_submit.call(le.text))
+	row.add_child(le)
+	parent.add_child(row)
+	return le
 
 
 func _make_option_row(parent: Node, title: String, items: Array[String], on_selected: Callable) -> OptionButton:

@@ -151,6 +151,9 @@ func _apply_readability_pass() -> void:
 	_root_ctrl.set_meta("hud_readability", true)
 	if _root_ctrl.get_node_or_null("FinisherPrompt") == null:
 		_root_ctrl.add_child(FinisherPrompt.new())
+	# Squad comms (roster, mic, chat bar, subtitles, command log) live in this same shared HUD.
+	if _root_ctrl.get_node_or_null("SquadCommsHUD") == null:
+		_root_ctrl.add_child(SquadCommsHUD.new())
 	var brand: CanvasItem = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/BrandTitleLabel") as CanvasItem
 	if brand != null:
 		brand.visible = false

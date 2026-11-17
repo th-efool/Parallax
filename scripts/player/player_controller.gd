@@ -175,6 +175,9 @@ const FINISHER_BY_INPUT: Dictionary = {"light": "fin_rend", "heavy": "fin_sunder
 @export var pitch_max_degrees: float = 60.0
 @export var character_turn_speed: float = 18.0
 
+## Set by the squad chat bar while it has focus: gameplay keys must not move / attack while typing.
+static var ui_input_locked: bool = false
+
 var health: int = 100
 var current_state: State = State.LOCOMOTION
 var camera_yaw: float = 0.0
@@ -310,7 +313,7 @@ func _update_camera_pivot() -> void:
 func _should_release_mouse() -> bool:
 	if not is_inside_tree() or get_tree() == null:
 		return false
-	if get_tree().paused:
+	if get_tree().paused or ui_input_locked:
 		return true
 	for grp in ["title_screen", "pause_menu", "options_screen", "leaderboard_screen", "results_screen"]:
 		for n in get_tree().get_nodes_in_group(grp):
@@ -451,6 +454,9 @@ func _poll_action_inputs(delta: float) -> void:
 	if _jump_buffer_timer > 0.0:
 		_jump_buffer_timer = maxf(0.0, _jump_buffer_timer - delta)
 	if not InputMap.has_action("light_attack"):
+		return
+	if ui_input_locked:
+		_jump_held = false
 		return
 	if Input.is_action_just_pressed("light_attack"):
 		_buffer("light")
@@ -1201,7 +1207,7 @@ func _shaped_gravity() -> float:
 
 
 func _read_move_dir() -> Vector3:
-	if not InputMap.has_action("move_left"):
+	if not InputMap.has_action("move_left") or ui_input_locked:
 		return Vector3.ZERO
 	var input_vec: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var basis_ref: Basis = global_transform.basis
@@ -1303,7 +1309,7 @@ func _process_locomotion_state(delta: float) -> void:
 	if _jump_buffer_timer > 0.0 and (on_floor or _coyote_timer > 0.0) and _landing_recover_timer <= 0.0:
 		start_jump()
 
-	if InputMap.has_action("interact") and Input.is_action_just_pressed("interact"):
+	if InputMap.has_action("interact") and Input.is_action_just_pressed("interact") and not ui_input_locked:
 		try_interact()
 
 	if is_inside_tree():

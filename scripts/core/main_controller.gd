@@ -61,6 +61,9 @@ func is_gameplay_active() -> bool:
 
 
 func get_desired_mouse_mode() -> Input.MouseMode:
+	# The squad chat bar needs a visible cursor (send / push-to-talk buttons) while it is open.
+	if PlayerController.ui_input_locked:
+		return Input.MOUSE_MODE_VISIBLE
 	return Input.MOUSE_MODE_CAPTURED if is_gameplay_active() else Input.MOUSE_MODE_VISIBLE
 
 
