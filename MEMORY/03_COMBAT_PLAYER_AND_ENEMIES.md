@@ -182,6 +182,24 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 - **Combos** (manager handshakes, scarcest specialist filled first): kite+nuke (`ready` → nuker channels on the cluster, `casting` → kiter clears out, `released`); charge+finish (charge `12.5 m/s`, `22` dmg + knock-down → `knocked` → finisher gets behind, `55` heavy → `finished`); lure+detonate (trapper plants a `3 m` mirror sigil off the player's flank → `planted` → lurer provokes and runs through it → detonate when a chaser is inside or after `15 s`, `≥50` dmg + knock-down). Downed / retreating > 4 s participant -> substitute by role with a voice line, else **solo** variant, else abort cleanly. Combos time out at `40 s`.
 - **Bodyguard**: guard spot `1.7 m` from the ward toward the threat centroid every tick (not beside it); intercepts enemies within `6 m` of the ward (taunting ones on the ward), leash `8.5 m`; ward = player, ally, or `objective` (nearest switch / mechanism target); ward down -> "Standing by" and stand down.
 - **Other orders**: attack (selector / type / `ally:<Name>`'s target), split (left / right / centre lanes), take aggro (area taunt of everything on the player), peel, hit-and-run (in, strike, out `5.5 m`, `16 s`), hold, follow, retreat, nuke, taunt, revive, hunt (scares ambient wildlife — they have no HP), destroy (safe breakables only; never the boss mirror plane), interact (switches / chests), status, stop, auto-engage on/off, jump N (clamped `1–12`), dance, emote. Unknown verbs / nonsense -> a "confused" line, never a crash.
+- **Signature skills** (`AllySkill` sub-resources; used automatically when their `auto_use` rule fires — max one per ally per 1.5 s, defensive-only under ceasefire — and on command; a commanded skill cuts in and the interrupted order resumes):
+
+| Ally | Skill | Effect (data values) | CD | Auto rule |
+| :--- | :--- | :--- | :--- | :--- |
+| Brannoc | War Cry | taunt all within 7 m (3 s lock, +40 threat, shove), allies within 8 m +25 % damage for 6 s | 14 s | swarmed (≥3 aggroed near him or the player) |
+| Brannoc | Shield Wall | self −70 % damage, allies within 4.5 m −50 %, taunts nearest 3, 6 s | 18 s | protect (a friend targeted by ≥2, or he is by ≥3) |
+| Brannoc | Ground Breaker | 18 dmg + 1.6 s knock-down to all within 3.2 m | 12 s | cluster (≥2 aggroed within radius) |
+| Sera | Shadowstep | blink behind an enemy ≤12 m, 38 heavy stab (backstab ×1.25) | 8 s | engaged |
+| Sera | Fan of Blades | 14 dmg to up to 3 enemies within 9 m | 10 s | cluster |
+| Sera | Smoke Bomb | every enemy within 5 m `forget()`s her; −50 % dmg 1 s | 16 s | self_chased_low (<50 % HP, chaser within 3.5 m) |
+| Sera | Flurry | 5 × 9 dmg on one enemy | 9 s | stunned_target |
+| Ivo | Mirror Barrage | 1.3 s channel, 48 dmg + knock-down on a 3.8 m circle (tracks the target) | 9 s | cluster (best cluster ≤12 m) |
+| Ivo | Mending Light | heal ally / player 35 % max HP (≤14 m) | 12 s | ally_low (<40 %) |
+| Ivo | Mirror Ward | 40-point damage ward for 8 s on an ally or the player | 15 s | ally_pressed (targeted by ≥2) |
+| Ivo | Chain Arc | 22 / 16 / 11 dmg bouncing between up to 3 enemies ≤5 m apart, 0.8 s stun each | 7 s | engaged |
+
+- **Strategies** (`SquadStrategies.LIST`, 20): focus_fire, pincer (flanks at ±100°), surround (even ring), hammer_and_anvil, shield_wall, hold_the_line (line 3 m toward the threat, 2.2 m spacing), divide_and_conquer (distinct targets), tank_and_spank, pick_off_wounded, casters_first, protect_the_weak, bait_and_ambush (ambush springs when an aggroed enemy enters 4.5 m), guerrilla, crowd_control, overwatch (artillery hangs 6 m back and fires its ranged skills), escort, retreat_and_regroup, distract_and_backstab, kite_train, berserker_rush. Strategies replace current non-panic orders; roles fall back to `any`, so any ally count works.
+- **Targeting by description**: every order's target goes through `WorldIntel.resolve` — enemy IDs (`E3`, shown over each enemy), type, colour, weapon, size, side (left/right/ahead/behind of the player), "near Sera", "whoever is hitting Ivo", nearest/farthest/strongest/weakest.
 - **DOWNED**: at 0 HP; targetable = false, label "DOWN — revive". Revive by the player (Interact within `2.6 m`, `50 %` HP) or by order (`2.2 s` channel, `45 %`). Player respawn regroups and fully heals the squad.
 
 ---
