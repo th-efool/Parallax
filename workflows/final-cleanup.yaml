@@ -1,0 +1,6 @@
+name: Final Cleanup
+description: Fix material instance consistency for enemy feedback.
+stages:
+  - id: enemy_feedback_cleanup
+    role: Enemy Specialist
+    prompt: Audit and clean up enemy feedback material instances in D:\Desktop\Godot\parallax\scripts\enemies\enemy_base.gd and related shaders to prevent bloat and potential inconsistencies. Ensure material instances are correctly created/freed.

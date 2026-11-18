@@ -308,6 +308,7 @@ func _hit_flash(color: Color, duration: float) -> void:
 		_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_flash_mat.local_to_scene = true
 	_flash_mat.albedo_color = color
 	var meshes: Array[MeshInstance3D] = []
 	_collect_mesh_instances(vis, meshes)

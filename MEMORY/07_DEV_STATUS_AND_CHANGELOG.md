@@ -135,3 +135,4 @@ Completed forensic audit of requirements REQ-01 to REQ-06.
 - 2026-11-18: Fixed respawn loop bug: `EncounterDirector.handle_player_death` now properly re-syncs the world state (bridge/switch status) from saved data after a checkpoint rewind.
 - 2026-11-18: Implemented `_verify_spawn_safety` in `PlayerController` and updated `respawn_at` to use it for fall-through prevention.
 - 2026-11-18: Added `_is_processing_death` flag in `EncounterDirector` to prevent re-entrant death processing.
+- 2026-11-18: Hardened `EnemyBase._hit_flash` material instance management by setting `local_to_scene = true`.
