@@ -34,7 +34,7 @@ const RULES: Array = [
 	["combo_kite_nuke", ["kite and nuke", "kite nuke", "kite & nuke", "kite + nuke", "kite them and nuke", "kite them so", "bunch them up"]],
 	["combo_charge_finish", ["charge and finish", "charge finish", "charge & finish", "knock down and finish", "charge then finish", "charge in and finish"]],
 	["combo_lure_detonate", ["lure and detonate", "lure detonate", "lure them into", "trap", "lure & detonate", "lure them", "mine"]],
-	["kite", ["kite", "bait", "run in circles", "run circles", "running circles", "run around with", "make it chase", "make them chase", "make him chase", "draw them", "draw it", "draw him", "lead them around", "lead it around", "lead it", "keep it busy", "keep them busy", "keep him busy", "pull it away", "pull them away", "drag it", "drag them", "lure it", "lure him", "lure her", "bring it to us", "bring it here", "bring them to us", "distract"]],
+	["kite", ["kite", "bait", "run in circles", "run circles", "running circles", "run around with", "make it chase", "make them chase", "make him chase", "draw them", "draw it", "draw him", "lead them around", "lead it around", "lead it", "keep it busy", "keep them busy", "keep him busy", "pull it away", "pull them away", "drag it", "drag them", "lure it", "lure him", "lure her", "bring it to us", "bring it here", "bring them to us", "distract", "pull em", "pull them", "pull it", "pull that", "bring", "pull here", "taunt here"]],
 	["revive", ["revive", "resurrect", "pick up", "get up", "heal "]],
 	["bodyguard", ["bodyguard", "guard", "protect", "cover me", "cover ", "defend", "escort", "keep me safe", "watch my back"]],
 	["nuke", ["nuke", "blast", "explode", "bomb", "fireball", "aoe", "big spell", "cast"]],
@@ -105,7 +105,7 @@ const TARGET_WORDS: Dictionary = {
 const DESCRIPTOR_WORDS: Array[String] = ["purple", "violet", "blue", "cyan", "green", "pale", "white", "bone", "gold", "golden",
 	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "orb", "greataxe",
 	"hooded", "armored", "armoured", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
-	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "stunned", "fleeing"]
+	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "stunned", "fleeing", "farther", "further", "distant"]
 const PANIC_VERBS: Array[String] = ["ceasefire", "massacre", "scatter"]
 const TARGETED_VERBS: Array[String] = ["attack", "ranged", "kite", "sneak", "surround", "nuke", "taunt", "hit_and_run", "skill", "strategy",
 	"combo_kite_nuke", "combo_charge_finish", "combo_lure_detonate", "peel"]

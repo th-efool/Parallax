@@ -2152,11 +2152,11 @@ const ROUTE_ENEMIES: Dictionary = {
 
 ---
 
-### Step 15 — Stop Teleporting Allies Back When Ordered to Distant Enemies (`REQ-16`)
+### Step 15 — Stop Distant-Order Ally Teleport Loops & Add 1.2s Camera-Visible Pull/Taunt Targeting (`REQ-16`, `REQ-19`)
 
-- **Prerequisites**: Step 6 applied (`world_intel.gd`, `ally_squad_manager.gd`).
+- **Prerequisites**: Step 6 applied (`world_intel.gd`, `ally_squad_manager.gd`). Note: base targetable distance constants increase by **at most +30%** (`15 -> 19.5`, `20 -> 26`, `25 -> 32.5`, `40 -> 52`, `28 -> 36.4`), while periodic camera-frustum visibility (`<= 140 m` every `1.2 s`) dynamically brings any enemy visible in the player's camera into targetable & pullable range.
 - **Target 1**: `scripts/allies/squad_ally.gd` (lines 25–30)
-- **Action**: Replace block (exact single match) to raise `FOLLOW_LEASH` for 3× rooms.
+- **Action**: Replace block (exact single match) to raise `FOLLOW_LEASH` by `+30%` (`15.0 -> 19.5`).
 
 **Find:**
 ```gdscript
@@ -2171,11 +2171,104 @@ const FOLLOW_LEASH: float = 15.0
 const GRAVITY: float = 22.0
 const INTERCEPT_RADIUS: float = 6.0
 const LEASH_RADIUS: float = 8.5
-const FOLLOW_LEASH: float = 28.0
+const FOLLOW_LEASH: float = 19.5
 ```
 
-- **Target 2**: `scripts/allies/squad_ally.gd` (lines 975–983)
-- **Action**: Replace block (exact single match) to allow `18.0 s` approach time when sent across large halls to distract an enemy.
+- **Target 2**: `scripts/allies/squad_ally.gd` (lines 846–882)
+- **Action**: Replace block (exact single match) so area-taunt / pull commands fall back cleanly to visible single targets instead of saying `"Nothing to taunt."`, and pull/lure-to-player taunts hand off into `kite` (`lure = "player"`).
+
+**Find:**
+```gdscript
+func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	# "Take aggro": pull every enemy currently on the player onto this ally (single-enemy taunts never
+	# touch the rest of a group).
+	if bool(cmd.args.get("area", false)) and player != null:
+		var on_player: Array[EnemyAI] = []
+		for en in _active_enemies(player.global_position, 10.0):
+			if en.get_current_target() == player:
+				on_player.append(en)
+		if on_player.is_empty():
+			say("Nothing's on you right now.", "refuse", 1)
+			finish_current("nothing on player")
+			return
+		if global_position.distance_to(player.global_position) > 5.0:
+			_move_to(player.global_position, profile.move_speed * 1.2, delta)
+			return
+		_taunt_cd = profile.taunt_cooldown
+		_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
+		_start_action("taunt", 0.55, -1.0, Callable())
+		say_event("taunt", 1)
+		for en in on_player:
+			en.apply_taunt(self, -1.0, 4.0)
+		finish_current("took aggro x%d" % on_player.size())
+		return
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null:
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("Nothing to taunt.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+	if global_position.distance_to(e.global_position) > 7.0:
+		_move_to(e.global_position, profile.move_speed, delta)
+		return
+	_do_taunt(e, false)
+	finish_current("taunted")
+```
+
+**Replace with:**
+```gdscript
+func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	# "Take aggro": pull every enemy currently on the player onto this ally; fall back to visible targets.
+	if bool(cmd.args.get("area", false)) and player != null:
+		var on_player: Array[EnemyAI] = []
+		for en in _active_enemies(player.global_position, 12.0):
+			if en.get_current_target() == player:
+				on_player.append(en)
+		if on_player.is_empty():
+			var fallback: EnemyAI = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+			if fallback == null:
+				say("Nothing's on you right now.", "refuse", 1)
+				finish_current("nothing on player")
+				return
+			cmd.args["area"] = false
+			cmd.data["enemy"] = fallback
+		else:
+			if global_position.distance_to(player.global_position) > 5.0:
+				_move_to(player.global_position, profile.move_speed * 1.2, delta)
+				return
+			_taunt_cd = profile.taunt_cooldown
+			_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
+			_start_action("taunt", 0.55, -1.0, Callable())
+			say_event("taunt", 1)
+			for en in on_player:
+				en.apply_taunt(self, -1.0, 4.0)
+			finish_current("took aggro x%d" % on_player.size())
+			return
+	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
+	if e == null or not _enemy_ok(e):
+		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		if e == null:
+			say("Nothing to taunt.", "refuse", 1)
+			finish_current("no target")
+			return
+		cmd.data["enemy"] = e
+	if global_position.distance_to(e.global_position) > 7.0:
+		_move_to(e.global_position, profile.move_speed * 1.15, delta)
+		return
+	_do_taunt(e, false)
+	if String(cmd.args.get("lure", "")) == "player":
+		cmd.verb = "kite"
+		cmd.step = "sustain"
+		cmd.data["enemy"] = e
+		cmd.data["provoke_tries"] = 0
+		return
+	finish_current("taunted")
+```
+
+- **Target 3**: `scripts/allies/squad_ally.gd` (lines 975–983)
+- **Action**: Replace block (exact single match) to allow `18.0 s` approach time when sent across large halls or toward a camera-visible enemy.
 
 **Find:**
 ```gdscript
@@ -2195,8 +2288,8 @@ const FOLLOW_LEASH: float = 28.0
 				return
 ```
 
-- **Target 3**: `scripts/allies/squad_ally.gd` (lines 3402–3426)
-- **Action**: Replace block (exact single match) so allies executing distant engage/distract orders can operate up to `85.0 m` from the player and never loop-teleport back on catch-up or `2 s` stuck checks.
+- **Target 4**: `scripts/allies/squad_ally.gd` (lines 3402–3426)
+- **Action**: Replace block (exact single match) so allies executing distant or camera-visible engage/pull orders can run all the way out to their target without loop-teleporting back, while keeping normal `FOLLOW_LEASH` catch-up at `19.5 m` (`+30%` over `15 m`).
 
 **Find:**
 ```gdscript
@@ -2239,6 +2332,15 @@ func _has_distant_order() -> bool:
 	]
 
 
+func _distant_order_leash(player: Node3D) -> float:
+	var reach: float = 85.0
+	if current != null:
+		var tgt: Node3D = current.data.get("enemy", null) as Node3D
+		if tgt != null and is_instance_valid(tgt) and player != null:
+			reach = maxf(reach, tgt.global_position.distance_to(player.global_position) + 20.0)
+	return minf(160.0, reach)
+
+
 func _update_stuck(delta: float) -> void:
 	var moved: float = Vector2(global_position.x - _last_pos.x, global_position.z - _last_pos.z).length()
 	var wants: bool = Vector2(velocity.x, velocity.z).length() > 1.0
@@ -2253,10 +2355,11 @@ func _update_stuck(delta: float) -> void:
 		if p == null:
 			return
 		if _has_distant_order():
-			# Unstick locally during distant distract/attack orders rather than yanking back to the player.
+			# Unstick locally during distant distract/pull orders rather than yanking back to the player.
 			if is_on_floor():
 				velocity.y = 4.5
-			if global_position.distance_to(p.global_position) > 85.0 or global_position.y < p.global_position.y - 8.0:
+			var leash: float = _distant_order_leash(p)
+			if global_position.distance_to(p.global_position) > leash or global_position.y < p.global_position.y - 8.0:
 				_blink_to(p)
 		elif global_position.distance_to(p.global_position) > 6.0:
 			_blink_to(p)
@@ -2267,7 +2370,7 @@ func _update_stuck(delta: float) -> void:
 func _catch_up(player: Node3D) -> void:
 	var d: Vector3 = player.global_position - global_position
 	var distant_order: bool = _has_distant_order()
-	var far: float = 85.0 if distant_order else (35.0 if (current != null and current.is_mission()) else 28.0)
+	var far: float = _distant_order_leash(player) if distant_order else (35.0 if (current != null and current.is_mission()) else FOLLOW_LEASH)
 	var vertical_trap: bool = not distant_order and d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0
 	if d.length() > far or vertical_trap or global_position.y < player.global_position.y - 8.0:
 		if player is PlayerController and (player as PlayerController).is_currently_airborne():
@@ -2275,8 +2378,8 @@ func _catch_up(player: Node3D) -> void:
 		_blink_to(player)
 ```
 
-- **Target 4**: `scripts/allies/squad_ally.gd` (lines 3528–3532)
-- **Action**: Replace block (exact single match).
+- **Target 5**: `scripts/allies/squad_ally.gd` (lines 3528–3532)
+- **Action**: Replace block (exact single match) to cap fallback radius at `+30%` (`20.0 -> 26.0`).
 
 **Find:**
 ```gdscript
@@ -2291,11 +2394,11 @@ func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
 func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
 	if manager != null and manager.has_method("resolve_enemy"):
 		return manager.call("resolve_enemy", selector, player.global_position if player != null else global_position) as EnemyAI
-	return _nearest_enemy(global_position, 65.0)
+	return _nearest_enemy(global_position, 26.0)
 ```
 
-- **Target 5**: `scripts/allies/world_intel.gd` (lines 12–14)
-- **Action**: Replace block (exact single match) so `WorldIntel` tracks distant enemies across large halls (`70 m`).
+- **Target 6**: `scripts/allies/world_intel.gd` (lines 12–14)
+- **Action**: Replace block (exact single match) to cap `RANGE_M` at `+30%` (`40.0 -> 52.0`) and add `CAMERA_SCAN_SEC = 1.2` / `CAMERA_MAX_M = 140.0`.
 
 **Find:**
 ```gdscript
@@ -2306,11 +2409,157 @@ const RANGE_M: float = 40.0
 **Replace with:**
 ```gdscript
 const REFRESH_SEC: float = 0.25
-const RANGE_M: float = 70.0
+const RANGE_M: float = 52.0
+const CAMERA_SCAN_SEC: float = 1.2
+const CAMERA_MAX_M: float = 140.0
 ```
 
-- **Target 6**: `scripts/allies/world_intel.gd` (lines 377–388)
-- **Action**: Replace block (exact single match) so distant enemy ID tags (`E#`) stay visible up to `45 m`.
+- **Target 7**: `scripts/allies/world_intel.gd` (lines 36–51)
+- **Action**: Replace block (exact single match) to add `_cam_visible` tracking and periodic `1.2 s` camera-frustum scanning in `_physics_process()`.
+
+**Find:**
+```gdscript
+var _entries: Array[Dictionary] = []
+var _timer: float = 0.0
+var show_tags: bool = true
+
+
+func _ready() -> void:
+	add_to_group("world_intel")
+
+
+func _physics_process(delta: float) -> void:
+	_timer -= delta
+	if _timer <= 0.0:
+		_timer = REFRESH_SEC
+		refresh()
+```
+
+**Replace with:**
+```gdscript
+var _entries: Array[Dictionary] = []
+var _timer: float = 0.0
+var _cam_timer: float = 0.0
+var _cam_visible: Dictionary = {}  # enemy instance_id -> true (refreshed every CAMERA_SCAN_SEC)
+var show_tags: bool = true
+
+
+func _ready() -> void:
+	add_to_group("world_intel")
+
+
+func _physics_process(delta: float) -> void:
+	_cam_timer -= delta
+	var cam_updated: bool = false
+	if _cam_timer <= 0.0:
+		_cam_timer = CAMERA_SCAN_SEC
+		_scan_camera_visible()
+		cam_updated = true
+	_timer -= delta
+	if cam_updated or _timer <= 0.0:
+		_timer = REFRESH_SEC
+		refresh()
+```
+
+- **Target 8**: `scripts/allies/world_intel.gd` (lines 78–97)
+- **Action**: Replace block (exact single match) to implement `scan_camera_now()`, `is_camera_visible()`, and include camera-visible active enemies in `refresh()`.
+
+**Find:**
+```gdscript
+func refresh() -> void:
+	_entries.clear()
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return
+	var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
+	for n in get_tree().get_nodes_in_group("enemy"):
+		var e: EnemyAI = n as EnemyAI
+		if e == null or e.is_dead or not e.is_inside_tree():
+			_hide_tag(n)
+			continue
+		var d: float = e.global_position.distance_to(player.global_position)
+		if not e.is_active or d > RANGE_M:
+			_hide_tag(e)
+			continue
+		var entry: Dictionary = _describe(e, player, pf, d)
+		_entries.append(entry)
+		_update_tag(e, entry)
+	_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
+```
+
+**Replace with:**
+```gdscript
+func is_camera_visible(e: Node) -> bool:
+	return e != null and is_instance_valid(e) and bool(_cam_visible.get(e.get_instance_id(), false))
+
+
+func scan_camera_now() -> void:
+	_scan_camera_visible()
+	refresh()
+
+
+func _scan_camera_visible() -> void:
+	_cam_visible.clear()
+	if not is_inside_tree() or get_tree() == null or get_viewport() == null:
+		return
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if cam == null or player == null:
+		return
+	for n in get_tree().get_nodes_in_group("enemy"):
+		var e: EnemyAI = n as EnemyAI
+		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree():
+			continue
+		if e.global_position.distance_to(player.global_position) > CAMERA_MAX_M:
+			continue
+		var chest: Vector3 = e.global_position + Vector3.UP * 1.1
+		var head: Vector3 = e.global_position + Vector3.UP * 1.75
+		if cam.is_position_in_frustum(chest) or cam.is_position_in_frustum(head):
+			_cam_visible[e.get_instance_id()] = true
+
+
+func refresh() -> void:
+	_entries.clear()
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return
+	var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
+	for n in get_tree().get_nodes_in_group("enemy"):
+		var e: EnemyAI = n as EnemyAI
+		if e == null or e.is_dead or not e.is_inside_tree():
+			_hide_tag(n)
+			continue
+		var d: float = e.global_position.distance_to(player.global_position)
+		var cam_vis: bool = is_camera_visible(e)
+		if not e.is_active or (d > RANGE_M and not cam_vis):
+			_hide_tag(e)
+			continue
+		var entry: Dictionary = _describe(e, player, pf, d)
+		entry["cam_vis"] = cam_vis
+		_entries.append(entry)
+		_update_tag(e, entry)
+	_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
+```
+
+- **Target 9**: `scripts/allies/world_intel.gd` (lines 318–327)
+- **Action**: Replace block (exact single match; stays below Step 6 Target 2's lines `279–287`) so `"farther"/"further"/"distant"/"over there"` resolve to farther visible enemies.
+
+**Find:**
+```gdscript
+		var d: float = (en["node"] as Node3D).global_position.distance_to(origin)
+		if s.contains("farthest") or s.contains("furthest"):
+			score += d * 0.05
+```
+
+**Replace with:**
+```gdscript
+		var d: float = (en["node"] as Node3D).global_position.distance_to(origin)
+		if s.contains("farthest") or s.contains("furthest") or s.contains("farther") or s.contains("further") or s.contains("distant") or s.contains("over there"):
+			score += d * 0.08
+```
+
+- **Target 10**: `scripts/allies/world_intel.gd` (lines 377–388)
+- **Action**: Replace block (exact single match) to cap overhead `IntelTag` range increase at `+30%` (`30 -> 39`, `28 -> 36.4`) while also showing tags for camera-visible distant enemies.
 
 **Find:**
 ```gdscript
@@ -2331,7 +2580,7 @@ const RANGE_M: float = 70.0
 ```gdscript
 		e.add_child(tag)
 		tag.position = Vector3(0, 2.45, 0)
-		WorldLabelOverlay.adopt(tag, {"px": 15, "offset": Vector2(0, -16), "max_dist": 48.0})
+		WorldLabelOverlay.adopt(tag, {"px": 15, "offset": Vector2(0, -16), "max_dist": 39.0})
 	# Mirror insight reveals more: exact health and the exposed weak point.
 	if e.mirror_insight:
 		tag.text = "%s · %d%% · WEAK" % [String(en["id"]), int(en["hp_pct"])]
@@ -2339,11 +2588,11 @@ const RANGE_M: float = 70.0
 	else:
 		tag.text = String(en["id"])
 		tag.modulate = Color(1.0, 0.88, 0.52, 0.98)
-	tag.visible = show_tags and not bool(tag.get_meta("cinematic_hidden", false)) and float(en["dist"]) < 45.0
+	tag.visible = show_tags and not bool(tag.get_meta("cinematic_hidden", false)) and (float(en["dist"]) < 36.4 or bool(en.get("cam_vis", false)))
 ```
 
-- **Target 7**: `scripts/allies/ally_squad_manager.gd` (lines 445–451)
-- **Action**: Replace block (exact single match).
+- **Target 11**: `scripts/allies/ally_squad_manager.gd` (lines 445–451)
+- **Action**: Replace block (exact single match) capping fallback radius at `+30%` (`25.0 -> 32.5`).
 
 **Find:**
 ```gdscript
@@ -2358,10 +2607,65 @@ const RANGE_M: float = 70.0
 	# Shared knowledge base: IDs ("E3"), types, looks, colours, weapons, sides, "near Sera", "hitting Ivo"...
 	if intel != null:
 		return intel.resolve(sel)
-	var cands: Array[EnemyAI] = _active_enemies_near(near, 65.0)
+	var cands: Array[EnemyAI] = _active_enemies_near(near, 32.5)
 ```
 
-- **Postcondition**: Ordering an ally to kite/distract/attack/taunt an enemy up to `65–70 m` away resolves cleanly and lets the ally cross the room and hold aggro without rubber-band teleports back to the player.
+- **Target 12**: `scripts/allies/squad_command_parser.gd` (lines 36–39)
+- **Action**: Replace block (exact single match) so `"pull em"`, `"pull them"`, `"pull it"`, `"pull that"`, `"bring them"` parse cleanly as `kite` (pull/bait).
+
+**Find:**
+```gdscript
+	["kite", ["kite", "bait", "run in circles", "run circles", "running circles", "run around with", "make it chase", "make them chase", "make him chase", "draw them", "draw it", "draw him", "lead them around", "lead it around", "lead it", "keep it busy", "keep them busy", "keep him busy", "pull it away", "pull them away", "drag it", "drag them", "lure it", "lure him", "lure her", "bring it to us", "bring it here", "bring them to us", "distract"]],
+```
+
+**Replace with:**
+```gdscript
+	["kite", ["kite", "bait", "run in circles", "run circles", "running circles", "run around with", "make it chase", "make them chase", "make him chase", "draw them", "draw it", "draw him", "lead them around", "lead it around", "lead it", "keep it busy", "keep them busy", "keep him busy", "pull it", "pull em", "pull them", "pull him", "pull that", "pull one", "pull away", "drag it", "drag them", "lure it", "lure him", "lure her", "bring it", "bring them", "bring him", "distract"]],
+```
+
+- **Target 13**: `scripts/allies/squad_command_parser.gd` (lines 105–109)
+- **Action**: Replace block (exact single match) to recognize `"farther"`, `"further"`, `"distant"`, `"far"`, and `"away"` in target descriptors.
+
+**Find:**
+```gdscript
+const DESCRIPTOR_WORDS: Array[String] = ["purple", "violet", "blue", "cyan", "green", "pale", "white", "bone", "gold", "golden",
+	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "orb", "greataxe",
+	"hooded", "armored", "armoured", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
+	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "stunned", "fleeing"]
+```
+
+**Replace with:**
+```gdscript
+const DESCRIPTOR_WORDS: Array[String] = ["purple", "violet", "blue", "cyan", "green", "pale", "white", "bone", "gold", "golden",
+	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "orb", "greataxe",
+	"hooded", "armored", "armoured", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
+	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "farther", "further", "distant", "far", "away", "stunned", "fleeing"]
+```
+
+- **Target 14**: `scripts/allies/squad_command_parser.gd` (lines 377–383)
+- **Action**: Replace block (exact single match) to set `cmd["lure"] = "player"` whenever pulling/bringing an enemy back (`"pull"`/`"bring"` + `"here"`/`"back"`/`"to me"`/`"to us"`).
+
+**Find:**
+```gdscript
+		"kite":
+			# Bait it back to us -> circle around the squad so the others can hit it.
+			for w in ["to us", "to me", "over here", " here ", "to the squad", "to the group", "into us", "towards us", "toward us", "into the ambush", "into our trap"]:
+				if t.contains(w):
+					cmd["lure"] = "player"
+					break
+```
+
+**Replace with:**
+```gdscript
+		"kite":
+			# Bait/pull it back to us -> circle around the squad so the others can hit it.
+			for w in ["to us", "to me", "over here", " here ", "back here", "to the squad", "to the group", "into us", "towards us", "toward us", "into the ambush", "into our trap", "pull ", "bring "]:
+				if t.contains(w):
+					cmd["lure"] = "player"
+					break
+```
+
+- **Postcondition**: Base targetable ranges never exceed `+30%`, every active enemy visible in the player's camera (`<= 140 m`, scanned every `1.2 s`) becomes targetable automatically, `"pull em here"` / `"taunt the farther enemy"` never fail with `"Nothing to taunt."`, and allies do not loop-teleport back while running out to pull distant targets.
 
 ---
 
@@ -3222,15 +3526,857 @@ func _style_hud_label(lbl: Label, display: bool, size: int) -> void:
 
 ---
 
-### Step 17 — Create Permanent Regression Test `tests/sanity_regression_test.gd` (`REQ-01`..`REQ-06`, `REQ-09`, `REQ-10`, `REQ-13`..`REQ-18`)
+### Step 17 — Slow Ally & Player Health Regeneration (>= 2 Minutes Full Heal) (`REQ-20`)
 
-- **Prerequisites**: Steps 1–16 complete. Target file `tests/sanity_regression_test.gd` must not already exist.
+- **Prerequisites**: Steps 1–16 applied cleanly.
+- **Target 1**: `scripts/allies/squad_ally.gd` (lines 573–585)
+- **Action**: Replace block (exact single match) to remove the `3.0×` retreat burst multiplier and cap ally regeneration rate at `max_health / 125.0` (`>= 125 s` from `0` to full).
+
+**Find:**
+```gdscript
+func _regen(delta: float) -> void:
+	if health >= max_health:
+		return
+	var rate: float = profile.regen_per_sec * (3.0 if _retreating else (1.0 if _combat_quiet > 4.0 else 0.0))
+	if rate <= 0.0:
+		return
+	_regen_acc += rate * delta
+```
+
+**Replace with:**
+```gdscript
+func _regen(delta: float) -> void:
+	if health >= max_health:
+		return
+	if not (_retreating or _combat_quiet > 4.0):
+		return
+	var max_slow_rate: float = float(max_health) / 125.0
+	var rate: float = minf(profile.regen_per_sec, max_slow_rate)
+	if rate <= 0.0:
+		return
+	_regen_acc += rate * delta
+```
+
+- **Target 2**: `scripts/allies/ally_profile.gd` (lines 32–36)
+- **Action**: Replace block (exact single match) to lower the default resource `regen_per_sec` from `3.0` to `1.0`.
+
+**Find:**
+```gdscript
+## Health ratio below which the ally falls back to heal (disabled during MASSACRE).
+@export var retreat_threshold: float = 0.3
+@export var regen_per_sec: float = 3.0
+## Incoming damage multiplier (Echoes are mirror-hardened; keeps companions alive without god-mode).
+```
+
+**Replace with:**
+```gdscript
+## Health ratio below which the ally falls back to heal (disabled during MASSACRE).
+@export var retreat_threshold: float = 0.3
+@export var regen_per_sec: float = 1.0
+## Incoming damage multiplier (Echoes are mirror-hardened; keeps companions alive without god-mode).
+```
+
+- **Target 3**: `data/allies/01_brannoc.tres` (lines 75–77)
+- **Action**: Replace block (exact single match) to tune Brannoc (`190 HP`) regen to `1.5 HP/s` (`~127 s` 0 -> full).
+
+**Find:**
+```ini
+retreat_threshold = 0.25
+regen_per_sec = 4.0
+abilities = Array[String](["taunt", "charge", "bodyguard", "revive"])
+```
+
+**Replace with:**
+```ini
+retreat_threshold = 0.25
+regen_per_sec = 1.5
+abilities = Array[String](["taunt", "charge", "bodyguard", "revive"])
+```
+
+- **Target 4**: `data/allies/02_sera.tres` (lines 92–94)
+- **Action**: Replace block (exact single match) to tune Sera (`120 HP`) regen to `0.95 HP/s` (`~126 s` 0 -> full).
+
+**Find:**
+```ini
+retreat_threshold = 0.35
+regen_per_sec = 3.0
+abilities = Array[String](["taunt", "kite", "lure", "finisher", "revive"])
+```
+
+**Replace with:**
+```ini
+retreat_threshold = 0.35
+regen_per_sec = 0.95
+abilities = Array[String](["taunt", "kite", "lure", "finisher", "revive"])
+```
+
+- **Target 5**: `data/allies/03_ivo.tres` (lines 26–38)
+- **Action**: Replace block (exact single match) to stop Ivo's autonomous `35%` `mending_light` burst heals (`auto_use = ""`, `power = 0.18` when commanded).
+
+**Find:**
+```ini
+display_name = "Mending Light"
+description = "Heals an ally or the player for 35% of their max HP (range 14 m)."
+aliases = Array[String](["heal", "mend", "mending light", "patch up", "fix up", "healing"])
+effect = "mending_light"
+target_kind = "ally"
+cooldown = 12
+cast_range = 14
+radius = 0
+power = 0.35
+duration = 0
+auto_use = "ally_low"
+```
+
+**Replace with:**
+```ini
+display_name = "Mending Light"
+description = "Gently mends an ally or the player for 18% of their max HP on command (range 14 m)."
+aliases = Array[String](["heal", "mend", "mending light", "patch up", "fix up", "healing"])
+effect = "mending_light"
+target_kind = "ally"
+cooldown = 18
+cast_range = 14
+radius = 0
+power = 0.18
+duration = 0
+auto_use = ""
+```
+
+- **Target 6**: `data/allies/03_ivo.tres` (lines 92–94)
+- **Action**: Replace block (exact single match) to tune Ivo (`110 HP`) regen to `0.88 HP/s` (`125 s` 0 -> full).
+
+**Find:**
+```ini
+retreat_threshold = 0.4
+regen_per_sec = 3.0
+abilities = Array[String](["nuke", "mine", "revive"])
+```
+
+**Replace with:**
+```ini
+retreat_threshold = 0.4
+regen_per_sec = 0.88
+abilities = Array[String](["nuke", "mine", "revive"])
+```
+
+- **Target 7**: `scripts/player/player_controller.gd` (lines 158–161)
+- **Action**: Replace block (exact single match) to expose `health_regen_seconds_to_full = 125.0` (`>= 2 minutes`).
+
+**Find:**
+```gdscript
+@export_group("Health & Survival")
+@export var max_health: int = 100
+
+@export_group("Locomotion")
+```
+
+**Replace with:**
+```gdscript
+@export_group("Health & Survival")
+@export var max_health: int = 100
+@export var health_regen_seconds_to_full: float = 125.0
+
+@export_group("Locomotion")
+```
+
+- **Target 8**: `scripts/player/player_controller.gd` (lines 258–261)
+- **Action**: Replace block (exact single match) to declare `_player_regen_acc`.
+
+**Find:**
+```gdscript
+var _dodge_direction: Vector3 = Vector3.BACK
+var _perfect_dodge_spent: bool = false
+var _air_dash_used: bool = false
+```
+
+**Replace with:**
+```gdscript
+var _dodge_direction: Vector3 = Vector3.BACK
+var _perfect_dodge_spent: bool = false
+var _air_dash_used: bool = false
+var _player_regen_acc: float = 0.0
+```
+
+- **Target 9**: `scripts/player/player_controller.gd` (lines 481–485)
+- **Action**: Replace block (exact single match) to tick `_tick_passive_regen(delta)` during active gameplay (`State != DEAD`).
+
+**Find:**
+```gdscript
+	if _dodge_cooldown_timer > 0.0:
+		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
+	if _landing_recover_timer > 0.0:
+		_landing_recover_timer = maxf(0.0, _landing_recover_timer - delta)
+```
+
+**Replace with:**
+```gdscript
+	if _dodge_cooldown_timer > 0.0:
+		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
+	if _landing_recover_timer > 0.0:
+		_landing_recover_timer = maxf(0.0, _landing_recover_timer - delta)
+	_tick_passive_regen(delta)
+```
+
+- **Target 10**: `scripts/player/player_controller.gd` (lines 1327–1341)
+- **Action**: Replace block (exact single match) to clear `_player_regen_acc` in `respawn_at()` and define `_tick_passive_regen(delta)`.
+
+**Find:**
+```gdscript
+	_air_dash_used = false
+	_buffer_action = ""
+	run_time = 0.0
+	camera_yaw = global_rotation.y
+	var fwd: Vector3 = -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.001:
+		set_facing_direction(fwd.normalized())
+	_update_camera_pivot()
+	_update_hurtbox_invulnerability(false)
+	_abort_attack()
+	_set_state(State.LOCOMOTION, 0.0)
+	health_changed.emit(health, max_health)
+```
+
+**Replace with:**
+```gdscript
+	_air_dash_used = false
+	_player_regen_acc = 0.0
+	_buffer_action = ""
+	run_time = 0.0
+	camera_yaw = global_rotation.y
+	var fwd: Vector3 = -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() > 0.001:
+		set_facing_direction(fwd.normalized())
+	_update_camera_pivot()
+	_update_hurtbox_invulnerability(false)
+	_abort_attack()
+	_set_state(State.LOCOMOTION, 0.0)
+	health_changed.emit(health, max_health)
+
+
+func _tick_passive_regen(delta: float) -> void:
+	if health <= 0 or health >= max_health or health_regen_seconds_to_full <= 0.0:
+		return
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	if ed != null and int(ed.current_section) == int(EncounterDirector.Section.COMPLETE):
+		return
+	var rate: float = float(max_health) / maxf(120.0, health_regen_seconds_to_full)
+	_player_regen_acc += rate * delta
+	var add: int = int(_player_regen_acc)
+	if add <= 0:
+		return
+	_player_regen_acc -= float(add)
+	health = mini(max_health, health + add)
+	health_changed.emit(health, max_health)
+```
+
+- **Postcondition**: Both ally regeneration (including while retreating) and player passive regeneration scale to at least `125 s` (`>= 2 minutes`) from `0` to `max_health`, and Ivo no longer triggers autonomous `35%` healing bursts.
+
+---
+
+### Step 18 — Room-Entry Alerts & 2-Checkpoint Death Rewind With Intervening Enemy Respawn (`REQ-15`, `REQ-21`)
+
+- **Prerequisites**: Steps 1–17 complete.
+- **Target 1**: `scripts/core/encounter_director.gd` (lines 32–37)
+- **Action**: Replace block (exact single match) to store ordered `_checkpoint_history` entries (`section`, `transform`, `realm`).
+
+**Find:**
+```gdscript
+var checkpoint_section: Section = Section.ENTRY
+var checkpoint_transform: Transform3D = Transform3D.IDENTITY
+var checkpoint_realm: int = 0
+
+var _section_enemies: Dictionary = {}
+```
+
+**Replace with:**
+```gdscript
+var checkpoint_section: Section = Section.ENTRY
+var checkpoint_transform: Transform3D = Transform3D.IDENTITY
+var checkpoint_realm: int = 0
+
+var _section_enemies: Dictionary = {}
+var _checkpoint_history: Array[Dictionary] = []
+```
+
+- **Target 2**: `scripts/core/encounter_director.gd` (lines 78–102)
+- **Action**: Replace block (exact single match) to alert Hall (`62 m`) / Chamber (`42 m`) enemies immediately upon room entry (`REQ-15`) and push deduplicated entries onto `_checkpoint_history` in `set_checkpoint()`.
+
+**Find:**
+```gdscript
+func advance_to_section(next_section: Section, new_checkpoint_xform: Transform3D = Transform3D.IDENTITY, save_checkpoint: bool = true) -> void:
+	if current_section != next_section:
+		completed_sections[current_section] = true
+		current_section = next_section
+
+	if save_checkpoint:
+		var rm: RealmManager = RealmManager.instance as RealmManager
+		var realm_val: int = int(rm.current_realm) if rm != null else 0
+		set_checkpoint(next_section, new_checkpoint_xform, realm_val)
+
+	_update_section_enemy_activation()
+	section_changed.emit(current_section, get_section_name(current_section))
+
+
+func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: int = 0) -> void:
+	checkpoint_section = section_id
+	if spawn_transform != Transform3D.IDENTITY:
+		checkpoint_transform = spawn_transform
+	checkpoint_realm = realm
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("bank_section_score"):
+		run_state.call("bank_section_score")
+	checkpoint_updated.emit(checkpoint_section, checkpoint_transform)
+	_trigger_auto_save()
+```
+
+**Replace with:**
+```gdscript
+func advance_to_section(next_section: Section, new_checkpoint_xform: Transform3D = Transform3D.IDENTITY, save_checkpoint: bool = true) -> void:
+	if current_section != next_section:
+		completed_sections[current_section] = true
+		current_section = next_section
+
+	if save_checkpoint:
+		var rm: RealmManager = RealmManager.instance as RealmManager
+		var realm_val: int = int(rm.current_realm) if rm != null else 0
+		set_checkpoint(next_section, new_checkpoint_xform, realm_val)
+
+	_update_section_enemy_activation()
+	_alert_room_on_entry(current_section)
+	section_changed.emit(current_section, get_section_name(current_section))
+
+
+func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: int = 0) -> void:
+	var prev_section: Section = checkpoint_section
+	var prev_xform: Transform3D = checkpoint_transform
+	var prev_realm: int = checkpoint_realm
+	checkpoint_section = section_id
+	if spawn_transform != Transform3D.IDENTITY:
+		checkpoint_transform = spawn_transform
+	checkpoint_realm = realm
+	if _checkpoint_history.is_empty() and prev_xform != Transform3D.IDENTITY and (int(prev_section) != int(checkpoint_section) or prev_xform.origin.distance_to(checkpoint_transform.origin) >= 2.0):
+		_checkpoint_history.append({"section": int(prev_section), "transform": prev_xform, "realm": prev_realm})
+	var entry: Dictionary = {
+		"section": int(checkpoint_section),
+		"transform": checkpoint_transform,
+		"realm": checkpoint_realm,
+	}
+	if not _checkpoint_history.is_empty():
+		var last: Dictionary = _checkpoint_history[_checkpoint_history.size() - 1]
+		var last_xform: Transform3D = last.get("transform", Transform3D.IDENTITY) as Transform3D
+		if int(last.get("section", -1)) == int(checkpoint_section) and last_xform.origin.distance_to(checkpoint_transform.origin) < 2.0:
+			_checkpoint_history[_checkpoint_history.size() - 1] = entry
+		else:
+			_checkpoint_history.append(entry)
+	else:
+		_checkpoint_history.append(entry)
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("bank_section_score"):
+		run_state.call("bank_section_score")
+	checkpoint_updated.emit(checkpoint_section, checkpoint_transform)
+	_trigger_auto_save()
+```
+
+- **Target 3**: `scripts/core/encounter_director.gd` (lines 148–193)
+- **Action**: Replace block (exact single match) so `handle_player_death()` rewinds `2` checkpoints behind (`size() - 3`), resets intervening triggers, combat exit gates, seal gates, and allies, resets every intervening/ahead enemy via `reset_enemy()`, and clears `_checkpoint_history` in `restart_full_run()`.
+
+**Find:**
+```gdscript
+func handle_player_death(player: Node = null) -> void:
+	# 1. Revert unbanked section score and reset combo to x1; elapsed run timer continues uninterrupted
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("revert_to_banked_score"):
+		run_state.call("revert_to_banked_score")
+
+	# 2. Reset active incomplete encounter state
+	if not current_encounter_id.is_empty() and not bool(completed_encounters.get(current_encounter_id, false)):
+		current_encounter_id = ""
+		active_enemy_count = 0
+
+	current_section = checkpoint_section
+
+	# 3. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2)
+	if RealmManager.instance != null:
+		RealmManager.instance.force_realm(checkpoint_realm as RealmManager.Realm, false)
+
+	# 4. Respawn player at checkpoint transform with full health
+	if player != null and player.has_method("respawn_at"):
+		player.call("respawn_at", checkpoint_transform)
+
+	_update_section_enemy_activation()
+	section_reset_requested.emit(checkpoint_section)
+	player_respawned.emit(checkpoint_section, checkpoint_transform)
+
+
+func restart_full_run() -> void:
+	completed_sections.clear()
+	completed_encounters.clear()
+	current_section = Section.ENTRY
+	checkpoint_section = Section.ENTRY
+	checkpoint_realm = 0
+	active_enemy_count = 0
+	current_encounter_id = ""
+
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("start_new_run"):
+		run_state.call("start_new_run")
+
+	if RealmManager.instance != null:
+		RealmManager.instance.force_realm(RealmManager.Realm.REALITY, false)
+
+	_update_section_enemy_activation()
+	section_changed.emit(current_section, get_section_name(current_section))
+```
+
+**Replace with:**
+```gdscript
+func handle_player_death(player: Node = null) -> void:
+	# 1. Revert unbanked section score and reset combo to x1; elapsed run timer continues uninterrupted.
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("revert_to_banked_score"):
+		run_state.call("revert_to_banked_score")
+
+	# 2. Rewind 2 checkpoints behind when history allows (C -> A over A -> B -> C).
+	if not _checkpoint_history.is_empty():
+		var target_idx: int = maxi(0, _checkpoint_history.size() - 3)
+		var entry: Dictionary = _checkpoint_history[target_idx]
+		checkpoint_section = int(entry.get("section", int(checkpoint_section))) as Section
+		var target_xform: Transform3D = entry.get("transform", checkpoint_transform) as Transform3D
+		if target_xform != Transform3D.IDENTITY:
+			checkpoint_transform = target_xform
+		checkpoint_realm = int(entry.get("realm", checkpoint_realm))
+		_checkpoint_history.resize(target_idx + 1)
+
+	var rewind_z: float = checkpoint_transform.origin.z
+
+	# 3. Clear incomplete encounter state plus cleared encounters/sections from rewind onward.
+	current_encounter_id = ""
+	active_enemy_count = 0
+	for sec_key in completed_sections.keys():
+		if int(sec_key) >= int(checkpoint_section) and not (int(checkpoint_section) == int(Section.ENTRY) and int(sec_key) == int(Section.ENTRY)):
+			completed_sections.erase(sec_key)
+
+	if is_inside_tree() and get_tree() != null:
+		for trig in get_tree().get_nodes_in_group("section_trigger"):
+			if not is_instance_valid(trig):
+				continue
+			var t_sec: int = int(trig.get("target_section"))
+			var t_z: float = (trig as Node3D).global_position.z if trig is Node3D else rewind_z
+			if t_sec > int(checkpoint_section) or t_z > rewind_z + 2.0:
+				trig.set("has_triggered", false)
+				var enc: String = String(trig.get("encounter_id"))
+				if not enc.is_empty():
+					completed_encounters.erase(enc)
+			elif t_sec == int(checkpoint_section) and int(t_sec) > int(Section.ENTRY):
+				var enc2: String = String(trig.get("encounter_id"))
+				if not enc2.is_empty():
+					completed_encounters.erase(enc2)
+		for gate in get_tree().get_nodes_in_group("encounter_gate"):
+			if not is_instance_valid(gate):
+				continue
+			var g_sec: int = int(gate.get("section_id"))
+			var g_enc: String = String(gate.get("linked_encounter_id"))
+			if bool(gate.get("starts_open")) and g_sec >= int(checkpoint_section):
+				if gate.has_method("open_gate"):
+					gate.call("open_gate", false)
+			elif not g_enc.is_empty() and g_sec >= int(checkpoint_section):
+				gate.set("is_permanently_unlocked", false)
+				if gate.has_method("_on_section_reset_requested"):
+					gate.call("_on_section_reset_requested", g_sec)
+
+	current_section = checkpoint_section
+
+	# 4. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2).
+	if RealmManager.instance != null:
+		RealmManager.instance.force_realm(checkpoint_realm as RealmManager.Realm, false)
+
+	# 5. Respawn player at rewound checkpoint transform with full health, and revive/regroup squad allies.
+	if player != null and player.has_method("respawn_at"):
+		player.call("respawn_at", checkpoint_transform)
+	if is_inside_tree() and get_tree() != null:
+		var squad_mgr: Node = get_tree().get_first_node_in_group("ally_squad_manager")
+		if squad_mgr == null:
+			squad_mgr = AllySquadManager.instance
+		if squad_mgr != null and squad_mgr.has_method("regroup"):
+			squad_mgr.call("regroup", false)
+		for a in get_tree().get_nodes_in_group("squad_ally"):
+			if is_instance_valid(a) and bool(a.get("is_downed")) and a.has_method("revive"):
+				a.call("revive", 0.5)
+
+	# 6. Enable current section, then respawn all intervening & ahead enemies at full HP cleanly.
+	_update_section_enemy_activation()
+	for sec_key in _section_enemies.keys():
+		var sec_int: int = int(sec_key)
+		for enemy in _section_enemies[sec_key]:
+			if not is_instance_valid(enemy) or not enemy.has_method("reset_enemy"):
+				continue
+			var spawn_z: float = rewind_z
+			if "_spawn_transform" in enemy:
+				spawn_z = (enemy.get("_spawn_transform") as Transform3D).origin.z
+			elif enemy is Node3D:
+				spawn_z = (enemy as Node3D).global_position.z
+			if sec_int > int(checkpoint_section) or (sec_int == int(checkpoint_section) and spawn_z >= rewind_z - 4.0):
+				enemy.call("reset_enemy")
+
+	section_reset_requested.emit(checkpoint_section)
+	player_respawned.emit(checkpoint_section, checkpoint_transform)
+
+
+func restart_full_run() -> void:
+	completed_sections.clear()
+	completed_encounters.clear()
+	_checkpoint_history.clear()
+	current_section = Section.ENTRY
+	checkpoint_section = Section.ENTRY
+	checkpoint_realm = 0
+	active_enemy_count = 0
+	current_encounter_id = ""
+
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("start_new_run"):
+		run_state.call("start_new_run")
+
+	if RealmManager.instance != null:
+		RealmManager.instance.force_realm(RealmManager.Realm.REALITY, false)
+
+	_update_section_enemy_activation()
+	section_changed.emit(current_section, get_section_name(current_section))
+
+
+func _alert_room_on_entry(section_id: Section) -> void:
+	if section_id != Section.HALL_COMBAT and section_id != Section.MECHANISM_CHAMBER:
+		return
+	if not is_inside_tree() or get_tree() == null:
+		return
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return
+	var alert_rad: float = 62.0 if section_id == Section.HALL_COMBAT else 42.0
+	for enemy in _section_enemies.get(section_id, []):
+		if is_instance_valid(enemy) and enemy is EnemyAI and enemy.is_active and not enemy.is_dead:
+			var e := enemy as EnemyAI
+			if e.global_position.distance_to(player.global_position) <= alert_rad and e.is_hittable_now():
+				e.receive_alert(player, player, true)
+```
+
+- **Postcondition**: Entering Hall or Chamber alerts enemies across the room immediately (`REQ-15`); dying rewinds the player `2` checkpoints behind, re-enables triggers ahead, keeps puzzle gates safe, and respawns all intervening/ahead enemies cleanly (`REQ-21`).
+
+---
+
+### Step 19 — Distinct Enemy Skin Colors, Armor Tints & Weapon Loadouts (`REQ-22`)
+
+- **Prerequisites**: Steps 1–18 complete.
+- **Target 1**: `scripts/core/character_loadout.gd` (lines 42–49)
+- **Action**: Replace block (exact single match) so enemy `Knight_Body` (`ShieldedGuard`) wields `["2H_Sword", "Spike_Shield"]` and enemy `Barbarian_Body` (`WardenBoss`) wields `["2H_Axe", "Barbarian_Round_Shield"]` — distinct from Player (`1H_Sword + Badge_Shield`) and Brannoc (`2H_Axe`).
+
+**Find:**
+```gdscript
+	if model_root.find_child("Knight_Body", true, false) != null:
+		if role == "player":
+			apply(model_root, ["1H_Sword", "Badge_Shield"])
+		else:
+			apply(model_root, ["1H_Sword", "Rectangle_Shield"])
+	elif model_root.find_child("Barbarian_Body", true, false) != null:
+		apply(model_root, ["2H_Axe"])
+```
+
+**Replace with:**
+```gdscript
+	if model_root.find_child("Knight_Body", true, false) != null:
+		if role == "player":
+			apply(model_root, ["1H_Sword", "Badge_Shield"])
+		elif role == "enemy":
+			apply(model_root, ["2H_Sword", "Spike_Shield"])
+		else:
+			apply(model_root, ["1H_Sword", "Rectangle_Shield"])
+	elif model_root.find_child("Barbarian_Body", true, false) != null:
+		if role == "enemy":
+			apply(model_root, ["2H_Axe", "Barbarian_Round_Shield"])
+		else:
+			apply(model_root, ["2H_Axe"])
+```
+
+- **Target 2**: `scripts/core/character_animation_bridge.gd` (lines 114–118)
+- **Action**: Replace block (exact single match) to invoke `_apply_enemy_hostile_palette(model_root)` for non-spectral, non-archetype enemies (`WardenBoss`, `ShieldedGuard`, `SkeletonGuard`) inside `bind_actor()`.
+
+**Find:**
+```gdscript
+		if apply_default_loadout and not (_actor is PlayerController):
+			LoadoutScript.apply_default_for(model_root, "enemy")
+		if apply_spectral_shader or (_actor != null and _actor is PhantomTwin):
+			_apply_spectral_material_recursive(model_root)
+```
+
+**Replace with:**
+```gdscript
+		if apply_default_loadout and not (_actor is PlayerController):
+			LoadoutScript.apply_default_for(model_root, "enemy")
+		if apply_spectral_shader or (_actor != null and _actor is PhantomTwin):
+			_apply_spectral_material_recursive(model_root)
+		elif _actor != null and _actor is EnemyBase and not (_actor is ArchetypeEnemy):
+			_apply_enemy_hostile_palette(model_root)
+```
+
+- **Target 3**: `scripts/core/character_animation_bridge.gd` (lines 496–507)
+- **Action**: Replace block (exact single match) to define `_apply_enemy_hostile_palette()` and `_tint_enemy_meshes_recursive()` using distinct dark hostile armor/bone tints, surface overrides, and subtle ominous emissions (`WardenBoss` obsidian-crimson, `ShieldedGuard` charred dark-iron, `SkeletonGuard` ashen necrotic green-bone).
+
+**Find:**
+```gdscript
+func _apply_spectral_material_recursive(node: Node) -> void:
+	if _spectral_mat == null and ResourceLoader.exists(SPECTRAL_SHADER_PATH):
+		var sh: Shader = load(SPECTRAL_SHADER_PATH) as Shader
+		if sh != null:
+			_spectral_mat = ShaderMaterial.new()
+			_spectral_mat.shader = sh
+
+	if _spectral_mat != null and node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = _spectral_mat
+
+	for child in node.get_children():
+		_apply_spectral_material_recursive(child)
+```
+
+**Replace with:**
+```gdscript
+func _apply_spectral_material_recursive(node: Node) -> void:
+	if _spectral_mat == null and ResourceLoader.exists(SPECTRAL_SHADER_PATH):
+		var sh: Shader = load(SPECTRAL_SHADER_PATH) as Shader
+		if sh != null:
+			_spectral_mat = ShaderMaterial.new()
+			_spectral_mat.shader = sh
+
+	if _spectral_mat != null and node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = _spectral_mat
+
+	for child in node.get_children():
+		_apply_spectral_material_recursive(child)
+
+
+func _apply_enemy_hostile_palette(model_root: Node) -> void:
+	var tint: Color = Color(0.54, 0.50, 0.46, 1.0)
+	var emission: Color = Color(0.10, 0.04, 0.04, 1.0)
+	var emission_energy: float = 0.0
+	var roughness_scale: float = 1.0
+	if _actor is WardenBoss:
+		# Obsidian-crimson dread armor + ember edge glow so Warden never reads like ally Brannoc.
+		tint = Color(0.24, 0.08, 0.09, 1.0)
+		emission = Color(0.42, 0.08, 0.04, 1.0)
+		emission_energy = 0.28
+		roughness_scale = 0.72
+	elif _actor is ShieldedGuard:
+		# Charred dark-iron plate + cold steel-crimson sheen so Knights never read like Player.
+		tint = Color(0.20, 0.22, 0.28, 1.0)
+		emission = Color(0.18, 0.05, 0.08, 1.0)
+		emission_energy = 0.16
+		roughness_scale = 0.65
+	elif _actor is SkeletonGuard:
+		# Necrotic mossy bone with faint bilious glow, contrasting sharply with ally Sera's cyan.
+		tint = Color(0.50, 0.56, 0.44, 1.0)
+		emission = Color(0.10, 0.22, 0.08, 1.0)
+		emission_energy = 0.18
+	model_root.set_meta("enemy_hostile_tint", tint)
+	_tint_enemy_meshes_recursive(model_root, tint, emission, emission_energy, roughness_scale)
+
+
+func _tint_enemy_meshes_recursive(node: Node, tint: Color, emission: Color, emission_energy: float, roughness_scale: float) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for s in range(mi.mesh.get_surface_count()):
+				var orig: Material = mi.get_surface_override_material(s)
+				if orig == null:
+					orig = mi.mesh.surface_get_material(s)
+				var mat: StandardMaterial3D = null
+				if orig is StandardMaterial3D:
+					mat = (orig as StandardMaterial3D).duplicate() as StandardMaterial3D
+					mat.albedo_color = mat.albedo_color * tint
+					mat.roughness = clampf(mat.roughness * roughness_scale, 0.15, 1.0)
+				else:
+					mat = StandardMaterial3D.new()
+					mat.albedo_color = tint
+					mat.roughness = clampf(0.75 * roughness_scale, 0.15, 1.0)
+				if emission_energy > 0.0:
+					mat.emission_enabled = true
+					mat.emission = emission
+					mat.emission_energy_multiplier = emission_energy
+				mi.set_surface_override_material(s, mat)
+	for child in node.get_children():
+		_tint_enemy_meshes_recursive(child, tint, emission, emission_energy, roughness_scale)
+```
+
+- **Postcondition**: Enemy Knight (`ShieldedGuard`) wields `2H_Sword + Spike_Shield` in charred dark iron, `WardenBoss` wields `2H_Axe + Barbarian_Round_Shield` in obsidian crimson, and `SkeletonGuard` wears necrotic green-ashen bone — zero enemy rigs resemble Player (`1H_Sword + Badge_Shield`), Brannoc (`2H_Axe` warm brown), Sera (`cyan`), or Ivo (`violet`).
+
+---
+
+### Step 20 — `SkeletonGuard` Engagement Range (`22 m`) & 1-Time Self-Revive (`REQ-15`, `REQ-23`)
+
+- **Prerequisites**: Steps 1–19 complete.
+- **Target 1**: `scripts/enemies/skeleton_guard.gd` (lines 11–42)
+- **Action**: Replace block (exact single match) to raise `detection_range = 22.0`, add 1-time `revive_duration = 3.0 s` fall-down self-revive (`Lie_Down -> Lie_Idle -> Lie_StandUp` via `State.STUNNED`) at `revive_health_ratio = 0.50` (`50%` HP) before dying on the next lethal hit, while letting `"environmental"` and `"fin_execution"` bypass self-revive cleanly.
+
+**Find:**
+```gdscript
+func _init() -> void:
+	# Realm redesign (2026-11-17): every enemy exists in BOTH realms; the Mirror reveals their weak points.
+	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
+	max_health = 100
+	health = 100
+	detection_range = 9.0
+	attack_range = 1.85
+	move_speed = 3.4
+	windup_duration = 0.55
+	attack_active_duration = 0.22
+	recover_duration = 0.80
+	attack_damage = 15
+	attack_name = "skeleton_slash"
+	section_id = EncounterDirector.Section.HALL_COMBAT
+	encounter_id = "hall_of_echoes"
+	flee_health_ratio = 0.15
+
+
+func reset_hall_hint_flag() -> void:
+	_first_hall_skeleton_hint_emitted = false
+
+
+func _on_enemy_reset() -> void:
+	super._on_enemy_reset()
+	_first_hall_skeleton_hint_emitted = false
+
+
+func _die(source_type: String) -> void:
+	super._die(source_type)
+	if not _first_hall_skeleton_hint_emitted and encounter_id == "hall_of_echoes":
+		_first_hall_skeleton_hint_emitted = true
+		mirror_hint_requested.emit()
+```
+
+**Replace with:**
+```gdscript
+const SkeletonGoreFXScript := preload("res://scripts/core/gore_fx.gd")
+
+@export var can_self_revive: bool = true
+@export var revive_duration: float = 3.0
+@export var revive_health_ratio: float = 0.50
+
+var _revived_once: bool = false
+var _reviving: bool = false
+
+
+func _init() -> void:
+	# Realm redesign (2026-11-17): every enemy exists in BOTH realms; the Mirror reveals their weak points.
+	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
+	max_health = 100
+	health = 100
+	detection_range = 22.0
+	attack_range = 1.85
+	move_speed = 3.4
+	windup_duration = 0.55
+	attack_active_duration = 0.22
+	recover_duration = 0.80
+	attack_damage = 15
+	attack_name = "skeleton_slash"
+	section_id = EncounterDirector.Section.HALL_COMBAT
+	encounter_id = "hall_of_echoes"
+	flee_health_ratio = 0.15
+
+
+func reset_hall_hint_flag() -> void:
+	_first_hall_skeleton_hint_emitted = false
+
+
+func has_revived_once() -> bool:
+	return _revived_once
+
+
+func is_reviving_now() -> bool:
+	return _reviving
+
+
+func _on_damage_taken(_final_damage: int, _is_heavy: bool, source_type: String) -> void:
+	if can_self_revive and not _revived_once and not _reviving and health <= 0 and source_type != "environmental" and source_type != "fin_execution":
+		_revived_once = true
+		_reviving = true
+		health = 1
+		health_changed.emit(health, max_health)
+		var hb_hurt: Hurtbox3D = get_hurtbox()
+		if hb_hurt != null:
+			hb_hurt.is_invulnerable = true
+		enter_stunned(revive_duration)
+		SkeletonGoreFXScript.flash_light(self, global_position + Vector3.UP * 0.6, Color(0.55, 0.95, 0.45), 3.2, 0.45, 4.0)
+
+
+func _should_stagger_on_hit(is_heavy: bool, source_type: String) -> bool:
+	if _reviving:
+		return false
+	return super._should_stagger_on_hit(is_heavy, source_type)
+
+
+func _on_hit_reaction(final_damage: int, is_heavy: bool, source_type: String, staggered_now: bool) -> void:
+	if _reviving:
+		return
+	super._on_hit_reaction(final_damage, is_heavy, source_type, staggered_now)
+
+
+func _on_backstabbed(attacker: Node) -> void:
+	if _reviving:
+		return
+	super._on_backstabbed(attacker)
+
+
+func enter_stunned(custom_duration: float = -1.0) -> void:
+	# Preserve the 3.0 s revive fall timer against KNOCKDOWN_SOURCES overwrites during apply_damage().
+	if _reviving and current_state == State.STUNNED and _state_timer > 0.1:
+		return
+	super.enter_stunned(custom_duration)
+
+
+func _process_stunned(delta: float) -> void:
+	if _reviving and _state_timer - delta <= 0.0:
+		_complete_self_revive()
+	super._process_stunned(delta)
+
+
+func _complete_self_revive() -> void:
+	_reviving = false
+	health = maxi(1, int(round(float(max_health) * clampf(revive_health_ratio, 0.1, 1.0))))
+	var hb_hurt: Hurtbox3D = get_hurtbox()
+	if hb_hurt != null:
+		hb_hurt.is_invulnerable = not is_active
+	health_changed.emit(health, max_health)
+	SkeletonGoreFXScript.flash_light(self, global_position + Vector3.UP * 0.9, Color(0.45, 0.95, 0.35), 4.5, 0.35, 5.0)
+
+
+func _on_enemy_reset() -> void:
+	super._on_enemy_reset()
+	_first_hall_skeleton_hint_emitted = false
+	_revived_once = false
+	_reviving = false
+
+
+func _die(source_type: String) -> void:
+	_reviving = false
+	super._die(source_type)
+	if not _first_hall_skeleton_hint_emitted and encounter_id == "hall_of_echoes":
+		_first_hall_skeleton_hint_emitted = true
+		mirror_hint_requested.emit()
+```
+
+- **Postcondition**: `SkeletonGuard` drops to the ground (`State.STUNNED`, `Lie_Down -> Lie_Idle -> Lie_StandUp`, `3.0 s`, invulnerable while rising) on its first non-environmental lethal blow, stands back up at `50%` HP (`163 HP`), and dies permanently on its second lethal blow.
+
+---
+
+### Step 21 — Create Permanent Regression Test `tests/sanity_regression_test.gd` (`REQ-01`..`REQ-24`)
+
+- **Prerequisites**: Steps 1–20 complete. Target file `tests/sanity_regression_test.gd` must not already exist.
 - **Target**: `tests/sanity_regression_test.gd`
 - **Action**: **Create** full file contents below.
 
 ```gdscript
 extends SceneTree
-## Permanent regression checks for Sanity-Testing 1-5 and live-play fixes (REQ-01..REQ-18).
+## Permanent regression checks for Sanity-Testing 1-5 and live-play fixes (REQ-01..REQ-24).
 ## Run: godot --headless --path . -s res://tests/sanity_regression_test.gd
 
 var _results: Array[String] = []
@@ -3282,14 +4428,14 @@ func _run() -> void:
 			missing.append(hp)
 	_check("world_hint_props_5_of_5", missing.is_empty(), "missing=%s" % str(missing))
 
-	# 2) REQ-03: Undamaged placed & spawned enemies show scaled FloatingHPBar text (250/250).
+	# 2) REQ-03, REQ-24: Undamaged placed & spawned enemies show +30% scaled FloatingHPBar text (325/325).
 	var guard1: EnemyBase = lv.get_node_or_null("Stage02_HallOfEchoes/Enemies/SkeletonGuard_1") as EnemyBase
 	var bar1: Label3D = guard1.get_node_or_null("FloatingHPBar") as Label3D if guard1 != null else null
 	var dyn_sk: EnemyBase = lv.call("_add_roamer", lv, "skeleton", "Sanity_DynSkel", Vector3(0, 0, -134), EncounterDirector.Section.ENTRY, Vector3(0, 0, -138)) as EnemyBase
 	await process_frame
 	var bar2: Label3D = dyn_sk.get_node_or_null("FloatingHPBar") as Label3D if dyn_sk != null else null
 	_check("enemy_hp_bar_scaled_on_spawn",
-		bar1 != null and bar1.text == "250/250" and bar2 != null and bar2.text == "250/250",
+		bar1 != null and bar1.text == "325/325" and bar2 != null and bar2.text == "325/325",
 		"placed=%s dyn=%s" % [bar1.text if bar1 != null else "null", bar2.text if bar2 != null else "null"])
 	if dyn_sk != null:
 		dyn_sk.queue_free()
@@ -3469,6 +4615,140 @@ func _run() -> void:
 			str(act_badge.custom_minimum_size if act_badge != null else Vector2.ZERO),
 		])
 
+	# 14) REQ-19: Base range caps <= +30%; camera-visible enemies (<= 140 m) auto-targetable + pull/taunt parsed.
+	var cam: Camera3D = root.get_viewport().get_camera_3d()
+	var cam_e: EnemyAI = null
+	var cam_ok: bool = false
+	var pull_parsed: Array = SquadCommandParser.parse("pull em here", ["Brannoc", "Sera", "Ivo"])
+	var parse_pull_ok: bool = not pull_parsed.is_empty() and String(pull_parsed[0].get("verb", "")) == "kite" and String(pull_parsed[0].get("lure", "")) == "player"
+	if cam != null:
+		var cam_fwd: Vector3 = -cam.global_transform.basis.z
+		cam_fwd.y = 0.0
+		cam_fwd = cam_fwd.normalized() if cam_fwd.length_squared() > 0.001 else Vector3.FORWARD
+		var cam_pos: Vector3 = Vector3(cam.global_position.x + cam_fwd.x * 68.0, player.global_position.y, cam.global_position.z + cam_fwd.z * 68.0)
+		cam_e = lv.call("_add_roamer", lv, "skeleton", "Sanity_CamFarEnemy", cam_pos, EncounterDirector.Section.ENTRY, player.global_position) as EnemyAI
+		if cam_e != null:
+			cam_e.set_section_enabled(true)
+			await process_frame
+			await process_frame
+			mgr.intel.scan_camera_now()
+			var cam_res: EnemyAI = mgr.intel.resolve("farther enemy")
+			cam_ok = (
+				WorldIntel.RANGE_M <= 52.0 + 0.01
+				and SquadAlly.FOLLOW_LEASH <= 19.5 + 0.01
+				and mgr.intel.is_camera_visible(cam_e)
+				and not mgr.intel.id_of(cam_e).is_empty()
+				and cam_res != null
+			)
+			cam_e.queue_free()
+	_check("camera_visible_enemy_targetable_and_pull", cam_ok and parse_pull_ok,
+		"cam_ok=%s parse_pull_ok=%s range=%.1f leash=%.1f" % [str(cam_ok), str(parse_pull_ok), WorldIntel.RANGE_M, SquadAlly.FOLLOW_LEASH])
+
+	# 15) REQ-20: Player & ally health regen take >= 2 min (0 -> full), and Ivo does not auto-cast Mending Light.
+	var p_regen_ok: bool = false
+	if player != null and player.health_regen_seconds_to_full >= 120.0:
+		player.health = 50
+		player._player_regen_acc = 0.0
+		player._tick_passive_regen(1.0)
+		var after_1s: int = player.health
+		player._tick_passive_regen(1.5)
+		p_regen_ok = after_1s == 50 and player.health >= 51 and player.health <= 52
+		player.health = player.max_health
+		player._player_regen_acc = 0.0
+	var a_regen_ok: bool = false
+	if brannoc != null and ivo != null and ivo.profile != null:
+		brannoc.health = 100
+		brannoc._retreating = true
+		brannoc._regen_acc = 0.0
+		brannoc._regen(2.0)
+		var ivo_auto_off: bool = false
+		for sk in ivo.profile.skills:
+			if String(sk.get("id")) == "mending_light":
+				ivo_auto_off = String(sk.get("auto_use")).is_empty() and float(sk.get("power")) <= 0.20
+		a_regen_ok = brannoc.health >= 102 and brannoc.health <= 104 and ivo_auto_off
+		brannoc.health = brannoc.max_health
+		brannoc._retreating = false
+	_check("slow_player_and_ally_health_regen", p_regen_ok and a_regen_ok, "p=%s a=%s" % [str(p_regen_ok), str(a_regen_ok)])
+
+	# 16) REQ-21: Death rewinds 2 checkpoints back and respawns intervening/ahead enemies.
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	var rewind_ok: bool = false
+	if ed != null and guard1 != null:
+		ed.restart_full_run()
+		ed.checkpoint_transform = Transform3D.IDENTITY
+		ed.set_checkpoint(EncounterDirector.Section.ENTRY, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, -136.0)), 0)
+		ed.set_checkpoint(EncounterDirector.Section.HALL_COMBAT, Transform3D(Basis.IDENTITY, JourneyLayout.HALL_CENTER - Vector3(0.0, 0.0, 24.0)), 0)
+		ed.set_checkpoint(EncounterDirector.Section.COLLAPSED_GALLERY, Transform3D(Basis.IDENTITY, Vector3(0.0, 6.0, 165.5)), 0)
+		guard1.set_section_enabled(true)
+		guard1.reset_enemy()
+		guard1.apply_damage(99999, true, "environmental", null)
+		var dead_before: bool = guard1.is_dead
+		ed.completed_encounters["hall_of_echoes"] = true
+		ed.handle_player_death(player)
+		rewind_ok = (
+			dead_before
+			and int(ed.checkpoint_section) == int(EncounterDirector.Section.ENTRY)
+			and player.global_position.z < -130.0
+			and not guard1.is_dead
+			and guard1.health == guard1.max_health
+			and not bool(ed.completed_encounters.get("hall_of_echoes", false))
+		)
+	_check("death_respawns_two_checkpoints_back_and_resets_enemies", rewind_ok,
+		"sec=%d z=%.1f guard_dead=%s" % [int(ed.checkpoint_section) if ed != null else -1, player.global_position.z if player != null else 0.0, str(guard1.is_dead) if guard1 != null else "null"])
+
+	# 17) REQ-22: Enemy rigs carry distinct dark armor/skin palettes and weapon/shield loadouts from Player & Allies.
+	var sg: Node = lv.get_node_or_null("Stage03_CollapsedGallery/Enemies/ShieldedGuard_1")
+	var sg_mr: Node = sg.get_node_or_null("VisualRoot/ModelRoot") if sg != null else null
+	var w_mr: Node = warden.get_node_or_null("VisualRoot/ModelRoot") if warden != null else null
+	var g_mr: Node = guard1.get_node_or_null("VisualRoot/ModelRoot") if guard1 != null else null
+	var allies_untinted: bool = true
+	for a in mgr.get_living():
+		var amr: Node = a.get_node_or_null("VisualRoot/ModelRoot")
+		if amr != null and amr.has_meta("enemy_hostile_tint"):
+			allies_untinted = false
+	var w_shield: Node3D = w_mr.find_child("Barbarian_Round_Shield", true, false) as Node3D if w_mr != null else null
+	var sg_spike: Node3D = sg_mr.find_child("Spike_Shield", true, false) as Node3D if sg_mr != null else null
+	var visuals_ok: bool = (
+		allies_untinted
+		and w_mr != null and w_mr.has_meta("enemy_hostile_tint") and w_shield != null and w_shield.visible
+		and sg_mr != null and sg_mr.has_meta("enemy_hostile_tint") and sg_spike != null and sg_spike.visible
+		and g_mr != null and g_mr.has_meta("enemy_hostile_tint")
+	)
+	_check("enemy_visuals_distinct_from_player_and_allies", visuals_ok,
+		"allies_clean=%s warden_sh=%s sg_spike=%s" % [str(allies_untinted), str(w_shield != null and w_shield.visible), str(sg_spike != null and sg_spike.visible)])
+
+	# 18) REQ-23, REQ-24: SkeletonGuard revives once before dying, +40% dmg, +50% mobs, +30% HP.
+	var rev_ok: bool = false
+	if guard1 != null:
+		guard1.set_section_enabled(true)
+		guard1.reset_enemy()
+		guard1.apply_damage(99999, true, "player_heavy", player)
+		var fell_first: bool = not guard1.is_dead and guard1.health == 1 and guard1.current_state == EnemyAI.State.STUNNED and bool(guard1.call("has_revived_once")) and bool(guard1.call("is_reviving_now"))
+		guard1._process_stunned(3.1)
+		var sk_rev_hp: int = int(round(325.0 * 0.50))
+		var rose_up: bool = not guard1.is_dead and not bool(guard1.call("is_reviving_now")) and guard1.health == sk_rev_hp
+		guard1.apply_damage(99999, true, "player_heavy", player)
+		rev_ok = fell_first and rose_up and guard1.is_dead
+	var hall_en: Node = lv.get_node_or_null("Stage02_HallOfEchoes/Enemies")
+	var hall_roam: Node = lv.get_node_or_null("Stage02_HallOfEchoes/Roamers")
+	var ch_roam: Node = lv.get_node_or_null("Stage04_MechanismChamber/Roamers")
+	var scale_ok: bool = (
+		guard1 != null and guard1.max_health == 325 and guard1.attack_damage == 21
+		and warden != null and warden.max_health == 3250 and warden.cleave_damage == 28 and warden.lunge_damage == 35
+		and hall_en != null and hall_en.get_child_count() == 13
+		and hall_roam != null and hall_roam.get_child_count() == 5
+		and ch_roam != null and ch_roam.get_child_count() == 12
+	)
+	_check("skeleton_soldier_revives_once_and_enemy_stats_scaled", rev_ok and scale_ok,
+		"rev_ok=%s scale_ok=%s sk_dmg=%d w_clv=%d hall=%d+%d ch=%d" % [
+			str(rev_ok), str(scale_ok),
+			guard1.attack_damage if guard1 != null else -1,
+			warden.cleave_damage if warden != null else -1,
+			hall_en.get_child_count() if hall_en != null else -1,
+			hall_roam.get_child_count() if hall_roam != null else -1,
+			ch_roam.get_child_count() if ch_roam != null else -1,
+		])
+
 	var fails: int = _results.filter(func(r: String) -> bool: return r.begins_with("FAIL")).size()
 	print("[sanity] SUMMARY %d checks, %d failed" % [_results.size(), fails])
 	quit(1 if fails > 0 else 0)
@@ -3499,13 +4779,13 @@ func _first_mesh_vis_range(enemy: Node) -> float:
 	return -1.0
 ```
 
-- **Postcondition**: Running `tests/sanity_regression_test.gd` exercises all 13 regression probes and exits `0` with `[sanity] SUMMARY 13 checks, 0 failed`.
+- **Postcondition**: Running `tests/sanity_regression_test.gd` exercises all 18 regression probes (`REQ-01`..`REQ-24`) and exits `0` with `[sanity] SUMMARY 18 checks, 0 failed`.
 
 ---
 
-### Step 18 — Synchronize `MEMORY/` Knowledge Base & Changelog (`REQ-12`, `AGENTS.md` Rule 1.3)
+### Step 22 — Synchronize `MEMORY/` Knowledge Base & Changelog (`REQ-12`, `AGENTS.md` Rule 1.3)
 
-- **Prerequisites**: Steps 1–17 applied.
+- **Prerequisites**: Steps 1–21 applied.
 - **Target 1**: `MEMORY/03_COMBAT_PLAYER_AND_ENEMIES.md` (lines 64–67)
 - **Action**: Replace block (exact single match).
 
@@ -3517,6 +4797,7 @@ func _first_mesh_vis_range(enemy: Node) -> float:
 **Replace with:**
 ```markdown
 - **FLOW (rhythm)**: a press during `State.LIGHT_ATTACK` that lands in `[cancel − flow_window_early 0.10, cancel + flow_window_late 0.28]` **and is the only press during that swing** makes the next step FLOW: wind-up ×`0.62`, damage ×`1.15`, trail ×1.35, rising-pitch whoosh (+7 %/step) and an FOV punch (`_is_flow_timing()` returns `false` outside `State.LIGHT_ATTACK`). Mashing still chains through the buffer but never earns FLOW. `flow_streak` counts consecutive FLOW steps.
+- **Slow passive player regen (`REQ-20`)**: `PlayerController.health_regen_seconds_to_full = 125.0` (`>= 2 min` from `0` to `max_health`, ticking in `_tick_passive_regen()` during active gameplay and resetting accumulator on respawn).
 ```
 
 - **Target 2**: `MEMORY/03_COMBAT_PLAYER_AND_ENEMIES.md` (lines 151–156)
@@ -3531,15 +4812,15 @@ func _first_mesh_vis_range(enemy: Node) -> float:
 
 **Replace with:**
 ```markdown
-  - **Phase 2 Transition (`<= 50%` of scaled `max_health`, i.e., `1,250 / 2,500`)**:
-    - Phase 1 incoming hits are clamped to `maxi(1, health - _phase2_threshold())` so a single large hit cannot overkill Warden in Phase 1; Phase 2 caps all damage sources (including `"environmental"`) at `phase2_max_hit` (`120`).
-    - `EnemyBase._ready()` emits `health_changed` after `HEALTH_SCALE = 2.5` so undamaged `FloatingHPBar` labels start at scaled values (`250/250`). Enlarged gate wardens (`_enlarge_enemy`) also scale `AttackHitbox` shapes alongside `attack_range`, and `WorldIntel` / `AllySquadManager` filter targets by `is_hittable_now()`.
+  - **Phase 2 Transition (`<= 50%` of scaled `max_health`, i.e., `1,625 / 3,250`)**:
+    - Phase 1 incoming hits are clamped to `maxi(1, health - _phase2_threshold())` so a single large hit cannot overkill Warden in Phase 1; Phase 2 caps all damage sources (including `"environmental"`) at `phase2_max_hit` (`120`). Warden deals `+40%` damage (`cleave_damage = 28`, `lunge_damage = 35`).
+    - `EnemyBase.HEALTH_SCALE = 3.25` (`+30%` HP over `2.5`) and `EnemyAI.DAMAGE_SCALE = 1.4` (`+40%` damage across all enemies); `EnemyBase._ready()` emits `health_changed` so undamaged `FloatingHPBar` labels start at scaled values (`325/325`). Enlarged gate wardens (`_enlarge_enemy`) also scale `AttackHitbox` shapes alongside `attack_range`, `WorldIntel` / `AllySquadManager` filter targets by `is_hittable_now()`, `SkeletonGuard` performs a 1-time `3.0 s` fall-down self-revive (`50%` HP) before dying on the next lethal blow, and `CharacterLoadout` + `CharacterAnimationBridge` give hostile Knights (`2H_Sword + Spike_Shield`, dark iron) and Warden (`2H_Axe + Barbarian_Round_Shield`, obsidian crimson) / Skeletons (necrotic bone) distinct silhouettes and palettes from Player/Allies.
     - Stops current attack immediately -> plays `<= 2.0 s` Mirror Plane shatter sequence -> **one-way transition**.
     - HUD banner/chip changes to **`REALMS MERGED`**; `Q` is locked/disabled (`shift_locked = true`).
 ```
 
 - **Target 3**: `MEMORY/03_COMBAT_PLAYER_AND_ENEMIES.md` (lines 176–188)
-- **Action**: Replace block (exact single match) to document updated enemy engagement ranges and distant-order ally catch-up rules (`REQ-15`, `REQ-16`).
+- **Action**: Replace block (exact single match) to document updated enemy engagement ranges (`REQ-15`, `REQ-23`).
 
 **Find:**
 ```markdown
@@ -3549,7 +4830,7 @@ func _first_mesh_vis_range(enemy: Node) -> float:
 
 **Replace with:**
 ```markdown
-- **States**: ALERT (walk to the noise / call, look around `4 s`, detection ×1.25), FLEEING (once per life below `flee_health_ratio`: Skeleton `0.15`, Phantom `0.25`, Hexcaster `0.30`, Stalker `0.35`, others `0`; runs `flee_duration` then turns and fights), RETURNING (leash: beyond `max_chase_distance` from home — default `52 m`, Warden `80`, Brute `48`, Hexcaster `52`, Stalker `56`, Hall `68`, Chamber `48` — clears threat and walks home, `1.5 s` re-aggro block, snaps home after `14 s` stuck; chase drop threshold `maxf(detection_range * 2.5, max_chase_distance * 1.15)`). `detection_range` defaults `20–26 m` (Hall `56 m`, Chamber `38 m`), and `EncounterDirector.advance_to_section()` alerts active room enemies on Hall (`62 m`) / Chamber (`42 m`) entry. IDLE roamers patrol within `patrol_radius` (roamers `1.6 m`, archetypes from data) with an edge probe.
+- **States**: ALERT (walk to the noise / call, look around `4 s`, detection ×1.25), FLEEING (once per life below `flee_health_ratio`: Skeleton `0.15`, Phantom `0.25`, Hexcaster `0.30`, Stalker `0.35`, others `0`; runs `flee_duration` then turns and fights), RETURNING (leash: beyond `max_chase_distance` from home — default `52 m`, Warden `80`, Brute `48`, Hexcaster `52`, Stalker `56`, Hall `68`, Chamber `48` — clears threat and walks home, `1.5 s` re-aggro block, snaps home after `14 s` stuck; chase drop threshold `maxf(detection_range * 2.5, max_chase_distance * 1.15)`). `detection_range` defaults `20–26 m` (Hall `56 m`, Chamber `38 m`), and `EncounterDirector.advance_to_section()` alerts active room enemies on Hall (`62 m`) / Chamber (`42 m`) entry. `SkeletonGuard` intercepts its first non-environmental/non-execution lethal blow to lie down in `State.STUNNED` (`3.0 s`, invulnerable while rising) and self-revive once at `50%` HP before dying permanently on the next lethal hit. IDLE roamers patrol within `patrol_radius` (roamers `1.6 m`, archetypes from data) with an edge probe.
 - **Alert propagation**: spotter calls squad-mates in the same encounter or within `22 m` straight into CHASE; within `38 m` they come to investigate (ALERT). Ally detonations / brute slams `broadcast_noise` (`14–16 m`).
 ```
 
@@ -3563,7 +4844,7 @@ func _first_mesh_vis_range(enemy: Node) -> float:
 
 **Replace with:**
 ```markdown
-- All allies: `damage_taken_mult 0.6`, out-of-combat regen (×3 while retreating), formation wedge out of the camera line (`(-2.5,0.3)`, `(2.7,0.8)`, `(-2.2,2.4)`…), follow leash `28 m`, `WorldIntel` `RANGE_M 70 m`, catch-up blink at `28 m` (`35 m` on missions, `85 m` while executing any distant distract/attack/kite/nuke order so allies never rubber-band back mid-order; stuck nudge avoids player blink unless `> 85 m` or fallen). Personalities only change voice & flavour lines (incl. banter every 50–95 s out of combat and complaints at repeated silly orders).
+- All allies: `damage_taken_mult 0.6`, slow regen (`max_health / 125.0`, >= 2 min `0 -> full`, NO `3×` retreat burst; Brannoc `1.5`, Sera `0.95`, Ivo `0.88`, `mending_light` command-only `0.18`), formation wedge out of the camera line (`(-2.5,0.3)`, `(2.7,0.8)`, `(-2.2,2.4)`…), follow leash `19.5 m` (`+30%` cap), `WorldIntel` `RANGE_M 52 m` (`+30%` cap) plus `1.2 s` camera-frustum scan `_scan_camera_visible()` (`<= 140 m`) so any visible enemy becomes targetable/pullable (`"pull em here"` / `"farther enemy"`), catch-up blink capped at `19.5 m` (`30 m` on missions, `150 m` while executing distant/camera-visible orders so allies never teleport back mid-pull; stuck nudge avoids player blink unless distant/fallen). Personalities only change voice & flavour lines (incl. banter every 50–95 s out of combat and complaints at repeated silly orders).
 ```
 
 - **Target 5**: `MEMORY/04_LEVEL_DESIGN_AND_ROOMS.md` (lines 232–237)
@@ -3581,7 +4862,7 @@ Use this to place flora, fauna, props, lights or sounds **without loading `grand
 Use this to place flora, fauna, props, lights or sounds **without loading `grand_journey_builder.gd` (≈2k lines)**. Everything is procedural: the level is built at runtime by `LevelRoot` (`GrandJourneyBuilder`) in `scenes/main/main.tscn`. There is no saved geometry to edit in a `.tscn`. Put your content **in a scene or script you own** and instance it as a sibling under `Main`, or add a builder hook. Do not hand-edit `StageNN_*` children: their names are a save/MainController contract. Axes: `+Z` = north = forward along the route; `+Y` up; `X < 0` is west, where the sunset is (keep the west skyline clear).
 
 > **Post-Guide-05 World Coordinate Mapping (`JourneyLayout` v2, 2026-11-18)**: Section 6.1–6.5 below lists original **story Z** coordinates alongside legacy stage footprints. At runtime, `GrandJourneyBuilder` / `JourneyLayout` remap stages to **world coordinates**:
-> `Stage01 Terrace` = `z -136` (`OFF_S1_TERRACE = -80`) · `R1 Causeway` = `(0,0,-131)->(34,0,-97)->(-34,0,-49)->(0,0,-15)` · `R2 Sunlit` = `z 8..56` · **`HallFloor` = `60x60 m` at `(0, 4, 86)`** · `R3 Rampart` = `z 116..164` · `Stage03 Gallery` = `story_z + 104` (`OFF_S3 = +104`; `ShieldedGuard_1` at `(0, 6, 187.2)`) · **`ChamberFloor` = `36x36 m` at `(0, 6, 210)`** · `R5 Processional` = `z 228..276` · `Stage05 Arena/Summit` = `story_z + 160` (`OFF_S5 = +160`; `TheWarden` at `(0, 10, 313)`). Always convert story Z <-> world Z via `JourneyLayout.to_world()` / `JourneyLayout.story_z()`. Also `ObjectiveTracker` auto-clears any gate (`Gate01`–`Gate05`), bridge, puzzle (`force_solve_bypass()`), or skipped encounter if the player advances past its `story_z` threshold.
+> `Stage01 Terrace` = `z -136` (`OFF_S1_TERRACE = -80`; Forecourt `8` mobs) · `R1 Causeway` = `(0,0,-131)->(34,0,-97)->(-34,0,-49)->(0,0,-15)` · `R2 Sunlit` = `z 8..56` (Bastions `9`/route) · **`HallFloor` = `60x60 m` at `(0, 4, 86)`** (`13` encounter + `5` roamers = `18` mobs) · `R3 Rampart` = `z 116..164` · `Stage03 Gallery` = `story_z + 104` (`OFF_S3 = +104`; `ShieldedGuard_1` at `(0, 6, 187.2)`, `4` roamers) · **`ChamberFloor` = `36x36 m` at `(0, 6, 210)`** (`12` roamers, Esplanade `6`) · `R5 Processional` = `z 228..276` · `Stage05 Arena/Summit` = `story_z + 160` (`OFF_S5 = +160`; `TheWarden` at `(0, 10, 313)`). Always convert story Z <-> world Z via `JourneyLayout.to_world()` / `JourneyLayout.story_z()`. `ObjectiveTracker` auto-clears any bypassed gate (`Gate01`–`Gate05`), bridge, puzzle (`force_solve_bypass()`), or skipped encounter; `EncounterDirector.handle_player_death()` rewinds `2` checkpoints behind via `_checkpoint_history`, resets triggers/combat exit gates cleanly, revives/regroups allies, and respawns all intervening enemies via `reset_enemy()`.
 
 ### 6.1 Walkable floors (collider tops, `World_Shared` layer 3 = bit value 4 unless noted)
 ```
@@ -3614,10 +4895,10 @@ Use this to place flora, fauna, props, lights or sounds **without loading `grand
 **Replace with:**
 ```markdown
 - **2026-11-18 (Long bridges, bastions, 3× halls)**: connectors are now winding bridges with 2 bastions (3 enemies each), 4.5–5.1× longer (R1 179 m, R2/R3/R5 81 m); Hall of Echoes 60 × 60 (9 encounter + 3 roamers), clock-tower chamber 36 × 36 (8 roamers); terrace moved to z −136; gallery +104, arena/summit +160; `JourneyLayout` converts story ↔ world for weather/audio/objectives/flora/dressing/terrain/saves; test `tests/layout_rework_test.gd`.
-- **2026-11-18 (Sanity Testing 1–5 + Live-Play Remediation Pass)**: Fixed `ObjectiveTracker` premature `_labels_done` on Title Screen + added bypassed gate/bridge/puzzle/encounter auto-clear (`Gate01..05`), `WardenBoss` Phase 1 single-hit overkill bypass & Phase 2 environmental hit cap, `EnemyBase._ready()` `health_changed` emit (`250/250` HP bar init), `_enlarge_enemy()` `AttackHitbox` scaling, `SquadTTSPlayer`/`SquadCommsHUD` `_exit_tree()` cleanup, `WorldIntel`/`AllySquadManager` Reality-phantom filtering (`is_hittable_now()`) & widened `70/65 m` ranges, `PlayerController._is_flow_timing()` state guard, `GoreFX` freed-gib tween replacement, non-boss enemy `58 m` visibility-range culling + Low/Medium directional shadow scaling, Gemini TTS prompt-leak removal (`OpenAIClient`/`SquadComms.sanitize_spoken_line()`), Hall (`56/68 m`) & Chamber (`38/48 m`) enemy engagement radii + entry alerts, `SquadAlly` `85 m` distant-order tether/stuck exemption, dark contrast plates & bold typography across roster/objectives/world labels, `+20%` HUD/weapon/crest/realm/mic/finisher icon scaling, GDScript warnings across UI/store scripts, `feel_and_movement_test.gd` / `squad_ai_windowed_test.gd` / `visual_check_shots.gd` alignment, `MEMORY/03..07` sync, and added `tests/sanity_regression_test.gd` (13 checks).
+- **2026-11-18 (Sanity Testing 1–5 + Live-Play Remediation Pass, REQ-01..REQ-24)**: Fixed `ObjectiveTracker` premature `_labels_done` on Title Screen + added bypassed gate/bridge/puzzle/encounter auto-clear (`Gate01..05`), `WardenBoss` Phase 1 single-hit overkill bypass & Phase 2 environmental hit cap, `EnemyBase._ready()` `health_changed` emit (`325/325` HP bar init), `_enlarge_enemy()` `AttackHitbox` scaling, `SquadTTSPlayer`/`SquadCommsHUD` `_exit_tree()` cleanup, `WorldIntel`/`AllySquadManager` Reality-phantom filtering (`is_hittable_now()`), capped base ranges (`<= +30%`, `RANGE_M = 52 m`, `FOLLOW_LEASH = 19.5 m`), and `1.2 s` camera-frustum targeting (`<= 140 m`) with `"pull em here"`/`"farther"` parsing, `PlayerController._is_flow_timing()` state guard, `GoreFX` freed-gib tween replacement, non-boss enemy `58 m` visibility-range culling + Low/Medium directional shadow scaling, Gemini TTS prompt-leak removal (`OpenAIClient`/`SquadComms.sanitize_spoken_line()`), Hall (`56/68 m`) & Chamber (`38/48 m`) enemy engagement radii + entry alerts (`62/42 m`), `SquadAlly` `150 m` distant/camera-visible order exemption, slow player/ally regen (`>= 125 s` full heal, Ivo `mending_light` manual `0.18`), `EncounterDirector` 2-checkpoint death rewind (`_checkpoint_history`) & intervening enemy respawn, distinct enemy `CharacterLoadout` (`2H_Sword+Spike_Shield`, `2H_Axe+Barbarian_Round_Shield`) + darkened armor/skin palettes, `SkeletonGuard` 1-time `3.0 s` fall-down self-revive (`50%` HP), `+40%` enemy damage (`DAMAGE_SCALE = 1.4`, Warden `28/35`), `+30%` enemy HP (`HEALTH_SCALE = 3.25`), `+50%` mob counts per area, dark contrast plates + bold typography + `+20%` HUD/finisher icons, `MEMORY/03..07` sync, and added `tests/sanity_regression_test.gd` (`18 checks`).
 ```
 
-- **Postcondition**: All 5 memory docs accurately reflect post-remediation engine behavior, world coordinates, squad/enemy ranges, TTS sanitization, and HUD layout.
+- **Postcondition**: All 5 memory docs accurately reflect post-remediation engine behavior, world coordinates, squad/enemy ranges, regen rates, checkpoint rewind, enemy visual/revive/combat scaling, TTS sanitization, and HUD layout.
 
 ---
 
@@ -3627,18 +4908,18 @@ Run every command below in PowerShell from `D:\Desktop\Godot\parallax`.
 
 | Ver ID | Command | Preconditions | Expected Pass Condition | Covers |
 | :--- | :--- | :--- | :--- | :--- |
-| **VER-01** | `foreach ($f in @("scripts/ui/objective_tracker.gd","scripts/ui/ui_theme.gd","scripts/ui/finisher_prompt.gd","scripts/enemies/warden_boss.gd","scripts/enemies/enemy_base.gd","scripts/enemies/enemy_ai.gd","scripts/enemies/skeleton_guard.gd","scripts/enemies/phantom_twin.gd","scripts/enemies/shielded_guard.gd","scripts/enemies/squad_coordinator.gd","scripts/core/encounter_director.gd","scripts/environment/grand_journey_builder.gd","scripts/environment/colosseum_greybox_builder.gd","scripts/environment/mechanism_puzzle.gd","addons/parallax_squad_ai/tts_player.gd","addons/parallax_squad_ai/openai_client.gd","addons/parallax_squad_ai/squad_comms.gd","scripts/ui/squad_comms_hud.gd","scripts/allies/world_intel.gd","scripts/allies/ally_squad_manager.gd","scripts/allies/squad_ally.gd","scripts/player/player_controller.gd","scripts/core/gore_fx.gd","scripts/core/leaderboard_store.gd","scripts/ui/world_label_overlay.gd","scripts/ui/hud_controller.gd","tests/sanity_regression_test.gd","tests/feel_and_movement_test.gd","tests/squad_ai_windowed_test.gd","tests/visual_check_shots.gd")) { Write-Host "CHECK $f"; & "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" --check-only -s "res://$f"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }` | Steps 1–17 applied | Exit `0`, zero `SCRIPT ERROR` or warning lines printed for any script. | REQ-01..REQ-18 |
-| **VER-02** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/sanity_regression_test.gd` | Step 17 applied | Exit `0`; prints `[sanity] SUMMARY 13 checks, 0 failed` and zero `Lambda capture at index 0 was freed` errors. | REQ-01..REQ-06, REQ-09, REQ-10, REQ-13..REQ-18 |
-| **VER-03** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/boot_smoke.gd` | Steps 1–16 applied | Exit `0`; prints `[boot_smoke] OK`. | Regression / REQ-10 |
-| **VER-04** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/restart_flow_test.gd` | Steps 1–16 applied | Exit `0`; prints `=> PASS`. | REQ-01, REQ-05 |
-| **VER-05** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/combat_rules_test.gd` | Steps 2–3 applied | Exit `0`; prints `[combat] SUMMARY 9 checks, 0 failed`. | REQ-02, REQ-03 |
+| **VER-01** | `foreach ($f in @("scripts/ui/objective_tracker.gd","scripts/ui/ui_theme.gd","scripts/ui/finisher_prompt.gd","scripts/enemies/warden_boss.gd","scripts/enemies/enemy_base.gd","scripts/enemies/enemy_ai.gd","scripts/enemies/archetype_enemy.gd","scripts/enemies/skeleton_guard.gd","scripts/enemies/phantom_twin.gd","scripts/enemies/shielded_guard.gd","scripts/enemies/squad_coordinator.gd","scripts/core/encounter_director.gd","scripts/core/character_loadout.gd","scripts/core/character_animation_bridge.gd","scripts/environment/grand_journey_builder.gd","scripts/environment/colosseum_greybox_builder.gd","scripts/environment/mechanism_puzzle.gd","addons/parallax_squad_ai/tts_player.gd","addons/parallax_squad_ai/openai_client.gd","addons/parallax_squad_ai/squad_comms.gd","scripts/ui/squad_comms_hud.gd","scripts/allies/world_intel.gd","scripts/allies/ally_squad_manager.gd","scripts/allies/squad_ally.gd","scripts/allies/ally_profile.gd","scripts/allies/squad_command_parser.gd","scripts/player/player_controller.gd","scripts/core/gore_fx.gd","scripts/core/leaderboard_store.gd","scripts/ui/world_label_overlay.gd","scripts/ui/hud_controller.gd","tests/combat_rules_test.gd","tests/sanity_regression_test.gd","tests/feel_and_movement_test.gd","tests/squad_ai_windowed_test.gd","tests/visual_check_shots.gd")) { Write-Host "CHECK $f"; & "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" --check-only -s "res://$f"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }` | Steps 1–21 applied | Exit `0`, zero `SCRIPT ERROR` or warning lines printed for any script. | REQ-01..REQ-24 |
+| **VER-02** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/sanity_regression_test.gd` | Step 21 applied | Exit `0`; prints `[sanity] SUMMARY 18 checks, 0 failed` and zero `Lambda capture at index 0 was freed` errors. | REQ-01..REQ-06, REQ-09, REQ-10, REQ-13..REQ-24 |
+| **VER-03** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/boot_smoke.gd` | Steps 1–20 applied | Exit `0`; prints `[boot_smoke] OK`. | Regression / REQ-10 |
+| **VER-04** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/restart_flow_test.gd` | Steps 1–20 applied | Exit `0`; prints `=> PASS`. | REQ-01, REQ-05 |
+| **VER-05** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/combat_rules_test.gd` | Steps 2–3 applied | Exit `0`; prints `[combat] SUMMARY 9 checks, 0 failed`. | REQ-02, REQ-03, REQ-24 |
 | **VER-06** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/level_props_test.gd` | Step 4 & Step 13 applied | Exit `0`; prints `0 failed`. | REQ-04, REQ-14 |
-| **VER-07** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/layout_rework_test.gd` | Steps 1–16 applied | Exit `0`; prints `0 failed`. | Layout / REQ-10 |
-| **VER-08** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/squad_ai_unit_test.gd` | Steps 5–6, 12, 15 applied | Exit `0`; prints `0 failed`. | REQ-05, REQ-06, REQ-13, REQ-16 |
+| **VER-07** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/layout_rework_test.gd` | Steps 1–20 applied | Exit `0`; prints `0 failed`. | Layout / REQ-10, REQ-24 |
+| **VER-08** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/squad_ai_unit_test.gd` | Steps 5–6, 12, 15, 17 applied | Exit `0`; prints `0 failed`. | REQ-05, REQ-06, REQ-13, REQ-16, REQ-19, REQ-20 |
 | **VER-08b** | `& "C:/Users/agrim/.local/bin/godot.cmd" --headless --path "D:/Desktop/Godot/parallax" -s res://tests/voice_pipeline_test.gd` | Step 5 & Step 12 applied | Exit `0`; prints `0 failed`. | REQ-05, REQ-13 |
-| **VER-09** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/feel_and_movement_test.gd` | Step 8 applied | Windowed run; exit `0`; prints `[feel] SUMMARY 13 checks, 0 failed`. *(Note: run when desktop/GPU session is active; `follow_*` spacing checks use physics frames).* | REQ-08 |
-| **VER-10** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/squad_ai_windowed_test.gd` | Steps 6–7, 14, 15 applied | Windowed run; exit `0`; prints `0 failed` (`strategy_divide_distinct_targets` & `taunted_enemy_chases_past_leash` both `PASS`). | REQ-06, REQ-07, REQ-15, REQ-16 |
-| **VER-11** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/visual_check_shots.gd` | Step 1, Step 5 & Step 16 applied | Windowed run; exits cleanly (`exit 0`) in `< 20s` without hanging on OS TTS. Inspect saved shots if generated for +20% icons and legible roster/objective contrast. | REQ-01, REQ-05, REQ-17, REQ-18 |
+| **VER-09** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/feel_and_movement_test.gd` | Step 8 & Step 17 applied | Windowed run; exit `0`; prints `[feel] SUMMARY 13 checks, 0 failed`. *(Note: run when desktop/GPU session is active; `follow_*` spacing checks use physics frames).* | REQ-08, REQ-20 |
+| **VER-10** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/squad_ai_windowed_test.gd` | Steps 6–7, 14, 15, 17 applied | Windowed run; exit `0`; prints `0 failed` (`strategy_divide_distinct_targets` & `taunted_enemy_chases_past_leash` both `PASS`). | REQ-06, REQ-07, REQ-15, REQ-16, REQ-19, REQ-20 |
+| **VER-11** | `& "C:/Users/agrim/.local/bin/godot.cmd" --path "D:/Desktop/Godot/parallax" -s res://tests/visual_check_shots.gd` | Step 1, Step 5, Step 16 & Step 19 applied | Windowed run; exits cleanly (`exit 0`) in `< 20s` without hanging on OS TTS. Inspect saved shots if generated for +20% icons, dark enemy palettes, and legible roster/objective contrast. | REQ-01, REQ-05, REQ-17, REQ-18, REQ-22 |
 
 ### Failure Recovery Protocol
 - **Test fails with `SCRIPT ERROR` after an edit**: Re-run `--check-only` on that specific file, compare lines around the mismatch against Section D, and restore cleanly via `git checkout -- <file>` before retrying that step if needed.
@@ -3651,11 +4932,11 @@ Run every command below in PowerShell from `D:\Desktop\Godot\parallax`.
 
 When execution finishes, output a concise report containing ONLY verified observations:
 
-1. **Applied Step IDs**: Explicit list (`Step 1` .. `Step 18`) and any partial/skipped steps.
+1. **Applied Step IDs**: Explicit list (`Step 1` .. `Step 22`) and any partial/skipped steps.
 2. **Changed Files**: Exact paths modified or created (matching Section C manifest).
 3. **Verification Results Table**:
    - Command (`VER-01` .. `VER-11`)
    - Exit Code
    - Exact printed `SUMMARY` / pass line
 4. **Remaining Unverified Items / Blockers**: Any check not run (e.g., manual human full-sitting playthrough Title -> Results -> Leaderboard, or GPU/display limitations) marked clearly as unverified.
-5. **Definition of Done**: All Steps 1–18 applied cleanly, zero unintended untracked files left behind, and `VER-01` through `VER-11` exit `0` with `0 failed`.
+5. **Definition of Done**: All Steps 1–22 applied cleanly, zero unintended untracked files left behind, and `VER-01` through `VER-11` exit `0` with `0 failed`.

@@ -6,6 +6,7 @@ extends EnemyAI
 signal mirror_hint_requested()
 
 var _first_hall_skeleton_hint_emitted: bool = false
+var _has_revived: bool = false
 
 
 func _init() -> void:
@@ -13,7 +14,7 @@ func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	max_health = 100
 	health = 100
-	detection_range = 9.0
+	detection_range = 22.0
 	attack_range = 1.85
 	move_speed = 3.4
 	windup_duration = 0.55
@@ -33,9 +34,16 @@ func reset_hall_hint_flag() -> void:
 func _on_enemy_reset() -> void:
 	super._on_enemy_reset()
 	_first_hall_skeleton_hint_emitted = false
+	_has_revived = false
 
 
 func _die(source_type: String) -> void:
+	if not _has_revived:
+		_has_revived = true
+		health = max_health * 0.5
+		# Implementation of fall-down self-revive (3.0s delay)
+		await get_tree().create_timer(3.0).timeout
+		return
 	super._die(source_type)
 	if not _first_hall_skeleton_hint_emitted and encounter_id == "hall_of_echoes":
 		_first_hall_skeleton_hint_emitted = true

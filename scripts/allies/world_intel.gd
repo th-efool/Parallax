@@ -83,7 +83,7 @@ func refresh() -> void:
 	var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
 	for n in get_tree().get_nodes_in_group("enemy"):
 		var e: EnemyAI = n as EnemyAI
-		if e == null or e.is_dead or not e.is_inside_tree():
+		if e == null or e.is_dead or not e.is_inside_tree() or not e.is_hittable_now():
 			_hide_tag(n)
 			continue
 		var d: float = e.global_position.distance_to(player.global_position)
@@ -255,8 +255,10 @@ func resolve(selector: String, asker: Node3D = null) -> EnemyAI:
 	var m: RegExMatch = rx.search(s)
 	if m != null:
 		var byid: EnemyAI = node_for_id("E" + m.get_string(1))
-		if byid != null:
+		if byid != null and byid.is_hittable_now():
 			return byid
+		if byid != null:
+			return null
 	var tokens: PackedStringArray = s.replace(",", " ").replace(".", " ").replace("'s", " ").split(" ", false)
 	var origin: Vector3 = asker.global_position if asker != null else (get_tree().get_first_node_in_group("player") as Node3D).global_position
 	# "near Sera" / "closest to Brannoc" / "attacking Ivo" / "on me" / "hitting me".
@@ -280,6 +282,9 @@ func resolve(selector: String, asker: Node3D = null) -> EnemyAI:
 	var best_score: float = -INF
 	var any_desc: bool = false
 	for en in _entries:
+		var en_node: EnemyAI = en.get("node") as EnemyAI
+		if en_node == null or en_node.is_dead or not en_node.is_hittable_now():
+			continue
 		var score: float = 0.0
 		var words: String = String(en["words"])
 		for t in tokens:

@@ -54,6 +54,12 @@ func _ready() -> void:
 	_build_mic_button()
 
 
+func _exit_tree() -> void:
+	if _chat_open:
+		_chat_open = false
+		PlayerController.ui_input_locked = false
+
+
 static func _ensure_actions() -> void:
 	for a in ACTIONS.keys():
 		if InputMap.has_action(a):
@@ -61,7 +67,7 @@ static func _ensure_actions() -> void:
 		InputMap.add_action(a)
 		for k in (ACTIONS[a] as Array):
 			var ev := InputEventKey.new()
-			ev.physical_keycode = int(k)
+			ev.physical_keycode = int(k) as Key
 			InputMap.action_add_event(a, ev)
 
 
@@ -105,8 +111,8 @@ func _build_chat_bar() -> void:
 func _build_mic_button() -> void:
 	_mic_btn = Control.new()
 	_mic_btn.name = "MicButton"
-	_mic_btn.custom_minimum_size = Vector2(64, 64)
-	_mic_btn.size = Vector2(64, 64)
+	_mic_btn.custom_minimum_size = Vector2(113, 113)
+	_mic_btn.size = Vector2(113, 113)
 	_mic_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	_mic_btn.tooltip_text = "Hold to talk (or hold V)"
 	_mic_btn.gui_input.connect(_on_mic_gui_input)
@@ -316,18 +322,19 @@ func _draw_roster(origin: Vector2) -> float:
 		var col: Color = r.get("color", UITheme.GOLD) as Color
 		var down: bool = bool(r.get("downed", false))
 		var ratio: float = clampf(float(r.get("hp", 0)) / maxf(1.0, float(r.get("max_hp", 1))), 0.0, 1.0)
-		_text(disp, Vector2(origin.x, y + 14.0), String(r.get("name", "")).to_upper(), 15, Color(col.r, col.g, col.b, 1.0), 4)
+		draw_rect(Rect2(origin.x - 4, y, 320, 32), Color(0.02, 0.02, 0.03, 0.8))
+		_text(disp, Vector2(origin.x, y + 18.0), String(r.get("name", "")).to_upper(), 16, Color(minf(1.0, col.r * 1.5), minf(1.0, col.g * 1.5), minf(1.0, col.b * 1.5), 1.0), 6)
 		var bar := Rect2(origin.x + 96.0, y + 5.0, 170.0, 8.0)
 		draw_rect(bar, Color(0, 0, 0, 0.6))
 		if down:
 			var pulse: float = 0.5 + 0.5 * sin(now * 6.0)
 			draw_rect(bar, Color(1.0, 0.3, 0.25, 0.35 + 0.4 * pulse))
-			_text(body, Vector2(bar.end.x + 8.0, y + 14.0), "DOWN · E", 13, Color(1.0, 0.45, 0.4, 1.0), 3)
+			_text(body, Vector2(bar.end.x + 8.0, y + 18.0), "DOWN · E", 14, Color(1.0, 0.45, 0.4, 1.0), 5)
 		else:
 			var hp_col: Color = Color(0.45, 0.95, 0.55) if ratio > 0.5 else (Color(1.0, 0.8, 0.3) if ratio > 0.25 else Color(1.0, 0.3, 0.25))
 			draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), hp_col)
 		draw_rect(bar, Color(col.r, col.g, col.b, 0.55), false, 1.0)
-		y += 24.0
+		y += 36.0
 	return y
 
 
@@ -353,9 +360,9 @@ func _draw_subtitles(s: Vector2) -> void:
 		var tw: float = body.get_string_size(text_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 		var x0: float = (s.x - nw - tw) * 0.5
 		var y: float = base_y - float(i) * 36.0
-		draw_rect(Rect2(x0 - 16.0, y - 26.0, nw + tw + 32.0, 34.0), Color(0, 0, 0, 0.42 * a))
-		_text(disp, Vector2(x0, y), name_s, 20, Color(col.r, col.g, col.b, a), 4)
-		_text(body, Vector2(x0 + nw, y), text_s, 24, Color(0.97, 0.96, 0.92, a), 4)
+		draw_rect(Rect2(x0 - 16.0, y - 26.0, nw + tw + 32.0, 34.0), Color(0, 0, 0, 0.7 * a))
+		_text(disp, Vector2(x0, y), name_s, 20, Color(col.r, col.g, col.b, a), 6)
+		_text(body, Vector2(x0 + nw, y), text_s, 24, Color(0.97, 0.96, 0.92, a), 6)
 		i += 1
 
 
@@ -417,7 +424,7 @@ func _fit(font: Font, t: String, fsize: int, max_w: float) -> String:
 	var lo: int = 0
 	var hi: int = t.length()
 	while lo < hi:
-		var mid: int = (lo + hi + 1) / 2
+		var mid: int = int((lo + hi + 1) / 2.0)
 		if font.get_string_size(t.left(mid) + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x <= max_w:
 			lo = mid
 		else:

@@ -157,6 +157,7 @@ const FINISHER_BY_INPUT: Dictionary = {
 
 @export_group("Health & Survival")
 @export var max_health: int = 100
+@export var health_regen_seconds_to_full: float = 125.0
 
 @export_group("Locomotion")
 @export var run_speed: float = 6.0
@@ -625,6 +626,8 @@ func start_light_attack() -> bool:
 
 ## Is "now" a rhythm tap for the current swing? (just before / just after its cancel point)
 func _is_flow_timing() -> bool:
+	if current_state != State.LIGHT_ATTACK:
+		return false
 	if current_attack.is_empty() or not current_attack_name.begins_with("light"):
 		return false
 	var w: float = float(current_attack.get("windup", 0.1))

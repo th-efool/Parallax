@@ -25,9 +25,9 @@ const GameFeelScript := preload("res://scripts/core/game_feel.gd")
 ## Bosses: the Execution finisher (instant kill at low HP) does not apply.
 @export var execute_immune: bool = false
 
-## Global enemy durability multiplier (2026-11-18: "enemies need at least 2.5x the health"). Applied once to the
+## Global enemy durability multiplier (+30% over 2.5x = 3.25x). Applied once to the
 ## authored max_health in _ready(), so scripted enemies and data-driven archetypes are all covered.
-const HEALTH_SCALE: float = 2.5
+const HEALTH_SCALE: float = 3.25
 var _health_scaled: bool = false
 
 @export_group("Node Paths")
@@ -70,6 +70,7 @@ func _ready() -> void:
 		_health_scaled = true
 		max_health = maxi(1, int(round(float(max_health) * HEALTH_SCALE)))
 	health = max_health
+	health_changed.emit(health, max_health)
 
 	if EncounterDirector.instance != null:
 		EncounterDirector.instance.register_section_enemy(section_id as EncounterDirector.Section, self)

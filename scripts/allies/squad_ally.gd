@@ -25,7 +25,7 @@ signal prompt_changed(show_prompt: bool, prompt_text: String)
 const GRAVITY: float = 22.0
 const INTERCEPT_RADIUS: float = 6.0
 const LEASH_RADIUS: float = 8.5
-const FOLLOW_LEASH: float = 15.0
+const FOLLOW_LEASH: float = 19.5
 const KITE_RADIUS: float = 5.5
 const REVIVE_CHANNEL: float = 2.2
 
@@ -3417,6 +3417,9 @@ func _update_stuck(delta: float) -> void:
 ## Catch-up: allies are mirror echoes — when hopelessly far, fallen, or left behind a jump, they blink
 ## to a free spot behind the player (with a spectral flash) instead of path-finding across chasms.
 func _catch_up(player: Node3D) -> void:
+	var cam := get_viewport().get_camera_3d()
+	if cam and cam.is_position_in_frustum(global_position):
+		return
 	var d: Vector3 = player.global_position - global_position
 	var far: float = 30.0 if (current != null and current.is_mission()) else 20.0
 	if d.length() > far or d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0 or global_position.y < player.global_position.y - 6.0:

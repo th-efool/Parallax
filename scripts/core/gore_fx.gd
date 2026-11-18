@@ -517,10 +517,8 @@ static func _attach_bleed_trail(body: Node3D, local_pos: Vector3, color: Color, 
 	p.position = local_pos
 	body.add_child(p)
 	p.emitting = true
-	body.get_tree().create_timer(_rng.randf_range(0.9, 1.6), false).timeout.connect(func() -> void:
-		if is_instance_valid(p):
-			p.emitting = false
-	)
+	var tw: Tween = body.create_tween()
+	tw.tween_property(p, "emitting", false, _rng.randf_range(0.9, 1.6)).from(true)
 
 
 static func _prune_freed(list: Array) -> void:

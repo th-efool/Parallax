@@ -152,9 +152,9 @@ func _draw() -> void:
 	if _windows_seen <= 2:
 		_text_centered(body, Vector2(s.x * 0.5, hy - 44.0), "Time slowed — press one key below for a finisher", 20, Color(1, 0.97, 0.9, 0.95 * fade * appear), 6)
 
-	# Options row.
+	# Options row (+20% diamonds).
 	var n: int = _options.size()
-	var spacing: float = 190.0 if n <= 3 else minf(176.0, (s.x - 80.0) / float(n))
+	var spacing: float = 260.0 if n <= 3 else minf(240.0, (s.x - 80.0) / float(n))
 	for i in n:
 		var od: Dictionary = _options[i] as Dictionary
 		var kind: String = String(od.get("kind", ""))
@@ -163,7 +163,7 @@ func _draw() -> void:
 		var ap: float = _ease_out(delay) * fade
 		var cx: float = s.x * 0.5 + (float(i) - float(n - 1) * 0.5) * spacing
 		var c := Vector2(cx, cy + (1.0 - _ease_out(delay)) * 20.0)
-		var r: float = 30.0 + 3.0 * sin(float(now) * 0.02 + float(i))
+		var r: float = 43.0 + 4.3 * sin(float(now) * 0.02 + float(i))
 		# Diamond plate.
 		_diamond(c, r + 6.0, Color(0.03, 0.03, 0.05, 0.78 * ap))
 		_diamond_outline(c, r + 6.0, Color(col.r, col.g, col.b, ap), 2.0)

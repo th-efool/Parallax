@@ -45,7 +45,7 @@ func apply_archetype() -> void:
 	attack_active_duration = a.attack_active_duration
 	recover_duration = a.recover_duration
 	stagger_duration = a.stagger_duration
-	attack_damage = a.attack_damage
+	attack_damage = int(float(a.attack_damage) * DAMAGE_SCALE)
 	attack_name = a.attack_name
 	attack_lunge_speed = a.attack_lunge_speed
 	evade_skill = a.evade_skill
@@ -58,6 +58,8 @@ func apply_archetype() -> void:
 	flee_duration = a.flee_duration
 	threat_decay_per_sec = a.threat_decay_per_sec
 	max_chase_distance = a.max_chase_distance
+	if get_kind() == "bolt":
+		max_chase_distance *= 1.5
 	patrol_radius = a.patrol_radius
 	ring_margin = a.ring_margin
 

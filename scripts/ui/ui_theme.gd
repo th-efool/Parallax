@@ -12,7 +12,7 @@ const FONT_FLAVOR_PATHS: PackedStringArray = [
 	"res://assets/fonts/CormorantGaramond-Italic.ttf", "res://assets/fonts/CormorantGaramond-MediumItalic.ttf",
 ]
 const FONT_BODY_PATHS: PackedStringArray = [
-	"res://assets/fonts/Rajdhani-Medium.ttf", "res://assets/fonts/Rajdhani-SemiBold.ttf",
+	"res://assets/fonts/Rajdhani-SemiBold.ttf", "res://assets/fonts/Rajdhani-Medium.ttf",
 	"res://assets/fonts/BarlowSemiCondensed-Medium.ttf",
 ]
 
@@ -79,8 +79,10 @@ static func flavor_font() -> Font:
 static func body_font() -> Font:
 	if _body == null:
 		_body = _first_existing(FONT_BODY_PATHS)
-		if _body == null:
-			_body = _system(PackedStringArray(["Rajdhani", "Barlow Semi Condensed", "Bahnschrift", "Segoe UI", "Arial"]), 600)
+		if _body != null:
+			_body = _variable(_body, 700.0)
+		else:
+			_body = _system(PackedStringArray(["Rajdhani", "Barlow Semi Condensed", "Bahnschrift", "Segoe UI", "Arial"]), 700)
 	return _body
 
 

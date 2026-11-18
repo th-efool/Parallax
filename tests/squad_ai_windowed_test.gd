@@ -133,6 +133,7 @@ func _run() -> void:
 	await _shot("01_follow")
 
 	# 2) Forecourt arena with test enemies.
+	await _reset_arena()
 	_teleport_player(Vector3(0, 0, -14))
 	_mgr.regroup(false)
 	await _wait(0.5)
@@ -507,19 +508,19 @@ func _run() -> void:
 	_teleport_player(Vector3(0, 0, -14))
 	_mgr.regroup(false)
 	await _wait(0.5)
-	var fx: EnemyBase = _spawn("skeleton", Vector3(0.0, 0, -6.0))
+	# Spawn both endpoints directly along the straight R1 bridge centerline (x = z + 15) so the z = -15 join rail never blocks the chase.
+	var fx: EnemyBase = _spawn("skeleton", Vector3(-1.0, 0, -16.0))
 	fx.max_health = 5000
 	fx.health = 5000
+	(fx as EnemyAI).max_chase_distance = 22.0
 	await _wait(0.3)
 	var taunter: SquadAlly = _ally("Brannoc")
 	(fx as EnemyAI).apply_taunt(taunter, -1.0, 4.0)
 	_say("Brannoc hold here")
 	await _wait(0.2)
-	# Walk the taunter well away from the enemy's home (leash 22 m) out along the R1 causeway bridge (last leg,
-	# 45 % of the way from the forecourt edge to bastion 2).
-	var fixation_spot_r1 := Vector3(-15.3, 0, -30.3)
+	var fixation_spot_r1 := Vector3(-21.0, 0, -36.0)   # 28.3 m from (-1, 0, -16) along the bridge deck, past the 22 m leash
 	taunter.global_position = fixation_spot_r1
-	_teleport_player(Vector3(-11.9, 0, -26.9))   # stay near him so his catch-up teleport never fires
+	_teleport_player(Vector3(-18.0, 0, -33.0))   # stay near him so his catch-up teleport never fires
 	if taunter.current != null:
 		taunter.current.args["spot"] = fixation_spot_r1
 		taunter.current.data["spot"] = fixation_spot_r1
@@ -565,8 +566,13 @@ func _run() -> void:
 ## Isolates phases: kill leftover test enemies, stand the squad back up at full health, cancel orders.
 func _reset_arena() -> void:
 	for e in get_nodes_in_group("enemy"):
-		if String(e.name).begins_with("Test_") and not (e as EnemyBase).is_dead and (e as EnemyBase).is_active:
-			(e as EnemyBase).apply_damage(99999, true, "environmental", null)
+		if not (e is EnemyBase):
+			continue
+		var eb := e as EnemyBase
+		if String(eb.name).begins_with("Test_") and not eb.is_dead and eb.is_active:
+			eb.apply_damage(99999, true, "environmental", null)
+		elif not String(eb.name).begins_with("Test_") and not eb.is_dead and eb.is_active:
+			eb.set_section_enabled(false)
 	for a in _mgr.allies:
 		if a.is_downed:
 			a.revive(1.0)

@@ -18,7 +18,7 @@ func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	max_health = 250
 	health = 250
-	detection_range = 10.0
+	detection_range = 20.0
 	attack_range = 2.0
 	move_speed = 2.8
 	windup_duration = 0.65

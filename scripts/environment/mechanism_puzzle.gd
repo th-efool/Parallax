@@ -111,6 +111,26 @@ func on_landing_slam_impact(_damage: int = 60, source_type: String = "player_lan
 	return true
 
 
+## Resolves the puzzle and opens its gate if the player snuck past Gate04 without solving it.
+func force_solve_bypass() -> void:
+	if is_solved:
+		return
+	is_solved = true
+	is_plate_pressed = true
+	var weight_node: Node3D = get_node_or_null(weight_node_path) as Node3D
+	if weight_node != null:
+		weight_node.position = dropped_local_position
+		for child in weight_node.get_children():
+			if child is RealmReactive:
+				(child as RealmReactive).repair_for_reality()
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	evaluate_for_realm(int(rm.current_realm) if rm != null else 0, rm.is_merged if rm != null else false)
+	var gate: Node = get_node_or_null(linked_gate_path)
+	if gate != null and gate.has_method("unlock_and_open"):
+		gate.call("unlock_and_open")
+	mechanism_solved.emit()
+
+
 func _on_realm_changed(new_realm: int) -> void:
 	var merged: bool = bool(RealmManager.instance.is_merged) if RealmManager.instance != null else false
 	evaluate_for_realm(new_realm, merged)

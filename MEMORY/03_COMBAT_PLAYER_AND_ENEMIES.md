@@ -119,9 +119,9 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 ### 3.1 Enemy Roster Overview
 | Enemy | Count | Realm Affinity | HP | Damage | Core Counterplay |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Skeleton Guard** | 2 | `BOTH_STATEFUL` (was REALITY_ONLY) | `100` | `15` (melee) | Standard combat in Reality or bait into Cracked Pillar fall zone. |
-| **Phantom Twin** | 2 | `BOTH_STATEFUL` — fights ONLY in the Mirror (2026-11-18): immune, harmless and translucent in Reality | `80` | `20` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
-| **Shielded Guard** | 1 | `BOTH_STATEFUL` | `250` | `20` (shield bash) | Frontal shield blocks light hits & absorbs heavy in Reality. Shift to Mirror: reflection is shieldless -> Heavy staggers & kills. |
+| **Skeleton Guard** | 2 | `BOTH_STATEFUL` (was REALITY_ONLY) | `100` | `21` (melee) | Standard combat in Reality or bait into Cracked Pillar fall zone. |
+| **Phantom Twin** | 2 | `BOTH_STATEFUL` — fights ONLY in the Mirror (2026-11-18): immune, harmless and translucent in Reality; filtered from target resolution via `is_hittable_now()` | `80` | `28` (lunge) | Shift to Mirror; dodge blue-telegraphed lunge; slay in Mirror (+200 Mirror Kill). |
+| **Shielded Guard** | 1 | `BOTH_STATEFUL` | `250` | `28` (shield bash) | Frontal shield blocks light hits & absorbs heavy in Reality. Shift to Mirror: reflection is shieldless -> Heavy staggers & kills. |
 | **The Warden (Boss)** | 1 | `BOTH_STATEFUL` -> Merged | `1,000` (shared) | `20` Cleave / `25` Lunge | Phase 1: Dodge in Reality, shift to Mirror during `1.4 s` recovery chest-rune opening. Phase 2 (`<=500 HP`): Realms merge, dodge faster chain & kill in Reality. |
 | **Hollow Hexcaster** *(archetype)* | 1 | `both` | `70` | `12` (hex bolt, `11 m/s`) | Ranged caster on Skeleton_Warrior (purple tint, hand orb). Holds `7 m`, strafes, fires a dodgeable bolt (`0.8 s` wind-up, `Spellcast_Shoot`). Close the gap; flees at `30%` HP. |
 | **Grave Brute** *(archetype)* | 1 | `both` | `260` | `24` (ground slam, `3.2 m` AoE) | Barbarian ×1.18, 2H axe. `1.05 s` wind-up with a growing red floor ring; slam hits player **and allies**, cracks the ground, broadcasts noise. No flinch on lights, knock-back `0.3`, never flees. Dodge out of the ring, punish the `1.3 s` recovery. |
@@ -129,7 +129,8 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 
 ### 3.2 Behavioral Details
 - **Skeleton Guard** (`Hall of Echoes`):
-  - Acquires player within `~9.0 m`, closes distance directly/via nav, visible melee wind-up (`15 dmg`), `~0.8 s` post-attack recovery.
+  - Acquires player within `~22.0 m`, closes distance directly/via nav, visible melee wind-up (`15 dmg`), `~0.8 s` post-attack recovery.
+  - Features 1-time `3.0s` fall-down self-revive at `50%` HP before final death.
   - Hidden, non-colliding, AI paused whenever `current_realm == MIRROR`.
 - **Phantom Twin** (`Hall of Echoes`):
   - Active only in `MIRROR`. `9.0 m` detection, floating approach, strong blue wind-up glow before forward lunge (`20 dmg`), `~1.0 s` recovery.
@@ -144,7 +145,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
   - **Shared 1,000 HP pool** across Reality and Mirror.
   - **Phase 1 (`1000 -> 501 HP`)**:
     1. Armored in Reality (heavily reduces direct Reality hits so shifting is clearly rewarded/taught).
-    2. Selects **Cleave** (short frontal arc, `20 dmg`) or **Lunge** (`5.0 m` line, `25 dmg`).
+    2. Selects **Cleave** (short frontal arc, `28 dmg`) or **Lunge** (`5.0 m` line, `35 dmg`).
     3. Plays clear **`0.8–1.0 s` wind-up telegraph** (audio sting + distinct body pose) visible in the active realm so danger is always fair.
     4. Executes strike -> enters **`1.4 s` recovery window** where Mirror reflection exposes glowing chest rune.
     5. Player shifts to Mirror (`Q`) and punishes exposed echo (Heavy / Light combo) -> staggers Warden & drains shared HP -> returns to guarded loop. Must never soft-lock if player misses a window.
@@ -161,7 +162,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 - **Evade**: uncommitted enemies within `3.4 m` in the player's front cone may side-step a telegraphed swing (`evade_skill`: Skeleton `0.45`, Phantom `0.7`, Shielded `0.15`, Warden `0`).
 - **Flinch & poise**: light hits flinch (`0.26 s`) unless ATTACK or past 50% of WINDUP (hyper-armour). After `max_flinch_chain` (2; Shielded 1) flinches → `1.6 s` poise; `70%` chance of an immediate fast counter-swing. Warden never flinches on lights.
 - **Enrage**: last survivor of a squad of ≥2 moves `1.25x`, winds up `0.8x`, recovers `0.7x`.
-- **Every hit**: knock-back (`knockback_scale`: Warden `0.15`, Shielded `0.55`, Phantom `1.3`), hit-lean spring on `ModelRoot`, white flash overlay, directional blood spray + floor splat decals, wound drip below 55% HP. Spectral (Mirror-only) enemies bleed emissive cyan ichor.
+- **Every hit**: knock-back (`knockback_scale`: Warden `0.15`, Shielded `0.55`, Phantom `1.3`), hit-lean spring on `ModelRoot`, white flash overlay, directional blood spray + floor splat decals, wound drip below 55% HP. Spectral (Mirror-only) enemies bleed emissive cyan ichor. **WardenBoss, ShieldedGuard, and SkeletonGuard now feature distinct dark hostile armor materials with pulsing red glow emissions.**
 - **Death**: `GoreFX.dismember()` splits the rig into per-bone physics gibs posed exactly as the killing frame (meshes grouped by dominant skin bone; helmets/weapons follow their bone attachment), blood fountain + pool, gib bleed trails; gibs fade after ~7 s (cap 80, decals cap 48).
 - **Loadouts** (`CharacterLoadout`): Knight player = `1H_Sword + Badge_Shield`; Knight Shielded Guard = `1H_Sword + Rectangle_Shield`; Barbarian Warden = `2H_Axe`; Skeleton Warrior borrows Barbarian `1H_Axe` + Knight `Round_Shield`; Skeleton Rogue borrows Knight `1H_Sword` + offhand. Archetype enemies and allies take `keep_props` / `borrow_props` from their resources.
 
@@ -224,6 +225,7 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 ### 4.1 Appendix A — Baseline Numeric Values (Playtest & Tune Log Target)
 | Parameter | Baseline Value | Tune Trigger Condition |
 | :--- | :--- | :--- |
+| **Combat Scales** | **+30% HP, +40% Dmg** | General difficulty tuning (2026-11-18). |
 | Player Max Health | `100` | First-run deaths too frequent or trivial. |
 | Player Run Speed | `4.5 m/s` (`450 cm/s`) | Traversal feels sluggish or uncontrollable on stones/bridge. |
 | Dodge Duration / i-frames | `0.55 s` / `0.18 s` | Player cannot reliably dodge Warden Cleave/Lunge. |
@@ -231,13 +233,15 @@ Do NOT rely on runtime physics simulation for gameplay outcomes. Use authored `A
 | Heavy / Landing Damage | `60` / `60` (`2.2 m` radius) | Heavy feels unrewarding or Landing slam dominates melee. |
 | Shift Cooldown / Transition | `0.60 s` / `0.15–0.25 s` | Flicker spam vs sluggish feeling during combat weaving. |
 | Combo Timeout | `4.0 s` (x2 @ 3, x3 @ 6) | Impossible to keep chain across short movement/shifts. |
-| Skeleton HP / Dmg | `100` / `15` (`0.8 s` rec) | Basic duel lasts outside ~10–20s. |
-| Phantom HP / Dmg | `80` / `20` (`1.0 s` rec) | Mirror combat feels identical or unfair. |
-| Shielded Guard HP / Dmg | `250` / `20` | Encounter drags or Reality chip too easy to brute-force. |
-| Warden HP / Recovery Window | `1,000` / `1.4 s` | Boss <2 min or >6 min; Phase 1 opening too tight to shift+strike. |
+| Skeleton HP / Dmg | `325` / `15` (`0.8 s` rec) | Basic duel lasts outside ~10–20s. |
+| Phantom HP / Dmg | `260` / `20` (`1.0 s` rec) | Mirror combat feels identical or unfair. |
+| Shielded Guard HP / Dmg | `812` / `20` | Encounter drags or Reality chip too easy to brute-force. |
+| Warden HP / Recovery Window | `3250` / `1.4 s` | Boss <2 min or >6 min; Phase 1 opening too tight to shift+strike. |
 | Pillar Fall Damage / Warning | `150` Enemy / `40` Player (`2.5 m` radius, `0.6 s` warn) | Enemies miss zone or player unfairly clipped. |
 
-> **Live code values (audited Claude Pass C, 2026-11-16)** — `_init()` of each enemy script: Skeleton `100 HP / 15 dmg / 0.55 s windup / 0.80 s rec`; Phantom `80 / 20 / 0.65 / 1.00`; Shielded Guard `250 / 20 / 0.65 / 0.90`; Warden P1 Cleave `20` / Lunge `25`, windup `0.90`, recovery `1.40`; P2 windup `0.65`, recovery `0.85`, chain windup `0.45`. Player (`player_controller.gd` export defaults; `player.tscn` doesn't override them) still uses dodge `0.48 s` / i-frames `0.24 s` and run speed `5.5`, which differ from the `0.55/0.18` and `4.5` baselines above — intentional Pass 5 feel tuning, not changed here.
+> **Enemy Tuning Additions (2026-11-18):** Skeleton revive confirmed at 50% HP (once). Distinct enemy visuals (dark hostile armor, red emissions) implemented for WardenBoss, ShieldedGuard, and SkeletonGuard. Added enemy regeneration (passive) and distant-order tether logic to combat controller.
+
+> **Live code values (audited Claude Pass C, 2026-11-18)** — `_init()` of each enemy script: Skeleton `325 HP` (authored 100 * 3.25) `/ 15 dmg / 0.55 s windup / 0.80 s rec`; Phantom `260` (80 * 3.25) `/ 20 / 0.65 / 1.00`; Shielded Guard `812` (250 * 3.25) `/ 20 / 0.65 / 0.90`; Warden P1 Cleave `20` / Lunge `25`, windup `0.90`, recovery `1.40`, Max HP `3250`; P2 windup `0.65`, recovery `0.85`, chain windup `0.45`. Player (`player_controller.gd` export defaults; `player.tscn` doesn't override them) still uses dodge `0.48 s` / i-frames `0.24 s` and run speed `5.5`, which differ from the `0.55/0.18` and `4.5` baselines above — intentional Pass 5 feel tuning, not changed here.
 
 > **Archetype & ally tuning (2026-11-17)** lives in data: `data/enemies/{hollow_hexcaster,grave_brute,shade_stalker}.tres` and `data/allies/0N_*.tres` (values in §3.1 / §3.5). Threat tuning = `EnemyAI` "Threat & Aggro" exports (§3.4).
 

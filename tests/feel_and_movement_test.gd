@@ -72,7 +72,7 @@ func _run() -> void:
 	_player.crit_chance_light = 0.0
 	_player.crit_chance_flow = 0.0
 	_player.attack_started.connect(func(n: String, t: Dictionary) -> void: _attacks.append([n, int(t.get("chain_step", 0)), bool(t.get("flow", false)), String(t.get("branch", ""))]))
-	_player.global_position = Vector3(0, 0, -14)
+	_player.global_position = Vector3(0, 0, -136)
 	_player.set_facing_direction(Vector3(0, 0, 1))
 	_player.camera_yaw = PI
 	_mgr.regroup(false)

@@ -88,7 +88,6 @@ var _hp_flash: float = 0.0
 var _boss_ghost: float = 1.0
 var _boss_ghost_delay: float = 0.0
 var _chip_sweep: Dictionary = {"reality": 1.0, "mirror": 1.0}
-var _last_realm_key: String = ""
 var _merged_label: Label = null
 var _score_lbl: Label = null
 var _combo_lbl: Label = null
@@ -196,24 +195,24 @@ func _apply_readability_pass() -> void:
 		rt.fill_to = corner + Vector2(1.0 if corner.x == 0.0 else -1.0, 0.0)
 		rt.width = 128
 		rt.height = 128
-		var tr := TextureRect.new()
-		tr.name = "CornerScrim_%d%d" % [int(corner.x), int(corner.y)]
-		tr.texture = rt
-		tr.stretch_mode = TextureRect.STRETCH_SCALE
-		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tr.anchor_left = corner.x
-		tr.anchor_right = corner.x
-		tr.anchor_top = corner.y
-		tr.anchor_bottom = corner.y
+		var scrim_rect := TextureRect.new()
+		scrim_rect.name = "CornerScrim_%d%d" % [int(corner.x), int(corner.y)]
+		scrim_rect.texture = rt
+		scrim_rect.stretch_mode = TextureRect.STRETCH_SCALE
+		scrim_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		scrim_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		scrim_rect.anchor_left = corner.x
+		scrim_rect.anchor_right = corner.x
+		scrim_rect.anchor_top = corner.y
+		scrim_rect.anchor_bottom = corner.y
 		var w: float = 620.0
 		var h: float = 260.0 if corner.y == 0.0 else 230.0
-		tr.offset_left = -w if corner.x == 1.0 else 0.0
-		tr.offset_right = 0.0 if corner.x == 1.0 else w
-		tr.offset_top = -h if corner.y == 1.0 else 0.0
-		tr.offset_bottom = 0.0 if corner.y == 1.0 else h
-		_root_ctrl.add_child(tr)
-		_root_ctrl.move_child(tr, 0)
+		scrim_rect.offset_left = -w if corner.x == 1.0 else 0.0
+		scrim_rect.offset_right = 0.0 if corner.x == 1.0 else w
+		scrim_rect.offset_top = -h if corner.y == 1.0 else 0.0
+		scrim_rect.offset_bottom = 0.0 if corner.y == 1.0 else h
+		_root_ctrl.add_child(scrim_rect)
+		_root_ctrl.move_child(scrim_rect, 0)
 	# Larger, outlined vitals and score text.
 	var hpb: Control = get_node_or_null(hp_bar_path) as Control if not hp_bar_path.is_empty() else null
 	if hpb != null:
@@ -221,13 +220,13 @@ func _apply_readability_pass() -> void:
 	for p: NodePath in [score_label_path, combo_label_path, timer_label_path, hp_label_path]:
 		var l: Label = get_node_or_null(p) as Label if not p.is_empty() else null
 		if l != null:
-			l.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
-			l.add_theme_constant_override("outline_size", 5)
+			l.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+			l.add_theme_constant_override("outline_size", 7)
 	var wl: Label = get_node_or_null("RootControl/BottomLeftWeapon/SwordSlotLabel") as Label
 	if wl != null:
-		wl.add_theme_font_size_override("font_size", 14)
-		wl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-		wl.add_theme_constant_override("outline_size", 4)
+		wl.add_theme_font_size_override("font_size", 17)
+		wl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		wl.add_theme_constant_override("outline_size", 6)
 	var qk: Label = get_node_or_null(shift_key_label_path) as Label if not shift_key_label_path.is_empty() else null
 	if qk != null:
 		qk.add_theme_stylebox_override("normal", _keycap_style())
@@ -285,8 +284,8 @@ func _wire_visuals() -> void:
 		var cp: PanelContainer = entry2[0] as PanelContainer
 		if cp == null:
 			continue
-		cp.add_theme_stylebox_override("panel", _empty_box(34, 6))
-		cp.custom_minimum_size = Vector2(138, 36)
+		cp.add_theme_stylebox_override("panel", _empty_box(40, 7))
+		cp.custom_minimum_size = Vector2(166, 44)
 		if not cp.has_meta("hud_painted"):
 			cp.set_meta("hud_painted", true)
 			var kind: String = String(entry2[1])
@@ -310,9 +309,9 @@ func _wire_visuals() -> void:
 		_style_hud_label(_merged_label, true, 14)
 
 	# --- Combo timeout bar ---
-	var tr: Node = get_node_or_null("RootControl/TopRightPanel")
-	if tr != null and _combo_bar == null:
-		_combo_bar = tr.get_node_or_null("ComboTimerBar") as ProgressBar
+	var top_right_panel: Node = get_node_or_null("RootControl/TopRightPanel")
+	if top_right_panel != null and _combo_bar == null:
+		_combo_bar = top_right_panel.get_node_or_null("ComboTimerBar") as ProgressBar
 		if _combo_bar == null:
 			_combo_bar = ProgressBar.new()
 			_combo_bar.name = "ComboTimerBar"
@@ -325,8 +324,8 @@ func _wire_visuals() -> void:
 			var cbg := StyleBoxFlat.new()
 			cbg.bg_color = Color(0, 0, 0, 0.45)
 			_combo_bar.add_theme_stylebox_override("background", cbg)
-			tr.add_child(_combo_bar)
-			tr.move_child(_combo_bar, _combo_lbl.get_index() + 1 if _combo_lbl != null else tr.get_child_count() - 1)
+			top_right_panel.add_child(_combo_bar)
+			top_right_panel.move_child(_combo_bar, _combo_lbl.get_index() + 1 if _combo_lbl != null else top_right_panel.get_child_count() - 1)
 		_style_combo()
 
 	# --- Keycap look for action labels + bigger action icons (80 px diamonds, was 54) ---
@@ -338,7 +337,7 @@ func _wire_visuals() -> void:
 	for act: String in _action_slots.keys():
 		var badge: Control = (_action_slots[act] as Dictionary).get("badge") as Control
 		if badge != null:
-			badge.custom_minimum_size = Vector2(80, 80)
+			badge.custom_minimum_size = Vector2(96, 96)
 		var klbl: Label = (_action_slots[act] as Dictionary).get("key") as Label
 		if klbl != null:
 			klbl.add_theme_stylebox_override("normal", _keycap_style())
@@ -712,7 +711,7 @@ func _on_no_hit_awarded(_encounter_id: String, bonus_points: int) -> void:
 
 func _on_run_timer_updated(elapsed_sec: float) -> void:
 	var total_sec: int = maxi(0, int(elapsed_sec))
-	timer_text = "%02d:%02d" % [total_sec / 60, total_sec % 60]
+	timer_text = "%02d:%02d" % [int(total_sec / 60.0), total_sec % 60]
 	_sync_ui_nodes()
 
 

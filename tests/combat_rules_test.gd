@@ -24,17 +24,17 @@ func _run() -> void:
 	while not bool(_main.get("level_ready")) and Time.get_ticks_msec() - t0 < 120000:
 		await process_frame
 	var level: Node = _main.get_node("LevelRoot")
-	# HP x2.5: a fresh skeleton (authored 100) has 250.
+	# HP x3.25: a fresh skeleton (authored 100) has 325.
 	var sk: EnemyBase = level.call("_add_roamer", level, "skeleton", "Test_hp", Vector3(0, 0, -10), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14)) as EnemyBase
 	await process_frame
-	_check("hp_scaled", sk != null and sk.max_health == 250 and sk.health == 250, "max=%d" % (sk.max_health if sk != null else -1))
+	_check("hp_scaled", sk != null and sk.max_health == 325 and sk.health == 325, "max=%d" % (sk.max_health if sk != null else -1))
 	# Warden rules.
 	var w: WardenBoss = level.get_node_or_null("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
 	_check("warden_found", w != null)
 	if w != null:
-		_check("warden_hp_scaled", w.max_health == 2500, "max=%d" % w.max_health)
+		_check("warden_hp_scaled", w.max_health == 3250, "max=%d" % w.max_health)
 		_check("warden_execute_immune", w.execute_immune)
-		_check("warden_phase_threshold", w._phase2_threshold() == 1250, str(w._phase2_threshold()))
+		_check("warden_phase_threshold", w._phase2_threshold() == 1625, str(w._phase2_threshold()))
 		w.set_section_enabled(true)
 		w.current_phase = WardenBoss.Phase.PHASE_2_MERGED
 		var hp0: int = w.health

@@ -36,9 +36,14 @@ var checkpoint_realm: int = 0
 var _section_enemies: Dictionary = {}
 
 
+var _checkpoint_history: Array[Dictionary] = []
+const MAX_HISTORY: int = 5
+
 func _enter_tree() -> void:
 	instance = self
 	add_to_group("encounter_director")
+	# Initialize history with Entry Vestibule
+	_checkpoint_history.append({"section": Section.ENTRY, "transform": Transform3D.IDENTITY, "realm": 0})
 
 
 func _exit_tree() -> void:
@@ -86,6 +91,7 @@ func advance_to_section(next_section: Section, new_checkpoint_xform: Transform3D
 		set_checkpoint(next_section, new_checkpoint_xform, realm_val)
 
 	_update_section_enemy_activation()
+	alert_section_enemies(current_section)
 	section_changed.emit(current_section, get_section_name(current_section))
 
 
@@ -94,11 +100,29 @@ func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: in
 	if spawn_transform != Transform3D.IDENTITY:
 		checkpoint_transform = spawn_transform
 	checkpoint_realm = realm
+	
+	# Maintain checkpoint history
+	var new_cp = {"section": section_id, "transform": checkpoint_transform, "realm": realm}
+	if _checkpoint_history.is_empty() or _checkpoint_history.back().section != section_id:
+		_checkpoint_history.append(new_cp)
+		if _checkpoint_history.size() > MAX_HISTORY:
+			_checkpoint_history.remove_at(0)
+			
 	var run_state: Node = _get_run_state()
 	if run_state != null and run_state.has_method("bank_section_score"):
 		run_state.call("bank_section_score")
 	checkpoint_updated.emit(checkpoint_section, checkpoint_transform)
 	_trigger_auto_save()
+
+
+func alert_section_enemies(section_id: Section) -> void:
+	if not _section_enemies.has(section_id):
+		return
+	var list: Array = _section_enemies[section_id]
+	for enemy in list:
+		if is_instance_valid(enemy) and enemy.has_method("receive_alert"):
+			# Alerting the enemy to player entry
+			enemy.call("receive_alert", null, null, false)
 
 
 func begin_combat_encounter(encounter_id: String, enemy_count: int = 0) -> bool:
@@ -156,17 +180,26 @@ func handle_player_death(player: Node = null) -> void:
 		current_encounter_id = ""
 		active_enemy_count = 0
 
-	current_section = checkpoint_section
+	# 3. Death Rewind: Respawn 2 checkpoints behind
+	var target_idx = _checkpoint_history.size() - 3
+	if target_idx < 0:
+		target_idx = 0
+	
+	var target_cp = _checkpoint_history[target_idx]
+	current_section = target_cp.section
+	checkpoint_transform = target_cp.transform
+	checkpoint_realm = target_cp.realm
 
-	# 3. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2)
+	# 4. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2)
 	if RealmManager.instance != null:
 		RealmManager.instance.force_realm(checkpoint_realm as RealmManager.Realm, false)
 
-	# 4. Respawn player at checkpoint transform with full health
+	# 5. Respawn player at checkpoint transform with full health
 	if player != null and player.has_method("respawn_at"):
 		player.call("respawn_at", checkpoint_transform)
 
 	_update_section_enemy_activation()
+	alert_section_enemies(current_section)
 	section_reset_requested.emit(checkpoint_section)
 	player_respawned.emit(checkpoint_section, checkpoint_transform)
 

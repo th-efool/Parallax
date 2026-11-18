@@ -45,7 +45,7 @@ signal fleeing_started()
 signal returning_home()
 
 @export_group("AI & Combat Tuning")
-@export var detection_range: float = 9.0
+@export var detection_range: float = 22.0
 @export var attack_range: float = 1.85
 @export var move_speed: float = 3.2
 @export var windup_duration: float = 0.55
@@ -54,6 +54,8 @@ signal returning_home()
 @export var stagger_duration: float = 0.65
 @export var attack_damage: int = 15
 @export var attack_name: String = "melee_slash"
+
+const DAMAGE_SCALE: float = 1.4
 
 @export_group("Telegraph Feedback")
 @export var telegraph_color: Color = Color(1.0, 0.12, 0.06, 1.0)
@@ -93,7 +95,7 @@ const FIXATION_BREAK_DIST: float = 60.0
 ## A challenger must beat the current target's threat by this factor to steal aggro.
 @export var retarget_hysteresis: float = 1.15
 ## Distance from home (spawn) after which the enemy gives up and walks back to its patrol.
-@export var max_chase_distance: float = 22.0
+@export var max_chase_distance: float = 52.0
 @export var alert_investigate_duration: float = 4.0
 @export var knockdown_immune: bool = false
 @export var stun_duration: float = 1.6
@@ -156,6 +158,7 @@ var _state_icon: Label3D = null
 
 func _ready() -> void:
 	super._ready()
+	attack_damage = int(float(attack_damage) * DAMAGE_SCALE)
 	_rng.randomize()
 	_home = global_position
 	_patrol_goal = _home

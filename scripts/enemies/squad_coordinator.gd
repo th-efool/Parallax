@@ -20,9 +20,9 @@ static var _instance: Node = null
 var max_attackers: int = 2
 var max_enemies_per_target: int = 3
 var min_attack_gap: float = 0.42
-var join_radius: float = 9.0
-var alert_radius: float = 18.0
-var engage_radius: float = 11.0
+var join_radius: float = 22.0
+var alert_radius: float = 38.0
+var engage_radius: float = 24.0
 
 var _members: Array[Node] = []
 var _tokens: Dictionary = {}        # enemy instance_id -> grant time (sec)

@@ -105,6 +105,11 @@ func _draw_label(l: Label3D, p: Vector2, fade: float) -> void:
 	var lines: PackedStringArray = l.text.split("\n")
 	var lh: float = float(px) * 1.15
 	var y0: float = p.y - lh * float(lines.size() - 1)
+	var max_w: float = 0.0
+	for line in lines:
+		max_w = maxf(max_w, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
+	var backing := Rect2(p.x - max_w * 0.5 - 8.0, y0 - float(px) * 0.8, max_w + 16.0, lh * float(lines.size()) + 4.0)
+	draw_rect(backing, Color(0.02, 0.02, 0.03, 0.6 * fade))
 	for i in range(lines.size()):
 		_line(font, Vector2(p.x, y0 + lh * float(i)), lines[i], px, col, ocol, true)
 
@@ -113,5 +118,5 @@ func _line(font: Font, pos: Vector2, t: String, px: int, col: Color, ocol: Color
 	var x: float = pos.x
 	if centered:
 		x -= font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x * 0.5
-	draw_string_outline(font, Vector2(x, pos.y), t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(3, px / 4), ocol)
+	draw_string_outline(font, Vector2(x, pos.y), t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, maxi(5, int(px / 3.0)), ocol)
 	draw_string(font, Vector2(x, pos.y), t, HORIZONTAL_ALIGNMENT_LEFT, -1, px, col)

@@ -113,6 +113,7 @@ func bind_actor(custom_actor: Node = null) -> void:
 			_configure_animation_loops()
 		if apply_default_loadout and not (_actor is PlayerController):
 			LoadoutScript.apply_default_for(model_root, "enemy")
+			_apply_hostile_appearance(model_root)
 		if apply_spectral_shader or (_actor != null and _actor is PhantomTwin):
 			_apply_spectral_material_recursive(model_root)
 
@@ -505,3 +506,21 @@ func _apply_spectral_material_recursive(node: Node) -> void:
 
 	for child in node.get_children():
 		_apply_spectral_material_recursive(child)
+
+
+func _apply_hostile_appearance(root: Node3D) -> void:
+	var actor_name: String = _actor.name
+	if actor_name.contains("WardenBoss") or actor_name.contains("ShieldedGuard") or actor_name.contains("SkeletonGuard"):
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.1, 0.1, 0.1)
+		mat.emission_enabled = true
+		mat.emission = Color(0.5, 0.0, 0.0)
+		mat.emission_energy_multiplier = 2.0
+		_apply_material_recursive(root, mat)
+
+
+func _apply_material_recursive(node: Node, mat: Material) -> void:
+	if node is MeshInstance3D:
+		node.material_override = mat
+	for child in node.get_children():
+		_apply_material_recursive(child, mat)

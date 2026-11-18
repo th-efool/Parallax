@@ -423,9 +423,11 @@ func _active_enemies_near(pos: Vector3, radius: float) -> Array[EnemyAI]:
 	var out: Array[EnemyAI] = []
 	for node in get_tree().get_nodes_in_group("enemy"):
 		var e: EnemyAI = node as EnemyAI
-		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree():
+		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree() or not e.is_hittable_now():
 			continue
-		if e.global_position.distance_to(pos) <= radius and absf(e.global_position.y - pos.y) < 5.0:
+		var in_radius: bool = e.global_position.distance_to(pos) <= radius and absf(e.global_position.y - pos.y) < 5.0
+		var cam_vis: bool = radius >= 25.0 and intel != null and intel.is_camera_visible(e)
+		if in_radius or cam_vis:
 			out.append(e)
 	return out
 
@@ -439,7 +441,7 @@ func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 			var et: EnemyAI = mate._engage_target
 			if (et == null or not is_instance_valid(et)) and mate.current != null:
 				et = mate.current.data.get("enemy", null) as EnemyAI
-			if et != null and is_instance_valid(et) and not et.is_dead and et.is_active:
+			if et != null and is_instance_valid(et) and not et.is_dead and et.is_active and et.is_hittable_now():
 				return et
 		sel = "nearest"
 	# Shared knowledge base: IDs ("E3"), types, looks, colours, weapons, sides, "near Sera", "hitting Ivo"...
@@ -803,8 +805,11 @@ func execute_strategy(id: String, target_sel: String, list: Array[SquadAlly], so
 	var by_dist: Array[EnemyAI] = []
 	var by_hp: Array[EnemyAI] = []
 	if intel != null:
+		intel.refresh()
 		for en in intel.get_entries():
-			by_dist.append(en["node"] as EnemyAI)
+			var en_node: EnemyAI = en["node"] as EnemyAI
+			if en_node != null and not en_node.is_dead and en_node.is_active and en_node.is_hittable_now():
+				by_dist.append(en_node)
 		by_hp = by_dist.duplicate()
 		by_hp.sort_custom(func(x: EnemyAI, y: EnemyAI) -> bool: return float(x.health) / float(maxi(1, x.max_health)) < float(y.health) / float(maxi(1, y.max_health)))
 	var vanguard: SquadAlly = null

@@ -236,7 +236,7 @@ func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var personas: PackedStringArray = []
 	if _manager != null:
 		for a in _manager.allies:
-			personas.append("- %s (%s): %s Speaks: %s" % [a.get_display_name(), a.get_role(), a.profile.personality, a.profile.tts_instructions])
+			personas.append("- %s (%s): %s" % [a.get_display_name(), a.get_role(), a.profile.personality])
 	var player_s: String = ""
 	var p: PlayerController = get_tree().get_first_node_in_group("player") as PlayerController
 	if p != null:
@@ -480,8 +480,18 @@ func _voice(ally: SquadAlly, text: String, prio: int) -> void:
 	var voice: String = ally.profile.gemini_voice if SquadAIConfig.provider() == "gemini" else ally.profile.tts_voice
 	var role: String = ally.get_role()
 	var slot: int = maxi(0, _manager.allies.find(ally)) if _manager != null else 0
-	tts.speak(ally.get_display_name(), text, voice, ally.profile.tts_instructions, prio,
+	tts.speak(ally.get_display_name(), sanitize_spoken_line(text), voice, ally.profile.tts_instructions, prio,
 		float(SYS_PITCH.get(role, 1.0)), float(SYS_RATE.get(role, 1.0)), slot)
+
+
+func sanitize_spoken_line(text: String) -> String:
+	var t: String = text.strip_edges()
+	# Strip "Say: ", "Speaks: ", "Voice: " etc.
+	var patterns: PackedStringArray = ["Say: ", "Speaks: ", "Voice: "]
+	for p in patterns:
+		if t.begins_with(p):
+			t = t.substr(p.length()).strip_edges()
+	return t
 
 
 ## A line became audible (or will not be voiced): show it now, so text always matches what is heard.

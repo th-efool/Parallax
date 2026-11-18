@@ -349,6 +349,7 @@ func _build_stage_05_arena() -> Node3D:
 	if obsidian != null:
 		plane_mesh.material_override = obsidian
 	plane_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_configure_instance(plane_mesh)
 	intact_vis.add_child(plane_mesh)
 	mirror_plane.add_child(intact_vis)
 	mirror_plane.shatter_extent = Vector3(0.12, 5.5, 22.0)
@@ -410,6 +411,12 @@ func _make_box_body(node_name: String, pos: Vector3, box_size: Vector3, layer_ma
 	return body
 
 
+func _configure_instance(mi: GeometryInstance3D) -> void:
+	mi.visibility_range_end = 58.0
+	mi.visibility_range_end_margin = 2.0
+	mi.visibility_range_begin = 0.0
+	mi.visibility_range_begin_margin = 0.0
+
 func _make_mesh_box(node_name: String, box_size: Vector3, color: Color, surface: String = "auto") -> MeshInstance3D:
 	## surface: "auto" (opaque -> realm stone, translucent -> mirror spectral), "stone", "spectral", "plain".
 	var mi := MeshInstance3D.new()
@@ -418,6 +425,7 @@ func _make_mesh_box(node_name: String, box_size: Vector3, color: Color, surface:
 	mesh.size = box_size
 	mesh.material = _material_for_surface(color, surface)
 	mi.mesh = mesh
+	_configure_instance(mi)
 	return mi
 
 
@@ -641,6 +649,7 @@ func _make_breakable_pillar(
 	var stone: ShaderMaterial = _get_stone_material(Color(0.62, 0.55, 0.45))
 	if stone != null:
 		cyl.material_override = stone
+	_configure_instance(cyl)
 	intact.add_child(cyl)
 
 	# Glowing amber fracture seam on the approach (south, -Z) face marks the Heavy-attack weak point.
@@ -658,6 +667,7 @@ func _make_breakable_pillar(
 	seam.material_override = seam_mat
 	seam.position = Vector3(0.0, 1.6, -0.68)
 	seam.rotation.z = deg_to_rad(8.0)
+	_configure_instance(seam)
 	intact.add_child(seam)
 	prop.add_child(intact)
 
@@ -801,6 +811,12 @@ func _configure_enemy_actor(
 		var mesh := _make_mesh_box("ProxyMesh", body_size, color, "spectral" if color.a < 0.99 else "plain")
 		mesh.position = Vector3(0.0, body_size.y * 0.5, 0.0)
 		vis_root.add_child(mesh)
+	if not (enemy is WardenBoss):
+		for mi in vis_root.find_children("*", "MeshInstance3D", true, false):
+			mi.visibility_range_begin = 0.0
+			mi.visibility_range_begin_margin = 4.0
+			mi.visibility_range_end = 58.0
+			mi.visibility_range_end_margin = 4.0
 	enemy.add_child(vis_root)
 
 	var anim_bridge := CharacterAnimationBridge.new()

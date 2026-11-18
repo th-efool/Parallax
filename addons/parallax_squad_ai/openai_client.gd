@@ -87,13 +87,18 @@ func transcribe(wav_bytes: PackedByteArray, prompt_hint: String = "") -> int:
 	return _start("stt", SquadAIConfig.base_url() + "/audio/transcriptions", mb, "multipart/form-data; boundary=" + boundary, _bearer())
 
 
-## `voice` = provider voice id; `style` = natural-language delivery hint.
+## `voice` = provider voice id; `style` = delivery hint (OpenAI `instructions` field only — never prepended into Gemini text).
 func speak_stream(text: String, voice: String, style: String = "") -> int:
+	var clean_text: String = text.strip_edges()
+	# Ensure no prompt-leak: "Say: ..." or instructions
+	var patterns: PackedStringArray = ["Say: ", "Speaks: ", "Voice: "]
+	for p in patterns:
+		if clean_text.begins_with(p):
+			clean_text = clean_text.substr(p.length()).strip_edges()
+
 	if SquadAIConfig.provider() == "gemini":
-		var pace: String = "Speak at a brisk, natural conversational pace — never slow or drawn out."
-		var prompt: String = ("%s Say: %s" % [pace, text]) if style.is_empty() else ("%s %s Say: %s" % [style, pace, text])
 		var body: Dictionary = {
-			"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+			"contents": [{"role": "user", "parts": [{"text": clean_text}]}],
 			"generationConfig": {
 				"responseModalities": ["AUDIO"],
 				"speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
@@ -112,12 +117,10 @@ func speak_stream(text: String, voice: String, style: String = "") -> int:
 		return jid
 	var b2: Dictionary = {
 		"model": SquadAIConfig.tts_model(),
-		"input": text,
+		"input": clean_text,
 		"voice": voice,
 		"response_format": "pcm",
 	}
-	if SquadAIConfig.tts_model().contains("gpt-4o"):
-		b2["instructions"] = (style + " " if not style.is_empty() else "") + "Speak at a brisk, natural conversational pace."
 	return _start("tts", SquadAIConfig.base_url() + "/audio/speech", JSON.stringify(b2).to_utf8_buffer(), "application/json", _bearer())
 
 

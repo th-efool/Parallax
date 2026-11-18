@@ -88,6 +88,19 @@
 ---
 
 ## 3. Detailed Room-by-Room Design & Puzzle Contracts
+> **Global Level Modifiers (2026-11-18):**
+> - **Mob Density**: +50% mob spawns across all stages.
+> - **Gate-Bypass Auto-Clear**: All stages support automated clearance on gate-bypass.
+> - **Death Rewind Contract**: Player death initiates a rewind contract to the last valid checkpoint.
+
+| Guide-05 World-Z Table (2026-11-18) | Z-Position |
+| :--- | :--- |
+| Entry Vestibule | -61 |
+| Gate of Reflections | -5 |
+| Hall of Echoes | 34 |
+| Collapsed Gallery | 77 |
+| Clock-Tower Chamber | 94 |
+| Mirror Colosseum | 154 |
 
 ### Stage 01 — Entry Vestibule (~1 min)
 - **Camera**: **Third-person exploration** (matching all other stages; NOT first-person). Player immediately sees the missing floor gap ahead.
@@ -113,6 +126,7 @@
 - **Reality**: Pressure plate sits recessed at `(0, 0, 68)` before the locked north gate (`Z = 74`), weight missing.
 - **Mirror**: Raised impact dais `(-3, 0, 67)` provides elevation; a glowing suspended Mirror Weight hovers near `(0, 2.5, 68)` above the plate.
 - **Sequence**: Shift to Mirror -> Climb/jump onto dais -> Jump toward weight & press **`F`** in mid-air -> Landing shockwave hits weight target -> Fixed drop animation slams weight onto pressure plate -> North gate opens in **both** realms -> Save Arena Checkpoint upon exiting.
+- **Bypass Handling**: If snuck past Gate04, `force_solve_bypass()` is called automatically to cleanly trigger weight drop, repair for reality, and open the gate.
 - **Failure Handling**: Missing the `F` slam deals no harm and leaves the weight intact; player simply climbs dais and retries.
 
 ### Stage 05 — Execution Arena (~3–5 min)

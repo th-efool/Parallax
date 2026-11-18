@@ -5,6 +5,7 @@ var _shots: String = ""
 var _t: int = 0
 var _stage: int = 0
 func _initialize() -> void:
+	SquadAIConfig.force_offline()
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shots="):
 			_shots = a.substr(8)

@@ -23,8 +23,8 @@ signal mirror_plane_shattered()
 signal boss_defeated()
 
 @export_group("Warden Tuning")
-@export var cleave_damage: int = 20
-@export var lunge_damage: int = 25
+@export var cleave_damage: int = 28
+@export var lunge_damage: int = 35
 @export var cleave_range: float = 2.8
 @export var lunge_range: float = 5.0
 @export var lunge_speed: float = 11.0
@@ -75,7 +75,7 @@ func _init() -> void:
 	attack_active_duration = 0.30
 	recover_duration = 1.40
 	stagger_duration = 0.80
-	attack_damage = 20
+	attack_damage = 28
 	attack_name = "warden_cleave"
 	section_id = EncounterDirector.Section.EXECUTION_ARENA
 	encounter_id = "the_warden"
@@ -280,13 +280,13 @@ func _update_rune_glow() -> void:
 func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) -> int:
 	if current_phase == Phase.PHASE_2_TRANSITION:
 		return 0
-	if source_type == "environmental":
-		return amount
 	if current_phase == Phase.PHASE_2_MERGED:
 		return mini(amount, phase2_max_hit)
-	if is_vulnerable_to_full_damage():
-		return amount
-	return mini(amount, phase1_reality_armor_cap)
+	var raw: int = amount
+	if source_type != "environmental" and not is_vulnerable_to_full_damage():
+		raw = mini(amount, phase1_reality_armor_cap)
+	var cap_to_p2: int = maxi(1, health - _phase2_threshold())
+	return mini(raw, cap_to_p2)
 
 
 func _phase2_threshold() -> int:
@@ -298,7 +298,8 @@ func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:
 
 
 func _on_damage_taken(_final_damage: int, _is_heavy: bool, _source_type: String) -> void:
-	if current_phase == Phase.PHASE_1_SPLIT and health > 0 and health <= _phase2_threshold():
+	if current_phase == Phase.PHASE_1_SPLIT and health <= _phase2_threshold():
+		health = maxi(health, _phase2_threshold())
 		_trigger_phase2_transition()
 
 

@@ -31,7 +31,7 @@ extends Resource
 @export var attack_cooldown: float = 1.0
 ## Health ratio below which the ally falls back to heal (disabled during MASSACRE).
 @export var retreat_threshold: float = 0.3
-@export var regen_per_sec: float = 3.0
+@export var regen_per_sec: float = 1.0
 ## Incoming damage multiplier (Echoes are mirror-hardened; keeps companions alive without god-mode).
 @export var damage_taken_mult: float = 0.6
 

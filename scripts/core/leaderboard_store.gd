@@ -185,7 +185,7 @@ func reset_leaderboard() -> void:
 
 static func format_time(time_sec: float) -> String:
 	var total_sec: int = maxi(0, int(floor(time_sec)))
-	var mins: int = total_sec / 60
+	var mins: int = int(total_sec / 60.0)
 	var secs: int = total_sec % 60
 	return "%02d:%02d" % [mins, secs]
 
@@ -440,6 +440,14 @@ func _apply_scene_graphics_and_camera() -> void:
 		var sun: DirectionalLight3D = main_node.get_node_or_null("SunLight") as DirectionalLight3D
 		if sun != null:
 			sun.shadow_enabled = (shadow_q > 0)
+			if ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality") <= 0:
+				sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+				sun.directional_shadow_split_1 = 0.1
+				sun.directional_shadow_split_2 = 0.3
+				sun.directional_shadow_max_distance = 65.0
+			else:
+				sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if shadow_q <= 1 else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+				sun.directional_shadow_max_distance = 65.0 if shadow_q <= 1 else 120.0
 		var we: WorldEnvironment = main_node.get_node_or_null("WorldEnvironment") as WorldEnvironment
 		if we != null and we.environment != null:
 			we.environment.glow_enabled = bool(_settings.get("glow_enabled", true))

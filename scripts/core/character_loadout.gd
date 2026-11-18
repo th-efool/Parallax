@@ -43,9 +43,9 @@ static func apply_default_for(model_root: Node, role: String = "") -> void:
 		if role == "player":
 			apply(model_root, ["1H_Sword", "Badge_Shield"])
 		else:
-			apply(model_root, ["1H_Sword", "Rectangle_Shield"])
+			apply(model_root, ["2H_Sword", "Spike_Shield"])
 	elif model_root.find_child("Barbarian_Body", true, false) != null:
-		apply(model_root, ["2H_Axe"])
+		apply(model_root, ["2H_Axe", "Barbarian_Round_Shield"])
 	elif _has_skeleton_rig(model_root) and _count_visible_props(model_root) == 0:
 		if model_root.find_child("Skeleton_Rogue_Body", true, false) != null:
 			arm_with_borrowed(model_root, KNIGHT_GLB, "1H_Sword", "handslot.r")

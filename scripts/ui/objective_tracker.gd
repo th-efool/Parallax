@@ -64,13 +64,21 @@ func _alive_in(path: String) -> Array[EnemyBase]:
 
 
 func _refresh() -> void:
-	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var main: Node = tree.get_first_node_in_group("main_controller")
+	if main != null and "level_ready" in main and not bool(main.get("level_ready")):
+		_obj = {}
+		return
+	var player: Node3D = tree.get_first_node_in_group("player") as Node3D
 	if player == null or _find_level() == null:
 		_obj = {}
 		return
 	if not _labels_done:
-		_labels_done = true
 		_label_props()
+		if _n("Stage01_EntryVestibule/EntryMirrorSwitch") != null:
+			_labels_done = true
 	_obj = _compute(player)
 	var title: String = String(_obj.get("title", ""))
 	if title != _last_title and not title.is_empty():
@@ -86,6 +94,7 @@ func _compute(player: Node3D) -> Dictionary:
 	# Thresholds below are story z (the old compact layout); targets convert with JourneyLayout.
 	var pz: float = JourneyLayout.story_z(player.global_position.z)
 	var py: float = player.global_position.y
+	_auto_clear_bypassed_stages(pz)
 	var gate1: Node = _n("Stage01_EntryVestibule/Gate01_EntryToHall")
 	var sw1: Node3D = _n("Stage01_EntryVestibule/EntryMirrorSwitch") as Node3D
 	if gate1 != null and not bool(gate1.get("is_open")):
@@ -108,7 +117,7 @@ func _compute(player: Node3D) -> Dictionary:
 	var brg: Node = _n("Stage03_CollapsedGallery/GallerySpectralBridge")
 	var sup: Node3D = _n("Stage03_CollapsedGallery/WeakStoneSupport") as Node3D
 	var sw3: Node3D = _n("Stage03_CollapsedGallery/BridgeAnchorSwitch") as Node3D
-	if brg != null and not bool(brg.get("is_permanently_repaired")):
+	if brg != null and not bool(brg.get("is_permanently_repaired")) and pz <= 85.2:
 		var sup_intact: bool = sup != null and int(sup.get("current_state")) == 0
 		if sup_intact:
 			return {"title": "Cross the broken bridge",
@@ -116,24 +125,67 @@ func _compute(player: Node3D) -> Dictionary:
 				"target": sup.global_position}
 		return {"title": "Pull the Bridge Anchor", "hint": "Press E at the anchor switch to rebuild the bridge in Reality.",
 			"target": sw3.global_position if sw3 != null else JourneyLayout.to_world(Vector3(0, 6, 79))}
+	var gate3: Node = _n("Stage03_CollapsedGallery/Gate03_GalleryToMechanism")
 	var guard: Array[EnemyBase] = _alive_in("Stage03_CollapsedGallery/Enemies")
-	if not guard.is_empty():
+	if not guard.is_empty() and pz <= 85.2 and not (gate3 != null and bool(gate3.get("is_open"))):
 		return {"title": "Defeat the Shielded Guard", "hint": "Its shield only exists in Reality — fight it in the Mirror (Q).", "target": guard[0].global_position}
 	var puz: Node3D = _n("Stage04_MechanismChamber/ChamberMechanismPuzzle") as Node3D
-	if puz != null and not bool(puz.get("is_solved")):
+	if puz != null and not bool(puz.get("is_solved")) and pz <= 101.5:
 		if pz < 87.0:
 			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": JourneyLayout.to_world(Vector3(0, 6, 90))}
 		return {"title": "Drop the Mirror weight onto the plate",
 			"hint": "In the Mirror, jump off the raised dais and press F in mid-air above the hanging weight to slam it down.",
 			"target": puz.global_position}
+	var gate5: Node = _n("Stage05_ExecutionArena/Gate05_ArenaExit")
 	var warden: WardenBoss = _n("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
-	if warden != null and not warden.is_dead:
+	if warden != null and not warden.is_dead and pz <= 169.5 and not (gate5 != null and bool(gate5.get("is_open"))):
 		if pz < 139.0:
 			return {"title": "Cross the Processional to the Colosseum", "hint": "Over the bridges and past both bastions. The Warden waits at the top.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 10, 140.5)))}
 		if warden.current_phase == WardenBoss.Phase.PHASE_1_SPLIT:
 			return {"title": "Defeat The Warden", "hint": "Dodge his strike, then press Q during his recovery and hit the glowing chest rune.", "target": warden.global_position}
 		return {"title": "Finish The Warden", "hint": "The realms have merged — no more shifting. Hit him with everything.", "target": warden.global_position}
 	return {"title": "Walk into the light", "hint": "Leave through the north gate to the summit.", "target": JourneyLayout.to_world(Vector3(0, 10, 194))}
+
+
+func _auto_clear_bypassed_stages(pz: float) -> void:
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	# Stage 01 Gate01_EntryToHall sits at story/world z = 5.0; north onto R2 at z >= 6.5 means bypassed.
+	if pz > 6.5:
+		var gate1: Node = _n("Stage01_EntryVestibule/Gate01_EntryToHall")
+		if gate1 != null and not bool(gate1.get("is_open")) and gate1.has_method("open_gate"):
+			gate1.call("open_gate", true)
+	# Stage 02 Gate02_HallToGallery sits at world z = 116.0 (story z = 44.0); north onto R3 at pz > 45.2 means bypassed.
+	if pz > 45.2:
+		var gate2: Node = _n("Stage02_HallOfEchoes/Gate02_HallToGallery")
+		if gate2 != null and not bool(gate2.get("is_open")) and gate2.has_method("open_gate"):
+			gate2.call("open_gate", true)
+		if ed != null and not bool(ed.completed_encounters.get("hall_of_echoes", false)):
+			ed.complete_combat_encounter("hall_of_echoes")
+	# Stage 03 Gate03_GalleryToMechanism sits at story z = 84.0 (world z = 188.0); past pz > 85.2 clears bridge, guard & gate.
+	if pz > 85.2:
+		var brg: Node = _n("Stage03_CollapsedGallery/GallerySpectralBridge")
+		if brg != null and not bool(brg.get("is_permanently_repaired")) and brg.has_method("repair_for_reality"):
+			brg.call("repair_for_reality")
+		var gate3: Node = _n("Stage03_CollapsedGallery/Gate03_GalleryToMechanism")
+		if gate3 != null and not bool(gate3.get("is_open")) and gate3.has_method("open_gate"):
+			gate3.call("open_gate", true)
+		if ed != null and not bool(ed.completed_encounters.get("shielded_guard", false)):
+			ed.complete_combat_encounter("shielded_guard")
+	# Stage 04 Gate04_MechanismToArena sits at world z = 228.0 (story z ~ 100.4); past pz > 101.5 resolves mechanism & gate.
+	if pz > 101.5:
+		var gate4: Node = _n("Stage04_MechanismChamber/Gate04_MechanismToArena")
+		if gate4 != null and not bool(gate4.get("is_open")) and gate4.has_method("open_gate"):
+			gate4.call("open_gate", true)
+		var puz: Node = _n("Stage04_MechanismChamber/ChamberMechanismPuzzle")
+		if puz != null and not bool(puz.get("is_solved")) and puz.has_method("force_solve_bypass"):
+			puz.call("force_solve_bypass")
+	# Stage 05 Gate05_ArenaExit sits at story z = 167.5 (world z = 327.5); past pz > 169.5 opens exit & clears warden.
+	if pz > 169.5:
+		var gate5: Node = _n("Stage05_ExecutionArena/Gate05_ArenaExit")
+		if gate5 != null and not bool(gate5.get("is_open")) and gate5.has_method("open_gate"):
+			gate5.call("open_gate", true)
+		if ed != null and not bool(ed.completed_encounters.get("the_warden", false)):
+			ed.complete_combat_encounter("the_warden")
 
 
 func _nearest(list: Array[EnemyBase], player: Node3D) -> EnemyBase:
@@ -202,13 +254,18 @@ func _draw() -> void:
 	var glow: Color = GOLD.lerp(Color(1, 1, 1), _pop * 0.6)
 	# Diamond + title.
 	var cx: float = s.x * 0.5
+	var backing := Rect2(cx - tw * 0.5 - 40.0, y - 32.0, tw + 80.0, 50.0)
+	draw_rect(backing, Color(0.05, 0.05, 0.08, 0.7))
 	_diamond(Vector2(cx - tw * 0.5 - 16.0, y - 7.0), 5.0, glow)
-	_text(disp, Vector2(cx - tw * 0.5, y), title, tsz, glow, 6)
+	_text(disp, Vector2(cx - tw * 0.5, y), title, tsz, glow, 8)
 	# Hint (wrapped to two lines max).
 	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
+	if not lines.is_empty():
+		var h_backing := Rect2(cx - 300.0, y + 16.0, 600.0, 24.0 * lines.size() + 8.0)
+		draw_rect(h_backing, Color(0.02, 0.02, 0.03, 0.8))
 	for i in range(mini(2, lines.size())):
 		var lw: float = body.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(0.95, 0.93, 0.88, 0.92), 4)
+		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(1.0, 1.0, 1.0, 1.0), 5)
 	_draw_marker(s)
 
 

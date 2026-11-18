@@ -52,6 +52,12 @@ func _ready() -> void:
 	add_child(_player)
 
 
+func _exit_tree() -> void:
+	stop_all()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.tts_stop()
+
+
 func bind_client(c: OpenAIClient) -> void:
 	client = c
 	if not client.tts_chunk.is_connected(_on_chunk):

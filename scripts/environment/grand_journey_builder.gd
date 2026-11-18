@@ -516,6 +516,14 @@ func _enlarge_enemy(e: EnemyBase, k: float) -> void:
 				bs.size *= k
 				(c as CollisionShape3D).shape = bs
 				(c as CollisionShape3D).position *= k
+	var atk: Node3D = e.get_node_or_null("AttackHitbox") as Node3D
+	if atk != null:
+		for c in atk.get_children():
+			if c is CollisionShape3D and (c as CollisionShape3D).shape is BoxShape3D:
+				var abs_box := ((c as CollisionShape3D).shape as BoxShape3D).duplicate() as BoxShape3D
+				abs_box.size *= k
+				(c as CollisionShape3D).shape = abs_box
+				(c as CollisionShape3D).position *= k
 	var hp: Node3D = e.get_node_or_null("FloatingHPBar") as Node3D
 	if hp != null:
 		hp.position *= k
