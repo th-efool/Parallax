@@ -40,9 +40,8 @@ func _on_enemy_reset() -> void:
 func _die(source_type: String) -> void:
 	if not _has_revived:
 		_has_revived = true
-		health = max_health * 0.5
-		# Implementation of fall-down self-revive (3.0s delay)
-		await get_tree().create_timer(3.0).timeout
+		health = int(max_health * 0.5)
+		enter_stunned(3.0)
 		return
 	super._die(source_type)
 	if not _first_hall_skeleton_hint_emitted and encounter_id == "hall_of_echoes":

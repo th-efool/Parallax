@@ -478,6 +478,7 @@ func _physics_process(delta: float) -> void:
 	_update_camera_pivot()
 	_poll_action_inputs(delta)
 	_update_finisher_window()
+	_apply_regen(delta)
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
@@ -580,6 +581,14 @@ func is_invulnerable() -> bool:
 	if current_state == State.DODGE:
 		return _dodge_elapsed >= dodge_iframe_start and _dodge_elapsed <= (dodge_iframe_start + dodge_iframe_duration)
 	return false
+
+func _apply_regen(delta: float) -> void:
+	if health < max_health:
+		var regen_per_sec: float = float(max_health) / health_regen_seconds_to_full
+		var old_health: int = health
+		health = mini(max_health, health + int(round(regen_per_sec * delta)))
+		if health != old_health:
+			health_changed.emit(health, max_health)
 
 
 # ------------------------------------------------------------------ attacks

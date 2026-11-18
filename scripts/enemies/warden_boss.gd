@@ -63,6 +63,10 @@ var _move_counter: int = 0
 var _lunge_dir: Vector3 = Vector3.BACK
 
 
+func _ready() -> void:
+	_health_scaled = true
+	super._ready()
+
 func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	award_standard_kill_score = false

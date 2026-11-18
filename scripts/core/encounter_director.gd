@@ -247,9 +247,19 @@ func _trigger_auto_save() -> void:
 		store.call("capture_and_save_world_state")
 
 
+func reset_triggers() -> void:
+	completed_sections.clear()
+	completed_encounters.clear()
+	# Reset active encounter state
+	active_enemy_count = 0
+	current_encounter_id = ""
+	# Notify observers
+	section_reset_requested.emit(current_section)
+
 func _get_run_state() -> Node:
 	if get_tree() != null and get_tree().root != null:
 		var node: Node = get_tree().root.get_node_or_null("RunState")
 		if node != null:
 			return node
 	return null
+
