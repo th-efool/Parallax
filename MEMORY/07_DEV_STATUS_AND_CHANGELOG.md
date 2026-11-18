@@ -131,3 +131,7 @@ Completed Step 19 (REQ-22): Distinct enemy gear (Knight/Barbarian) and visual ap
 2026-11-18: Restored project buildability: fixed parse error in colosseum_greybox_builder.gd (GeometryInstance3D enum) and leaderboard_store.gd (RenderingServer usage).
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
 Completed forensic audit of requirements REQ-01 to REQ-06.
+- 2026-11-18: Fixed AI command parser issue ("go n" normalization). Investigated voice input latency (architectural limit).
+- 2026-11-18: Fixed respawn loop bug: `EncounterDirector.handle_player_death` now properly re-syncs the world state (bridge/switch status) from saved data after a checkpoint rewind.
+- 2026-11-18: Implemented `_verify_spawn_safety` in `PlayerController` and updated `respawn_at` to use it for fall-through prevention.
+- 2026-11-18: Added `_is_processing_death` flag in `EncounterDirector` to prevent re-entrant death processing.

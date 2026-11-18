@@ -1326,7 +1326,9 @@ func _process_stagger_state(delta: float) -> void:
 
 
 func respawn_at(spawn_transform: Transform3D) -> void:
-	global_transform = spawn_transform
+	var safe_pos = _verify_spawn_safety(spawn_transform.origin)
+	global_transform.origin = safe_pos
+	global_transform.basis = spawn_transform.basis
 	velocity = Vector3.ZERO
 	health = max_health
 	combo_step = 0
@@ -1348,6 +1350,16 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	_update_hurtbox_invulnerability(false)
 	_abort_attack()
 	_set_state(State.LOCOMOTION, 0.0)
+
+func _verify_spawn_safety(pos: Vector3) -> Vector3:
+	var space_state = get_world_3d().direct_space_state
+	var ray_query = PhysicsRayQueryParameters3D.create(pos + Vector3(0, 2, 0), pos - Vector3(0, 5, 0))
+	var result = space_state.intersect_ray(ray_query)
+	
+	if result.is_empty():
+		push_warning("Respawn position invalid! Using fallback.")
+		return Vector3(0, 5, 0)
+	return pos
 	health_changed.emit(health, max_health)
 
 

@@ -1,0 +1,15 @@
+name: Review Changes
+description: Thoroughly review implementation of respawn and parser fixes.
+
+stages:
+  - id: parser_review
+    role: Code Auditor
+    prompt: Review D:\Desktop\Godot\parallax\scripts\allies\squad_command_parser.gd for robustness. Ensure the normalization of "go n" and "gon" to "and" is secure, case-insensitive, and does not create false positives (e.g., unintended replacements).
+    
+  - id: respawn_review
+    role: System Architect
+    prompt: Review D:\Desktop\Godot\parallax\scripts\core\encounter_director.gd and D:\Desktop\Godot\parallax\scripts\core\leaderboard_store.gd. Ensure the new call to `LeaderboardStore.apply_saved_world_state()` inside `EncounterDirector.handle_player_death` is safe, atomic, does not cause race conditions, and correctly restores all environment flags (switches, gates).
+    
+  - id: integration_review
+    role: QA Lead
+    prompt: Aggregrate results from parser and respawn reviews. Look for any potential side effects or regressions introduced by these changes.

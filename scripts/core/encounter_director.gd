@@ -25,6 +25,7 @@ static var instance = null
 var current_section: Section = Section.ENTRY
 var active_enemy_count: int = 0
 var current_encounter_id: String = ""
+var _is_processing_death: bool = false
 
 var completed_sections: Dictionary = {}
 var completed_encounters: Dictionary = {}
@@ -170,6 +171,9 @@ func complete_combat_encounter(encounter_id: String) -> bool:
 
 
 func handle_player_death(player: Node = null) -> void:
+	if _is_processing_death:
+		return
+	_is_processing_death = true
 	# 1. Revert unbanked section score and reset combo to x1; elapsed run timer continues uninterrupted
 	var run_state: Node = _get_run_state()
 	if run_state != null and run_state.has_method("revert_to_banked_score"):
@@ -189,6 +193,19 @@ func handle_player_death(player: Node = null) -> void:
 	current_section = target_cp.section
 	checkpoint_transform = target_cp.transform
 	checkpoint_realm = target_cp.realm
+	
+	# Clear progress for sections ahead of the rewind
+	var sections_to_clear = []
+	for sec in completed_sections.keys():
+		if int(sec) >= current_section:
+			sections_to_clear.append(sec)
+	for sec in sections_to_clear:
+		completed_sections.erase(sec)
+		
+	# Re-sync world state from save
+	var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+	if store != null and store.has_method("apply_saved_world_state"):
+		store.call("apply_saved_world_state")
 
 	# 4. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2)
 	if RealmManager.instance != null:
@@ -202,6 +219,7 @@ func handle_player_death(player: Node = null) -> void:
 	alert_section_enemies(current_section)
 	section_reset_requested.emit(checkpoint_section)
 	player_respawned.emit(checkpoint_section, checkpoint_transform)
+	_is_processing_death = false
 
 
 func restart_full_run() -> void:

@@ -123,6 +123,7 @@ static func parse(text: String, ally_names: Array, ctx: Dictionary = {}) -> Arra
 	# Sentence boundaries are clause boundaries too ("Brannoc, guard me. Sera, kite them.").
 	# Commas are kept as " , " tokens until clause splitting (they separate per-ally instructions).
 	var t: String = " " + raw.to_lower().replace(". ", " ; ").replace("! ", " ; ").replace("? ", " ; ").replace(",", " , ").replace(".", " ").replace("?", " ").replace("!", " ") + " "
+	t = t.replace(" go n ", " and ").replace(" gon ", " and ")
 	t = " " + _normalize(t, ally_names, ctx) + " "
 	# Multi-clause: "Sera kite them then Ivo nuke", "Brannoc jump twice, Sera go behind me and shoot the caster,
 	# everyone else hold the rear" -> split on then / ; / and between two instructions / a new addressee.
