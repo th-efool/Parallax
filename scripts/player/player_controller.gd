@@ -184,6 +184,8 @@ const FINISHER_BY_INPUT: Dictionary = {
 @export var dodge_iframe_start: float = 0.03
 @export var dodge_iframe_duration: float = 0.26
 @export var dodge_cooldown: float = 0.70
+## Maximum number of consecutive dodges allowed (stacked charges).
+@export var max_dodge_charges: int = 2
 @export var allow_air_dash: bool = true
 @export var perfect_dodge_slowmo_scale: float = 0.3
 @export var perfect_dodge_slowmo_time: float = 0.55
@@ -269,6 +271,7 @@ var _dodge_elapsed: float = 0.0
 var _dodge_cooldown_timer: float = 0.0
 var _dodge_direction: Vector3 = Vector3.BACK
 var _perfect_dodge_spent: bool = false
+var _dodge_charges: int = 2
 var _air_dash_used: bool = false
 var _simulated_airborne: bool = false
 var _force_jump_context: bool = false
@@ -503,6 +506,10 @@ func _physics_process(delta: float) -> void:
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
+		if _dodge_cooldown_timer <= 0.0:
+			_dodge_charges += 1
+			if _dodge_charges < max_dodge_charges:
+				_dodge_cooldown_timer = dodge_cooldown
 	if _landing_recover_timer > 0.0:
 		_landing_recover_timer = maxf(0.0, _landing_recover_timer - delta)
 	if current_state == State.LOCOMOTION:
@@ -1231,7 +1238,7 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 # ------------------------------------------------------------------ dodge / plunge
 
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
-	if _dodge_cooldown_timer > 0.0:
+	if _dodge_charges <= 0:
 		return false
 	if current_state != State.LOCOMOTION:
 		return false
@@ -1645,7 +1652,9 @@ func _process_dodge_state(delta: float) -> void:
 
 	if _state_timer <= 0.0:
 		_update_hurtbox_invulnerability(false)
-		_dodge_cooldown_timer = dodge_cooldown
+		_dodge_charges -= 1
+		if _dodge_charges < max_dodge_charges:
+			_dodge_cooldown_timer = dodge_cooldown
 		run_time = sprint_ramp_time * 0.8  # come out of a roll already moving fast
 		_set_state(State.LOCOMOTION, 0.0)
 

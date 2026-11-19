@@ -13,7 +13,7 @@
 | *(Mouse)* | Mouse Motion | Camera yaw (unlimited) & pitch (clamped e.g. `-45°` to `+60°` to avoid floor/sky lock). Sensitivity + Invert-Y configurable. |
 | `light_attack` | `Left Mouse Button` | 3-hit sword combo (`25 / 25 / 35` dmg); combo window resets after pause. |
 | `heavy_attack` | `Right Mouse Button` | Committed slower strike (`60` dmg); shatters marked breakables & staggers exposed enemies. |
-| `dodge` / `jump` | `Space` (plus `Shift` on `dodge`) | Contextual Jump (when stationary, in a jump zone, or when forward-downward floor probes detect a gap or raised dais step) vs Directional Ground Dodge (`0.55 s` total, `0.18 s` i-frames, `0.20 s` cooldown). `start_dodge()` zeroes any upward velocity so Jump and Dodge never double-fire on the same frame. |
+| `dodge` / `jump` | `Space` (plus `Shift` on `dodge`) | Contextual Jump (when stationary, in a jump zone, or when forward-downward floor probes detect a gap or raised dais step) vs Directional Ground Dodge (`0.55 s` total, `0.18 s` i-frames, `2` charges, `0.70 s` cooldown). `start_dodge()` zeroes any upward velocity so Jump and Dodge never double-fire on the same frame. |
 | `dimension_shift` | `Q` | Toggle Reality <-> Mirror (`0.60 s` cooldown; subject to safe-floor & overlap check). |
 | `landing_attack` | `F` | **Airborne only**: triggers committed downward plunge; spawns single `2.2 m` radial shockwave (`60` dmg) on ground impact. No effect on ground. |
 | `interact` | `E` | Contextual interaction with Mirror Switch, Bridge Anchor, and Mechanism/Gates when in prompt range. |
@@ -31,7 +31,7 @@
   - Run **`6.0 m/s`**, momentum ramps to **`7.6 m/s`** after ~`1.1 s` of held direction (no button, no stamina); sharp reversal at speed = skid (resets ramp, dust).
   - Accel `46`, friction `40`, air accel `20`; turning against momentum uses friction-strength accel so direction changes snap.
   - Jump `7.8` impulse (apex height unchanged ~`1.9 m`): early release = `2.3x` gravity (short hop), apex hang `0.55x` while held, fall `1.75x`, max fall `26 m/s`. Jump buffer `0.13 s`, coyote `0.12 s`. Horizontal reach ≈ old (faster run compensates faster fall) so authored gaps still clear.
-  - Dodge `0.42 s` (burst `1.3x` then eased into a run), i-frames `0.03–0.29 s`, cooldown `0.14 s`. **One air-dash per airtime** (holds altitude for 60%).
+  - Dodge `0.42 s` (burst `1.3x` then eased into a run), i-frames `0.03–0.29 s`, **2 charges** (recharge `0.7 s`). **One air-dash per airtime** (holds altitude for 60%).
   - **Perfect dodge**: an enemy hit landing inside i-frames (`Hurtbox3D.hit_blocked_invulnerable`) → `0.3x` slow-mo for `0.55 s` real time + ghosts.
   - Camera (`PlayerFeelRig`): trauma shake (real-time, respects `camera_shake_intensity`), FOV spring kicks, sprint FOV `+7°` & arm `+0.45 m`, loose vertical lag in air.
 
