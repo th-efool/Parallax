@@ -200,6 +200,14 @@ const FINISHER_BY_INPUT: Dictionary = {
 @export var pause_branch_delay: float = 0.28
 @export var rising_arc_damage: int = 30
 @export var heavy_attack_damage: int = 60
+## Hold RMB on a plain heavy: the swing freezes at this fraction of its wind-up (the raised-sword pose) until release.
+@export var heavy_hold_pose_u: float = 0.85
+## Seconds of holding (after the pose is reached) that count as 100 % charge.
+@export var heavy_charge_max_sec: float = 3.0
+## Damage multiplier at 100 % charge (1.0 at 0 %).
+@export var heavy_charge_max_damage_mult: float = 2.0
+## Crit chance of a tap / 0 % charge. Rises linearly to 1.0 (guaranteed) at 100 % charge.
+@export var heavy_charge_min_crit_chance: float = 0.35
 @export var landing_attack_damage: int = 60
 @export var landing_attack_radius: float = 2.6
 @export var landing_plunge_speed: float = 22.0
@@ -290,8 +298,10 @@ var _flow_tap: bool = false
 var _flow_streak: int = 0
 var _since_attack_end: float = 99.0
 var _presses_this_swing: int = 0
-var _heavy_charge_timer: float = 0.0
 var _health_regen_acc: float = 0.0
+## Heavy "hold to charge" (see _update_heavy_hold). _heavy_hold is true for the whole wind-up of a plain `heavy`.
+var _heavy_hold: bool = false
+var _heavy_charge_t: float = 0.0
 
 
 func _ready() -> void:
@@ -486,10 +496,10 @@ func _physics_process(delta: float) -> void:
 	_apply_regen(delta)
 	_apply_stamina_regen(delta)
 	
-	if _heavy_charge_timer > 0.0:
-		var rig = get_node_or_null("PlayerFeelRig")
-		if rig:
-			rig.update_sword_aura(_heavy_charge_timer / 3.0)
+	# The aim stick is sampled EVERY physics tick (it used to be sampled only in LOCOMOTION), so each swing of a
+	# chain reads the CURRENT stick / camera direction instead of the one from the last locomotion frame.
+	var live_move: Vector3 = _read_move_dir()
+	_last_move_input_dir = live_move.normalized() if live_move.length_squared() > 0.001 else Vector3.ZERO
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
@@ -537,10 +547,8 @@ func _poll_action_inputs(delta: float) -> void:
 		# Mashing (several presses during the same swing) still chains through the buffer, just without FLOW.
 		_presses_this_swing += 1
 		_flow_tap = current_state == State.LIGHT_ATTACK and _presses_this_swing == 1 and _is_flow_timing()
-	if Input.is_action_pressed("heavy_attack"):
-		_heavy_charge_timer += delta
-	if Input.is_action_just_released("heavy_attack"):
-		_execute_heavy_charge()
+	if Input.is_action_just_pressed("heavy_attack"):
+		_buffer("heavy")
 	if Input.is_action_just_pressed("dodge"):
 		_buffer("dodge")
 	if Input.is_action_just_pressed("jump"):
@@ -556,13 +564,72 @@ func _poll_action_inputs(delta: float) -> void:
 		_jump_held = false
 
 
-func _execute_heavy_charge() -> void:
-	var charge: float = _heavy_charge_timer
-	_heavy_charge_timer = 0.0
-	var multiplier: float = 1.0 + (charge / 3.0)
-	var dmg: int = int(float(heavy_attack_damage) * multiplier)
-	var is_crit: bool = charge >= 3.0
-	_begin_attack("heavy", dmg, true, State.HEAVY_ATTACK, {"crit": is_crit})
+## Heavy "hold to charge". While RMB stays down the Cleave is frozen at its raised-sword pose; releasing RMB lets the
+## attack clock run again (strike -> recovery). Returns true while frozen. Only a plain `heavy` is chargeable.
+func _update_heavy_hold(w: float, delta: float) -> bool:
+	if not _heavy_hold or current_state != State.HEAVY_ATTACK or attack_phase != AttackPhase.WINDUP:
+		return false
+	var held: bool = Input.is_action_pressed("heavy_attack") and not ui_input_locked
+	if not held:
+		_release_heavy_charge()
+		return false
+	var hold_at: float = w * clampf(heavy_hold_pose_u, 0.1, 0.95)
+	if _attack_elapsed < hold_at:
+		return false # still winding up towards the pose
+	_attack_elapsed = hold_at
+	_state_timer += delta # undo this tick's countdown so the attack can never time out while held
+	_heavy_charge_t = minf(_heavy_charge_t + delta, heavy_charge_max_sec)
+	if not is_instance_valid(current_target) and _last_move_input_dir.length_squared() > 0.001:
+		set_facing_direction(_last_move_input_dir, delta)
+	return true
+
+
+## RMB released: bake the charge into this swing (damage, crit, feel) and re-aim from the live stick.
+func _release_heavy_charge() -> void:
+	var ratio: float = clampf(_heavy_charge_t / maxf(0.01, heavy_charge_max_sec), 0.0, 1.0)
+	_heavy_hold = false
+	_heavy_charge_t = 0.0
+	_aim_attack(true)
+	_attack_damage = int(round(float(heavy_attack_damage) * lerpf(1.0, heavy_charge_max_damage_mult, ratio)))
+	# `finisher: true` on an attack def means "this hit opens the critical-hit window".
+	current_attack["finisher"] = ratio >= 0.999 or randf() < lerpf(heavy_charge_min_crit_chance, 1.0, ratio)
+	current_attack["crack"] = float(current_attack.get("crack", 4.2)) * (1.0 + 0.5 * ratio)
+	current_attack["trauma"] = minf(1.0, float(current_attack.get("trauma", 0.62)) * (1.0 + 0.6 * ratio))
+	current_attack["hitstop"] = float(current_attack.get("hitstop", 0.12)) * (1.0 + 0.5 * ratio)
+	current_attack["knockback"] = float(current_attack.get("knockback", 9.5)) * (1.0 + 0.6 * ratio)
+	if ratio >= 0.999:
+		current_attack["ring"] = 3.2
+
+
+## 0..1 while a heavy is being held at its raised pose (drives the aura / shake in PlayerFeelRig); 0 otherwise.
+func get_heavy_charge_ratio() -> float:
+	if not _heavy_hold or current_state != State.HEAVY_ATTACK:
+		return 0.0
+	return clampf(_heavy_charge_t / maxf(0.01, heavy_charge_max_sec), 0.0, 1.0)
+
+
+func is_heavy_charging() -> bool:
+	return _heavy_hold and current_state == State.HEAVY_ATTACK and attack_phase == AttackPhase.WINDUP and _heavy_charge_t > 0.0
+
+
+## Picks the swing target and turns the character. Uses the LIVE stick direction (refreshed every physics tick):
+## with a key held, only enemies inside the cone around the stick are magnetised, otherwise the swing goes where
+## the stick points. Stick neutral: swing at whoever is crowding us, even from behind.
+func _aim_attack(heavy: bool) -> void:
+	var has_input: bool = _last_move_input_dir.length_squared() > 0.001
+	var dir_hint: Vector3 = _last_move_input_dir if has_input else get_facing_direction()
+	current_target = _acquire_target(dir_hint, magnet_range * (1.15 if heavy else 1.0))
+	if current_target == null and not has_input:
+		current_target = _acquire_target(dir_hint, 2.8, true)
+	if current_target != null:
+		var to_t: Vector3 = current_target.global_position - global_position
+		to_t.y = 0.0
+		set_facing_direction(to_t)
+		_lunge_distance = clampf(to_t.length() - magnet_stop_distance, 0.0, float(current_attack.get("lunge", 1.0)) * 1.8)
+	else:
+		set_facing_direction(dir_hint)
+		_lunge_distance = float(current_attack.get("lunge", 1.0)) * 0.7
+
 
 func _buffer(action: String) -> void:
 	_buffer_action = action
@@ -710,23 +777,10 @@ func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State, 
 	_attack_elapsed = 0.0
 	_attack_hits = 0
 	_multi_tick = 0
+	_heavy_hold = attack_name == "heavy"
+	_heavy_charge_t = 0.0
 
-	var has_input: bool = _last_move_input_dir.length_squared() > 0.001
-	var dir_hint: Vector3 = _last_move_input_dir if has_input else get_facing_direction()
-	current_target = _acquire_target(dir_hint, magnet_range * (1.15 if heavy else 1.0))
-	if current_target == null and not has_input:
-		# Stick neutral: swing at whoever is crowding us, even from behind.
-		current_target = _acquire_target(dir_hint, 2.8, true)
-	if has_input:
-		set_facing_direction(dir_hint)
-	elif current_target != null:
-		var to_t: Vector3 = current_target.global_position - global_position
-		to_t.y = 0.0
-		set_facing_direction(to_t)
-		_lunge_distance = clampf(to_t.length() - magnet_stop_distance, 0.0, float(current_attack.get("lunge", 1.0)) * 1.8)
-	else:
-		set_facing_direction(dir_hint)
-		_lunge_distance = float(current_attack.get("lunge", 1.0)) * 0.7
+	_aim_attack(heavy)
 	velocity.x = 0.0
 	velocity.z = 0.0
 
@@ -761,6 +815,7 @@ func _process_attack_state(delta: float) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
 	var w: float = float(current_attack.get("windup", 0.1))
 	var a: float = float(current_attack.get("active", 0.1))
+	var holding: bool = _update_heavy_hold(w, delta)
 
 	# Track the magnetised target through the wind-up (souls-like "tracking" that ends at the strike).
 	if attack_phase == AttackPhase.WINDUP and is_instance_valid(current_target):
@@ -774,8 +829,8 @@ func _process_attack_state(delta: float) -> void:
 
 	var fwd: Vector3 = get_facing_direction()
 	if _attack_elapsed < w:
-		# Anticipation: plant feet, a small creep forward.
-		var v_w: float = (_lunge_distance * 0.18) / maxf(0.01, w)
+		# Anticipation: plant feet, a small creep forward (none while a heavy is held).
+		var v_w: float = 0.0 if holding else (_lunge_distance * 0.18) / maxf(0.01, w)
 		velocity.x = fwd.x * v_w
 		velocity.z = fwd.z * v_w
 	elif _attack_elapsed < w + a:
@@ -896,6 +951,8 @@ func _abort_attack() -> void:
 	_finish_attack_cleanup()
 	_set_attack_phase(AttackPhase.NONE)
 	current_target = null
+	_heavy_hold = false
+	_heavy_charge_t = 0.0
 
 
 ## Manual strike-shape query every active frame, in addition to Area3D overlap signals, so fast lunges
@@ -1614,6 +1671,9 @@ func _process_landing_plunge_state(delta: float) -> void:
 func _set_state(next_state: State, duration: float) -> void:
 	current_state = next_state
 	_state_timer = duration
+	if next_state != State.HEAVY_ATTACK:
+		_heavy_hold = false
+		_heavy_charge_t = 0.0
 	if next_state != State.LIGHT_ATTACK and next_state != State.HEAVY_ATTACK:
 		if attack_phase != AttackPhase.NONE:
 			_set_attack_phase(AttackPhase.NONE)

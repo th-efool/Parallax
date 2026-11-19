@@ -71,6 +71,17 @@ var _ghosts_left: int = 0
 var _ghost_color: Color = Color.WHITE
 var _rng := RandomNumberGenerator.new()
 
+# Heavy-charge aura: a slightly enlarged additive copy of the blade mesh + light + embers, grown by the hold ratio.
+const AURA_MIN_SCALE: float = 1.10
+const AURA_GROW: float = 0.40
+var _aura: MeshInstance3D = null
+var _aura_mat: StandardMaterial3D = null
+var _aura_light: OmniLight3D = null
+var _aura_embers: CPUParticles3D = null
+var _aura_embers_mat: StandardMaterial3D = null
+var _aura_center: Vector3 = Vector3.ZERO
+var _charge_full_fired: bool = false
+
 
 func _ready() -> void:
 	add_to_group(GameFeelScript.GROUP_CAMERA_RIG)
@@ -127,6 +138,7 @@ func _setup_trail() -> void:
 	_pc.add_child(_trail)
 	if blade != null:
 		_trail.bind_blade(blade)
+		_build_charge_aura(blade as MeshInstance3D)
 
 
 func add_trauma(amount: float) -> void:
@@ -152,10 +164,16 @@ func _process(delta: float) -> void:
 	_update_dust(delta)
 	_update_ghosts(delta)
 	_update_trail_state()
+	_update_charge_vfx(_pc.get_heavy_charge_ratio())
 
 
 func _update_camera(dt: float) -> void:
 	trauma = maxf(0.0, trauma - trauma_decay * dt)
+	# Holding a heavy: a continuous shake floor that rises with the charge (quadratic in the shader: subtle at the
+	# start, clearly rumbling at full charge).
+	var charge_k: float = _pc.get_heavy_charge_ratio()
+	if charge_k > 0.0:
+		trauma = maxf(trauma, 0.10 + 0.45 * charge_k * charge_k)
 	_noise_t += dt * 32.0
 	var hvel: Vector3 = Vector3(_pc.velocity.x, 0.0, _pc.velocity.z)
 	var speed_k: float = clampf((hvel.length() - _pc.run_speed * 0.9) / maxf(0.1, _pc.sprint_speed - _pc.run_speed * 0.9), 0.0, 1.0)
@@ -252,6 +270,12 @@ func _update_body(delta: float) -> void:
 		PlayerController.State.STAGGER:
 			lean_t = -0.30
 
+	# Heavy charge: the body strains back and trembles harder the longer RMB is held.
+	var charge: float = _pc.get_heavy_charge_ratio()
+	if charge > 0.0:
+		var tremble: float = _noise.get_noise_2d(float(Time.get_ticks_msec()) * 0.02, 7.0)
+		lean_t -= 0.04 * charge
+		twist_t += tremble * (0.015 + 0.06 * charge)
 	var r: Vector2 = _spring(_lean, _lean_v, lean_t, 170.0, 15.0, delta)
 	_lean = r.x
 	_lean_v = r.y
@@ -306,7 +330,99 @@ func _update_trail_state() -> void:
 		on = e >= w * 0.55 and e <= w + a + 0.07
 	elif _pc.current_state == PlayerController.State.LANDING_PLUNGE:
 		on = true
+	if _pc.is_heavy_charging():
+		on = false
 	_trail.emitting = on
+
+
+func _build_charge_aura(blade: MeshInstance3D) -> void:
+	if blade == null or blade.mesh == null:
+		return
+	_aura_center = blade.mesh.get_aabb().get_center()
+	_aura_mat = StandardMaterial3D.new()
+	_aura_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_aura_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_aura_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_aura_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_aura_mat.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
+	_aura = MeshInstance3D.new()
+	_aura.name = "ChargeAura"
+	_aura.mesh = blade.mesh
+	_aura.material_override = _aura_mat
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	blade.add_child(_aura)
+
+	_aura_light = OmniLight3D.new()
+	_aura_light.name = "ChargeAuraLight"
+	_aura_light.position = _aura_center
+	_aura_light.omni_range = 2.0
+	_aura_light.light_energy = 0.0
+	_aura_light.shadow_enabled = false
+	blade.add_child(_aura_light)
+
+	var ember_mesh := SphereMesh.new()
+	ember_mesh.radius = 0.025
+	ember_mesh.height = 0.05
+	ember_mesh.radial_segments = 6
+	ember_mesh.rings = 3
+	_aura_embers_mat = StandardMaterial3D.new()
+	_aura_embers_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_aura_embers_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_aura_embers_mat.vertex_color_use_as_albedo = true
+	ember_mesh.material = _aura_embers_mat
+	_aura_embers = CPUParticles3D.new()
+	_aura_embers.name = "ChargeEmbers"
+	_aura_embers.emitting = false
+	_aura_embers.amount = 28
+	_aura_embers.lifetime = 0.55
+	_aura_embers.local_coords = false
+	_aura_embers.position = _aura_center
+	_aura_embers.direction = Vector3.UP
+	_aura_embers.spread = 70.0
+	_aura_embers.gravity = Vector3(0.0, 1.2, 0.0)
+	_aura_embers.initial_velocity_min = 0.3
+	_aura_embers.initial_velocity_max = 1.1
+	_aura_embers.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	_aura_embers.emission_sphere_radius = 0.22
+	_aura_embers.mesh = ember_mesh
+	blade.add_child(_aura_embers)
+
+
+## ratio 0..1 from PlayerController.get_heavy_charge_ratio(): aura grows, brightens and pulses faster; at 1.0 it
+## "pops" once (flash + ring + chime) so the player knows the guaranteed crit is armed.
+func _update_charge_vfx(ratio: float) -> void:
+	if _aura == null or not is_instance_valid(_aura):
+		return
+	var show: bool = ratio > 0.0
+	_aura.visible = show
+	if _aura_embers != null:
+		_aura_embers.emitting = show
+	if not show:
+		_aura_light.light_energy = 0.0
+		_charge_full_fired = false
+		return
+	var col: Color = _realm_color()
+	var full: bool = ratio >= 0.999
+	var core: Color = col.lerp(Color(1.0, 1.0, 1.0), 0.35 + 0.65 * ratio)
+	var pulse: float = 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * (0.012 + 0.02 * ratio))
+	var s: float = AURA_MIN_SCALE + AURA_GROW * ratio + (0.10 * pulse if full else 0.03 * pulse)
+	_aura.scale = Vector3.ONE * s
+	_aura.position = -_aura_center * (s - 1.0) # scale about the blade's own centre, not its origin
+	_aura_mat.albedo_color = Color(core.r, core.g, core.b, 0.18 + 0.55 * ratio)
+	_aura_light.light_color = col
+	_aura_light.light_energy = 0.5 + 4.0 * ratio + (1.5 * pulse if full else 0.0)
+	_aura_light.omni_range = 2.0 + 2.0 * ratio
+	if _aura_embers != null:
+		_aura_embers.speed_scale = 1.0 + 1.5 * ratio
+		_aura_embers.color = core
+	if full and not _charge_full_fired:
+		_charge_full_fired = true
+		kick_fov(-4.0)
+		add_trauma(0.30)
+		GoreFXScript.flash_light(_pc, _pc.global_position + Vector3.UP * 1.2, col, 6.0, 0.25, 6.0)
+		GoreFXScript.shockwave_ring(_pc, _pc.global_position, 1.8, Color(col.r, col.g, col.b, 0.8), 0.3, 0.12)
+		GameFeelScript.play_sound(_pc, "clang", _pc.global_position + Vector3.UP * 1.2, -6.0, 1.5)
 
 
 func _realm_color() -> Color:
@@ -314,15 +430,7 @@ func _realm_color() -> Color:
 	return Color(0.35, 0.85, 1.0) if in_mirror else Color(1.0, 0.62, 0.22)
 
 
-func update_sword_aura(charge_ratio: float) -> void:
-	if _model == null:
-		return
-	var aura: Node3D = _model.find_child("SwordAura", true, false) as Node3D
-	if aura != null:
-		aura.visible = charge_ratio > 0.0
-		# Placeholder for shader parameter
-		if aura.get_surface_override_material(0) != null:
-			aura.get_surface_override_material(0).set_shader_parameter("intensity", charge_ratio)
+# ------------------------------------------------------------------ events
 
 func _on_attack_started(attack_name: String, timing: Dictionary) -> void:
 	if _trail != null:
