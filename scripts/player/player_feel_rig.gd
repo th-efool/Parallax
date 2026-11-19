@@ -314,7 +314,15 @@ func _realm_color() -> Color:
 	return Color(0.35, 0.85, 1.0) if in_mirror else Color(1.0, 0.62, 0.22)
 
 
-# ------------------------------------------------------------------ events
+func update_sword_aura(charge_ratio: float) -> void:
+	if _model == null:
+		return
+	var aura: Node3D = _model.find_child("SwordAura", true, false) as Node3D
+	if aura != null:
+		aura.visible = charge_ratio > 0.0
+		# Placeholder for shader parameter
+		if aura.get_surface_override_material(0) != null:
+			aura.get_surface_override_material(0).set_shader_parameter("intensity", charge_ratio)
 
 func _on_attack_started(attack_name: String, timing: Dictionary) -> void:
 	if _trail != null:

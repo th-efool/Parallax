@@ -485,6 +485,11 @@ func _physics_process(delta: float) -> void:
 	_update_finisher_window()
 	_apply_regen(delta)
 	_apply_stamina_regen(delta)
+	
+	if _heavy_charge_timer > 0.0:
+		var rig = get_node_or_null("PlayerFeelRig")
+		if rig:
+			rig.update_sword_aura(_heavy_charge_timer / 3.0)
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
@@ -712,7 +717,9 @@ func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State, 
 	if current_target == null and not has_input:
 		# Stick neutral: swing at whoever is crowding us, even from behind.
 		current_target = _acquire_target(dir_hint, 2.8, true)
-	if current_target != null:
+	if has_input:
+		set_facing_direction(dir_hint)
+	elif current_target != null:
 		var to_t: Vector3 = current_target.global_position - global_position
 		to_t.y = 0.0
 		set_facing_direction(to_t)
