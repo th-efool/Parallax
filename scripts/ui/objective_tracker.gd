@@ -253,15 +253,11 @@ func _draw() -> void:
 	var y: float = 156.0   # below the Reality/Mirror chip + shift cooldown readout
 	var glow: Color = GOLD.lerp(Color(1, 1, 1), _pop * 0.6)
 	var cx: float = s.x * 0.5
-	# Combined background.
+	# Combined background (removed solid rect).
 	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
-	var unified_w: float = maxf(tw + 80.0, 600.0)
-	var unified_h: float = 80.0 + (24.0 * lines.size())
-	var unified_backing := Rect2(cx - unified_w * 0.5, y - 32.0, unified_w, unified_h)
 	
-	draw_rect(unified_backing, Color(0.05, 0.05, 0.08, 0.65))
-	# Thin gold border for premium feel.
-	draw_rect(unified_backing, GOLD, false, 1.5)
+	_draw_fractured_separator(cx, y - 38.0, tw, GOLD)
+	_draw_fractured_separator(cx, y + 25.0 + 19.0 * float(lines.size()), tw, GOLD)
 
 	# Diamond + title.
 	_diamond(Vector2(cx - tw * 0.5 - 16.0, y - 7.0), 5.0, glow)
@@ -270,8 +266,13 @@ func _draw() -> void:
 	# Hint (wrapped to two lines max).
 	for i in range(mini(2, lines.size())):
 		var lw: float = body.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(0.9, 0.9, 0.9, 1.0), 5)
+		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(1, 1, 1, 0.95), 4)
 	_draw_marker(s)
+
+func _draw_fractured_separator(cx: float, y: float, w: float, col: Color) -> void:
+	var hw := w * 0.5
+	var points := PackedVector2Array([Vector2(cx - hw, y), Vector2(cx - hw * 0.3, y + 2.0), Vector2(cx + hw * 0.2, y - 1.0), Vector2(cx + hw, y)])
+	draw_polyline(points, col, 1.5, true)
 
 
 func _draw_marker(s: Vector2) -> void:
