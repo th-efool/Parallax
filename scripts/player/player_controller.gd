@@ -159,7 +159,7 @@ const FINISHER_BY_INPUT: Dictionary = {
 @export var max_health: int = 100
 @export var health_regen_seconds_to_full: float = 125.0
 @export var max_stamina: float = 250.0
-@export var stamina_regen_rate: float = 2.0
+@export var stamina_regen_rate: float = 6.0
 
 @export_group("Locomotion")
 @export var run_speed: float = 6.0
@@ -1156,9 +1156,8 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 # ------------------------------------------------------------------ dodge / plunge
 
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
-	if _dodge_cooldown_timer > 0.0 or stamina < 50.0:
+	if _dodge_cooldown_timer > 0.0:
 		return false
-	stamina -= 50.0
 	if current_state != State.LOCOMOTION:
 		return false
 	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
@@ -1182,10 +1181,11 @@ func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 
 
 func start_landing_attack() -> bool:
-	if not is_currently_airborne():
+	if not is_currently_airborne() or stamina < 50.0:
 		return false
 	if current_state != State.LOCOMOTION:
 		return false
+	stamina -= 50.0
 	_pending_ground_slam = false
 	_plunge_hang_timer = 0.10
 	_set_state(State.LANDING_PLUNGE, 2.0)
