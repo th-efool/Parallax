@@ -3352,10 +3352,10 @@ func _personal_space_push() -> Vector3:
 		var d2: Vector3 = me - (a as Node3D).global_position
 		d2.y = 0.0
 		var l2: float = d2.length()
-		if l2 < 1.25:
+		if l2 < 1.35:
 			# Deterministic tie-break when exactly overlapping so both don't pick the same side.
 			var nd: Vector3 = d2 / l2 if l2 > 0.01 else Vector3(1, 0, 0).rotated(Vector3.UP, float(slot_index) * 2.1)
-			push += nd * (1.25 - l2) / 1.25
+			push += nd * (1.35 - l2) / 1.35 * 1.5
 	return push
 
 

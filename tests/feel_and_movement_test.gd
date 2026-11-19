@@ -228,7 +228,7 @@ func _run() -> void:
 	await _shot("22_fight_spacing")
 
 	# ---- 4) New finishers: Q (Mirror Break) and F (Execution) inside the crit window; Q must not shift realms.
-	var victims: Array = level.get_tree().get_nodes_in_group("enemy").filter(func(n: Node) -> bool: return n is EnemyBase and not (n as EnemyBase).is_dead and (n as Node3D).global_position.distance_to(_player.global_position) < 12.0)
+	var victims: Array = level.get_tree().get_nodes_in_group("enemy").filter(func(n: Node) -> bool: return n is EnemyBase and not (n as EnemyBase).is_dead and (n as EnemyBase).is_hittable_now() and (n as Node3D).global_position.distance_to(_player.global_position) < 12.0)
 	var victim: EnemyBase = victims[0] as EnemyBase if not victims.is_empty() else null
 	if victim != null:
 		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
@@ -246,9 +246,11 @@ func _run() -> void:
 		_check("q_in_window_is_mirror_break", not _attacks.is_empty() and String(_attacks[0][0]) == "fin_mirror_break" and realm_before == realm_after, "%s realm %d->%d" % [str(_attacks), realm_before, realm_after])
 		await create_timer(1.6).timeout
 		victim.health = int(victim.max_health * 0.3)
+		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
+		_player.set_facing_direction(Vector3(0, 0, 1))
 		_player._finisher_cooldown_end_ms = 0
 		_player.open_finisher_window(victim)
-		await create_timer(0.1).timeout
+		await process_frame
 		_attacks.clear()
 		await _tap_action("landing_attack")
 		await create_timer(1.6).timeout

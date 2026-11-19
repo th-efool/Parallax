@@ -627,17 +627,21 @@ func is_heavy_charging() -> bool:
 ## with a key held, only enemies inside the cone around the stick are magnetised, otherwise the swing goes where
 ## the stick points. Stick neutral: swing at whoever is crowding us, even from behind.
 func _aim_attack(heavy: bool) -> void:
-	var has_input: bool = _last_move_input_dir.length_squared() > 0.001
-	var dir_hint: Vector3 = _last_move_input_dir if has_input else get_facing_direction()
-	current_target = _acquire_target(dir_hint, magnet_range * (1.15 if heavy else 1.0))
-	if current_target == null and not has_input:
-		current_target = _acquire_target(dir_hint, 2.8, true)
+	if _finisher_target != null and is_instance_valid(_finisher_target):
+		current_target = _finisher_target
+	else:
+		var has_input: bool = _last_move_input_dir.length_squared() > 0.001
+		var dir_hint: Vector3 = _last_move_input_dir if has_input else get_facing_direction()
+		current_target = _acquire_target(dir_hint, magnet_range * (1.15 if heavy else 1.0))
+		if current_target == null and not has_input:
+			current_target = _acquire_target(dir_hint, 2.8, true)
 	if current_target != null:
 		var to_t: Vector3 = current_target.global_position - global_position
 		to_t.y = 0.0
 		set_facing_direction(to_t)
 		_lunge_distance = clampf(to_t.length() - magnet_stop_distance, 0.0, float(current_attack.get("lunge", 1.0)) * 1.8)
 	else:
+		var dir_hint: Vector3 = _last_move_input_dir if _last_move_input_dir.length_squared() > 0.001 else get_facing_direction()
 		set_facing_direction(dir_hint)
 		_lunge_distance = float(current_attack.get("lunge", 1.0)) * 0.7
 
@@ -923,6 +927,8 @@ func _enter_strike() -> void:
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		var src: String = "player_heavy" if _attack_heavy else "player_light"
+		if current_attack.has("execute"):
+			src = "player_execution"
 		hb.begin_swing(_attack_damage, _attack_heavy, src)
 	var step_num: int = 0
 	if current_attack_name.begins_with("light_"):
@@ -990,7 +996,9 @@ func _sweep_strike_targets() -> void:
 		rel.y = 0.0
 		var dist: float = rel.length()
 		var inside: bool = false
-		if dist < 0.9:
+		if actor == current_target and bool(current_attack.get("finisher_move", false)) and dist <= reach + 1.5:
+			inside = true
+		elif dist < 0.9:
 			inside = true
 		elif dist <= reach + 0.35:
 			inside = fwd.angle_to(rel / dist) <= half_arc
@@ -1180,6 +1188,10 @@ func start_finisher(fin_name: String) -> bool:
 	_begin_attack(fin_name, int(def.get("damage", 60)), true, State.HEAVY_ATTACK)
 	if tgt != null:
 		current_target = tgt
+		var to_tgt: Vector3 = tgt.global_position - global_position
+		to_tgt.y = 0.0
+		if to_tgt.length_squared() > 0.001:
+			set_facing_direction(to_tgt)
 	_finisher_target = null
 	_finisher_cooldown_end_ms = Time.get_ticks_msec() + int(finisher_cooldown_sec * 1000.0)
 	_update_hurtbox_invulnerability(true)

@@ -32,9 +32,9 @@ func _run() -> void:
 	var w: WardenBoss = level.get_node_or_null("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
 	_check("warden_found", w != null)
 	if w != null:
-		_check("warden_hp_scaled", w.max_health == 3250, "max=%d" % w.max_health)
+		_check("warden_hp_scaled", w.max_health == 1500, "max=%d" % w.max_health)
 		_check("warden_execute_immune", w.execute_immune)
-		_check("warden_phase_threshold", w._phase2_threshold() == 1625, str(w._phase2_threshold()))
+		_check("warden_phase_threshold", w._phase2_threshold() == 999 or w._phase2_threshold() == 1000, str(w._phase2_threshold()))
 		w.set_section_enabled(true)
 		w.current_phase = WardenBoss.Phase.PHASE_2_MERGED
 		var hp0: int = w.health

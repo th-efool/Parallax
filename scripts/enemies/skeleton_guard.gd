@@ -38,7 +38,7 @@ func _on_enemy_reset() -> void:
 
 
 func _die(source_type: String) -> void:
-	if not _has_revived:
+	if not _has_revived and source_type != "player_execution" and source_type != "execution":
 		_has_revived = true
 		health = int(max_health * 0.5)
 		enter_stunned(3.0)
