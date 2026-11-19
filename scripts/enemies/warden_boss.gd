@@ -70,8 +70,8 @@ func _ready() -> void:
 func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
 	award_standard_kill_score = false
-	max_health = 1000
-	health = 1000
+	max_health = 1500
+	health = 1500
 	detection_range = 24.0
 	attack_range = 2.8
 	move_speed = 3.5
@@ -294,7 +294,7 @@ func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) 
 
 
 func _phase2_threshold() -> int:
-	return int(round(float(max_health) * 0.5))
+	return int(round(float(max_health) * 0.666))
 
 
 func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:

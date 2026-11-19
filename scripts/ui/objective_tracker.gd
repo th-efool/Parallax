@@ -252,20 +252,25 @@ func _draw() -> void:
 	var tw: float = disp.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tsz).x
 	var y: float = 156.0   # below the Reality/Mirror chip + shift cooldown readout
 	var glow: Color = GOLD.lerp(Color(1, 1, 1), _pop * 0.6)
-	# Diamond + title.
 	var cx: float = s.x * 0.5
-	var backing := Rect2(cx - tw * 0.5 - 40.0, y - 32.0, tw + 80.0, 50.0)
-	draw_rect(backing, Color(0.05, 0.05, 0.08, 0.7))
+	# Combined background.
+	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
+	var unified_w: float = maxf(tw + 80.0, 600.0)
+	var unified_h: float = 80.0 + (24.0 * lines.size())
+	var unified_backing := Rect2(cx - unified_w * 0.5, y - 32.0, unified_w, unified_h)
+	
+	draw_rect(unified_backing, Color(0.05, 0.05, 0.08, 0.65))
+	# Thin gold border for premium feel.
+	draw_rect(unified_backing, GOLD, false, 1.5)
+
+	# Diamond + title.
 	_diamond(Vector2(cx - tw * 0.5 - 16.0, y - 7.0), 5.0, glow)
 	_text(disp, Vector2(cx - tw * 0.5, y), title, tsz, glow, 8)
+	
 	# Hint (wrapped to two lines max).
-	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
-	if not lines.is_empty():
-		var h_backing := Rect2(cx - 300.0, y + 16.0, 600.0, 24.0 * lines.size() + 8.0)
-		draw_rect(h_backing, Color(0.02, 0.02, 0.03, 0.8))
 	for i in range(mini(2, lines.size())):
 		var lw: float = body.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(1.0, 1.0, 1.0, 1.0), 5)
+		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(0.9, 0.9, 0.9, 1.0), 5)
 	_draw_marker(s)
 
 

@@ -1,0 +1,23 @@
+name: UI Refinement and Git Deployment
+description: Take a screenshot to verify UI, refine if needed, and commit/push changes.
+steps:
+  - id: capture_screenshot
+    agent: "QA Validator"
+    description: "Capture screenshot of the mission UI"
+    task: "Run the project and take a screenshot of the mission UI overlay."
+    # Tool: godot-ai.editor_screenshot
+  - id: evaluate_ui
+    agent: "Core Architect"
+    description: "Evaluate the screenshot"
+    task: "Review the screenshot for visual quality, padding, border alignment, and overall 'impeccability'. If it fails, define refinement steps."
+    depends_on: [capture_screenshot]
+  - id: refine_ui
+    agent: "UI, Audio & VFX Artist"
+    description: "Refine UI based on evaluation"
+    task: "If requested by evaluator, apply tweaks to `objective_tracker.gd` (e.g., padding, color, border width) and re-screenshot."
+    depends_on: [evaluate_ui]
+  - id: commit_and_push
+    agent: "Core Architect"
+    description: "Commit and push changes"
+    task: "Perform a meaningful git commit of all changes and push to the remote repository."
+    depends_on: [refine_ui]

@@ -1,0 +1,12 @@
+name: UI Verification and Code Review
+description: Verify the UI overhaul in objective_tracker.gd and perform a formal code review.
+steps:
+  - id: verify_ui
+    agent: "QA Validator"
+    description: "Verify the UI overhaul in D:\\Desktop\\Godot\\parallax\\scripts\\ui\\objective_tracker.gd"
+    task: "Verify that the merged panel, gold border, and typography improvements render correctly without bugs or runtime errors using `godot.cmd --headless --check-only`."
+  - id: review_ui
+    agent: "Code Review Pro"
+    description: "Perform a formal code review of the changes in `objective_tracker.gd`."
+    task: "Review the recent changes in `D:\\Desktop\\Godot\\parallax\\scripts\\ui\\objective_tracker.gd` using the Code Review Pro skill."
+    depends_on: [verify_ui]
