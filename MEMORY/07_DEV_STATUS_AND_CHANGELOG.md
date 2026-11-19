@@ -139,3 +139,4 @@ Completed forensic audit of requirements REQ-01 to REQ-06.
 2026-11-19: WardenBoss - Increased max HP to 1500 and adjusted Phase 2 threshold to start at 1000 HP (effectively 2x duration for 500HP phase).
 2026-11-19: Player/HUD - Implemented Stamina system (max_stamina 250, regen_rate 2.0/s), dodge consumes 50 stamina, increased dodge cooldown to 0.7s (recovery 5x slower), adjusted health_regen_seconds_to_full to 60.0s.
 2026-11-19: Player - Fixed health regeneration rounding issue by adding an accumulator (`_health_regen_acc`), and reverted regen speed to 125 seconds.
+2026-11-19: ObjectiveTracker UI - Completely redesigned to remove generic background box. Implemented "Cracked Mirror" aesthetic using custom procedural fractured gold separators and optimized text shadows for high legibility.
