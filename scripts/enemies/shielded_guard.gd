@@ -66,7 +66,7 @@ func on_realm_changed(_active_realm: int) -> void:
 
 
 func _modify_incoming_damage(amount: int, is_heavy: bool, source_type: String) -> int:
-	if source_type == "environmental":
+	if source_type == "environmental" or source_type == "player_execution" or source_type == "execution":
 		return amount
 
 	if is_shield_raised() and is_attacker_in_front(_last_attacker):

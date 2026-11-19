@@ -102,6 +102,19 @@ func _run() -> void:
 	_check("dodge_cancels_hold", _executed.is_empty() and _pc.get_heavy_charge_ratio() == 0.0, str(_executed))
 	await _settle()
 
+	# 3b. Stacked Dodge: consecutive dodges chain and consume 2 charges.
+	var dodges_started: Array = [0]
+	var on_dodge = func(_d: Vector3, _dur: float) -> void:
+		dodges_started[0] += 1
+	_pc.dodge_started.connect(on_dodge)
+	await _tap("dodge", 2)
+	await _wait(0.24)
+	await _tap("dodge", 2)
+	await _wait(0.20)
+	_pc.dodge_started.disconnect(on_dodge)
+	_check("stacked_dodge_chains_twice", dodges_started[0] == 2, "dodges_started=%d" % dodges_started[0])
+	await _settle()
+
 	# 4. Live aim: swing 2 of a chain turns to the CURRENT stick / camera direction.
 	_pc.camera_yaw = 0.0
 	await _wait(0.2)

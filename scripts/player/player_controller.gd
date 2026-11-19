@@ -1257,7 +1257,7 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 	if _dodge_charges <= 0:
 		return false
-	if current_state != State.LOCOMOTION:
+	if current_state != State.LOCOMOTION and current_state != State.DODGE:
 		return false
 	_dodge_charges -= 1
 	if _dodge_cooldown_timer <= 0.0:
@@ -1661,6 +1661,14 @@ func _process_dodge_state(delta: float) -> void:
 	if is_inside_tree():
 		move_and_slide()
 
+	# Chained dodge: cancel into a second dodge once past the early i-frame window if charges remain.
+	if t_norm > 0.45 and _buffer_action == "dodge" and _dodge_charges > 0:
+		_consume_buffer()
+		_update_hurtbox_invulnerability(false)
+		var d_dir: Vector3 = _read_move_dir()
+		start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction)
+		return
+
 	# Attack out of a dodge late in the roll (dodge-attack chain).
 	if t_norm > 0.6 and (_buffer_action == "light" or _buffer_action == "heavy") and is_on_floor():
 		_update_hurtbox_invulnerability(false)
@@ -1677,6 +1685,10 @@ func _process_dodge_state(delta: float) -> void:
 		_update_hurtbox_invulnerability(false)
 		run_time = sprint_ramp_time * 0.8  # come out of a roll already moving fast
 		_set_state(State.LOCOMOTION, 0.0)
+		if _buffer_action == "dodge" and _dodge_charges > 0:
+			_consume_buffer()
+			var d_dir: Vector3 = _read_move_dir()
+			start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction)
 
 
 func _process_landing_plunge_state(delta: float) -> void:

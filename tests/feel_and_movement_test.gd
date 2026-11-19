@@ -229,6 +229,7 @@ func _run() -> void:
 
 	# ---- 4) New finishers: Q (Mirror Break) and F (Execution) inside the crit window; Q must not shift realms.
 	var victims: Array = level.get_tree().get_nodes_in_group("enemy").filter(func(n: Node) -> bool: return n is EnemyBase and not (n as EnemyBase).is_dead and (n as EnemyBase).is_hittable_now() and (n as Node3D).global_position.distance_to(_player.global_position) < 12.0)
+	victims.sort_custom(func(a: Node, b: Node) -> bool: return (a as Node3D).global_position.distance_to(_player.global_position) < (b as Node3D).global_position.distance_to(_player.global_position))
 	var victim: EnemyBase = victims[0] as EnemyBase if not victims.is_empty() else null
 	if victim != null:
 		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
@@ -237,7 +238,7 @@ func _run() -> void:
 		var rm: Node = root.find_child("RealmManager", true, false)
 		var realm_before: int = int(rm.get("current_realm")) if rm != null else -1
 		_player.open_finisher_window(victim)
-		await create_timer(0.1).timeout
+		await process_frame
 		await _shot("23_finisher_prompt")
 		_attacks.clear()
 		await _tap_action("dimension_shift")
