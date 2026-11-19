@@ -290,6 +290,7 @@ var _flow_tap: bool = false
 var _flow_streak: int = 0
 var _since_attack_end: float = 99.0
 var _presses_this_swing: int = 0
+var _heavy_charge_timer: float = 0.0
 var _health_regen_acc: float = 0.0
 
 
@@ -531,8 +532,10 @@ func _poll_action_inputs(delta: float) -> void:
 		# Mashing (several presses during the same swing) still chains through the buffer, just without FLOW.
 		_presses_this_swing += 1
 		_flow_tap = current_state == State.LIGHT_ATTACK and _presses_this_swing == 1 and _is_flow_timing()
-	if Input.is_action_just_pressed("heavy_attack"):
-		_buffer("heavy")
+	if Input.is_action_pressed("heavy_attack"):
+		_heavy_charge_timer += delta
+	if Input.is_action_just_released("heavy_attack"):
+		_execute_heavy_charge()
 	if Input.is_action_just_pressed("dodge"):
 		_buffer("dodge")
 	if Input.is_action_just_pressed("jump"):
@@ -547,6 +550,14 @@ func _poll_action_inputs(delta: float) -> void:
 	if not Input.is_action_pressed("jump"):
 		_jump_held = false
 
+
+func _execute_heavy_charge() -> void:
+	var charge: float = _heavy_charge_timer
+	_heavy_charge_timer = 0.0
+	var multiplier: float = 1.0 + (charge / 3.0)
+	var dmg: int = int(float(heavy_attack_damage) * multiplier)
+	var is_crit: bool = charge >= 3.0
+	_begin_attack("heavy", dmg, true, State.HEAVY_ATTACK, {"crit": is_crit})
 
 func _buffer(action: String) -> void:
 	_buffer_action = action
