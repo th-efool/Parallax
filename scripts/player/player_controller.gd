@@ -157,7 +157,7 @@ const FINISHER_BY_INPUT: Dictionary = {
 
 @export_group("Health & Survival")
 @export var max_health: int = 100
-@export var health_regen_seconds_to_full: float = 60.0
+@export var health_regen_seconds_to_full: float = 125.0
 @export var max_stamina: float = 250.0
 @export var stamina_regen_rate: float = 2.0
 
@@ -290,6 +290,7 @@ var _flow_tap: bool = false
 var _flow_streak: int = 0
 var _since_attack_end: float = 99.0
 var _presses_this_swing: int = 0
+var _health_regen_acc: float = 0.0
 
 
 func _ready() -> void:
@@ -589,9 +590,11 @@ func is_invulnerable() -> bool:
 func _apply_regen(delta: float) -> void:
 	if health < max_health:
 		var regen_per_sec: float = float(max_health) / health_regen_seconds_to_full
-		var old_health: int = health
-		health = mini(max_health, health + int(round(regen_per_sec * delta)))
-		if health != old_health:
+		_health_regen_acc += regen_per_sec * delta
+		if _health_regen_acc >= 1.0:
+			var add: int = int(_health_regen_acc)
+			_health_regen_acc -= float(add)
+			health = mini(max_health, health + add)
 			health_changed.emit(health, max_health)
 
 func _apply_stamina_regen(delta: float) -> void:
