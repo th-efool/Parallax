@@ -417,7 +417,9 @@ func say(text: String, event: String = "say", prio: int = 1) -> void:
 		return
 	if prio <= 0 and _speak_cd > 0.0:
 		return
-	_speak_cd = 2.5
+	if prio == 1 and _speak_cd > 1.2:
+		return
+	_speak_cd = 2.5 if prio <= 0 else (2.0 if prio == 1 else 1.5)
 	spoke.emit(self, text, event)
 	if manager != null and manager.has_method("on_ally_spoke"):
 		manager.call("on_ally_spoke", self, text, event, prio)
@@ -3417,15 +3419,22 @@ func _update_stuck(delta: float) -> void:
 ## Catch-up: allies are mirror echoes — when hopelessly far, fallen, or left behind a jump, they blink
 ## to a free spot behind the player (with a spectral flash) instead of path-finding across chasms.
 func _catch_up(player: Node3D) -> void:
-	var cam := get_viewport().get_camera_3d()
-	if cam and cam.is_position_in_frustum(global_position):
-		return
 	var d: Vector3 = player.global_position - global_position
 	var far: float = 30.0 if (current != null and current.is_mission()) else 20.0
-	if d.length() > far or d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0 or global_position.y < player.global_position.y - 6.0:
-		if player is PlayerController and (player as PlayerController).is_currently_airborne():
-			return
-		_blink_to(player)
+	var needs_catchup: bool = (d.length() > far or (d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0) or global_position.y < player.global_position.y - 6.0)
+	if not needs_catchup:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam and cam.is_position_in_frustum(global_position):
+		var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+		if space != null:
+			var q := PhysicsRayQueryParameters3D.create(cam.global_position, global_position + Vector3.UP * 0.9, 1)
+			var hit := space.intersect_ray(q)
+			if hit.is_empty() and d.length() < 40.0:
+				return
+	if player is PlayerController and (player as PlayerController).is_currently_airborne():
+		return
+	_blink_to(player)
 
 
 func _blink_to(player: Node3D) -> void:

@@ -78,6 +78,14 @@ func unregister(e: Node) -> void:
 		_enemy_target.erase(e.get_instance_id())
 
 
+func reset() -> void:
+	_tokens.clear()
+	_token_target.clear()
+	_waiting_since.clear()
+	_enemy_target.clear()
+	_last_attack_start.clear()
+
+
 func get_members() -> Array[Node]:
 	return _members
 
@@ -94,9 +102,24 @@ func _prune() -> void:
 		if obj == null or not is_instance_valid(obj) or now - float(_tokens[id]) > MAX_TOKEN_HOLD_SEC:
 			_tokens.erase(id)
 			_token_target.erase(id)
+			_waiting_since.erase(id)
 		elif obj is EnemyBase and ((obj as EnemyBase).is_dead or not (obj as EnemyBase).is_active):
 			_tokens.erase(id)
 			_token_target.erase(id)
+			_waiting_since.erase(id)
+		elif obj is EnemyAI:
+			var ai: EnemyAI = obj as EnemyAI
+			if ai.current_state != EnemyAI.State.CHASE and ai.current_state != EnemyAI.State.WINDUP and ai.current_state != EnemyAI.State.ATTACK:
+				_tokens.erase(id)
+				_token_target.erase(id)
+				_waiting_since.erase(id)
+
+	for wid in _waiting_since.keys():
+		var wobj: Object = instance_from_id(int(wid))
+		if wobj == null or not is_instance_valid(wobj):
+			_waiting_since.erase(wid)
+		elif wobj is EnemyBase and ((wobj as EnemyBase).is_dead or not (wobj as EnemyBase).is_active):
+			_waiting_since.erase(wid)
 
 
 # ------------------------------------------------------------------ per-target bookkeeping
@@ -208,7 +231,7 @@ func request_attack_token(e: EnemyAI, target: Node3D) -> bool:
 			_waiting_since.erase(other_id)
 			continue
 		var oe: EnemyAI = o as EnemyAI
-		var stale: bool = now - float(_waiting_since[other_id]) > 2.5 and oe.current_state != EnemyAI.State.CHASE
+		var stale: bool = now - float(_waiting_since[other_id]) > 2.5
 		if oe.is_dead or not oe.is_active or stale:
 			_waiting_since.erase(other_id)
 			continue

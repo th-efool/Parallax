@@ -181,8 +181,9 @@ func _update_camera(dt: float) -> void:
 		speed_k *= 0.6
 
 	# FOV: underdamped spring kick on top of the sprint widening.
-	_fov_kick_vel += (-_fov_kick * 160.0 - _fov_kick_vel * 16.0) * dt
-	_fov_kick += _fov_kick_vel * dt
+	var fov_spring: Vector2 = _spring(_fov_kick, _fov_kick_vel, 0.0, 160.0, 16.0, dt)
+	_fov_kick = fov_spring.x
+	_fov_kick_vel = fov_spring.y
 	if _camera != null:
 		var target_fov: float = _base_fov + sprint_fov_bonus * speed_k
 		_fov_smoothed = lerpf(_fov_smoothed, target_fov, clampf(5.0 * dt, 0.0, 1.0))

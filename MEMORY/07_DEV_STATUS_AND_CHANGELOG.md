@@ -80,8 +80,8 @@
 - **2026-11-18 (Squad voice coherence)**: Priority-0 chatter off by default (`ambient_chatter`); subtitles emitted when a line is heard (`SquadTTSPlayer.line_started` / `line_dropped`), stale queued lines (> 4 s) skipped, no streaming LLM subtitles, no canned ack on Director orders, prompt rule 11 (say = only the issued orders); voice engine `auto` = cloud then OS voices (`DisplayServer.tts_*`, `audio/general/text_to_speech=true`) for the rest of the session after a cloud failure; per-role pitch/rate; brisk-pace TTS prompt; tests force `voice_engine = "off"`.
 - **2026-11-18 (Gate stone, support ledge, more enemies)**: EntryMirrorSwitch moved left of the gate (-3.1, 0, 3.2), guardian plinths to x ±5.0; gate guards = 2 Shielded ×1.35 (`_enlarge_enemy`) + Grave Brute + Hexcaster; WeakStoneSupport on `SupportLedge` (deck +3.6 m) reached by ParkourStep_1..3 (+1/+2/+3 m), anchor switch behind it on the ledge, ledge blockers; ShieldedGuard_1 at z 83.2; +2 gallery skeletons, +1 esplanade hexcaster.
 - **2026-11-18 (Long bridges, bastions, 3× halls)**: connectors are now winding bridges with 2 bastions (3 enemies each), 4.5–5.1× longer (R1 179 m, R2/R3/R5 81 m); Hall of Echoes 60 × 60 (9 encounter + 3 roamers), clock-tower chamber 36 × 36 (8 roamers); terrace moved to z −136; gallery +104, arena/summit +160; `JourneyLayout` converts story ↔ world for weather/audio/objectives/flora/dressing/terrain/saves; test `tests/layout_rework_test.gd`.
--   2 0 2 6 - 1 1 - 1 8 :   C o m p l e t e d   S t e p   1   o f   I d i o t H a n d O f f G u i d e   ( R E Q - 0 1 :   O b j e c t i v e T r a c k e r   l a b e l s   d e f e r r e d   t o   l e v e l _ r e a d y ,   v i s u a l _ c h e c k _ s h o t s   s t a b i l i z e d )  
- 
+- 2026-11-18: Completed Step 1 of IdiotHandOffGuide (REQ-01: ObjectiveTracker labels deferred to level_ready, visual_check_shots stabilized)
+
 2026-11-18: Added force_solve_bypass() to ChamberMechanismPuzzle (REQ-14) in scripts/environment/mechanism_puzzle.gd.
 2026-11-18: [REQ-10, REQ-11] Optimized GPU draw-calls in Hall of Echoes (visibility culling), optimized shadow splits/distance for low/medium quality, fixed benign GDScript warnings (`INTEGER_DIVISION`, `SHADOWED_VARIABLE`, `UNUSED_VARIABLE`) in `leaderboard_store.gd`, `world_label_overlay.gd`, and `hud_controller.gd`.
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
@@ -99,8 +99,8 @@ Exclude reality-immune `PhantomTwin`s from `WorldIntel.resolve()` & `AllySquadMa
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
 Applied fixes for `taunted_enemy_chases_past_leash` rail obstruction and arena isolation in `tests/squad_ai_windowed_test.gd` (REQ-07, REQ-15, REQ-24).
 2026-11-18: REQ-08 - Fixed PlayerController._is_flow_timing() guard and stabilized tests/feel_and_movement_test.gd.
--   2 0 2 6 - 1 1 - 1 8 :   F i x e d   L a m b d a   E r r o r   ( R E Q - 0 9 )   i n   G o r e F X . _ a t t a c h _ b l e e d _ t r a i l   b y   r e p l a c i n g   t i m e r   c o n n e c t i o n   w i t h   T w e e n .  
- 
+- 2026-11-18: Fixed Lambda Error (REQ-09) in GoreFX._attach_bleed_trail by replacing timer connection with Tween.
+
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
 REQ-11 - Fixed UI warning/integer division in squad_comms_hud.gd. hud_controller.gd checked for REQ-11 issues, none found.
 
@@ -112,16 +112,16 @@ Implemented 2-checkpoint death rewind (`REQ-21`) in `EncounterDirector` (`_check
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
 [REQ-16, REQ-19] Ally teleport (exempt visible) and command parser (pull/bring/distance taunt) implemented (`scripts/allies/squad_ally.gd`, `scripts/allies/squad_command_parser.gd`).
 2026-11-18: HUD & UI Readability (+20% icon scaling, improved contrast, dark backing plates) implemented per REQ-17, REQ-18. (Author: IdiotHandOffGuide agent)
-2 0 2 6 - 1 1 - 1 8 :  
- R E Q - 2 0  
- -  
- S l o w e d  
- a l l y  
- a n d  
- p l a y e r  
- h e a l t h  
- r e g e n e r a t i o n .  
- 
+2026-11-18:
+REQ-20
+-
+Slowed
+ally
+and
+player
+health
+regeneration.
+
 - 2026-11-18: Implemented REQ-06: AllySquadManager / WorldIntel now filters unhittable phantoms in Reality. Verified with test case.
 Completed Step 19 (REQ-22): Distinct enemy gear (Knight/Barbarian) and visual appearance (hostile dark materials/glow for Warden, Shielded Guard, Skeleton Guard).
 2026-11-18: Skeleton Guard: increased detection to 22.0m, added 1-time 3s revive (REQ-23).
@@ -141,3 +141,11 @@ Completed forensic audit of requirements REQ-01 to REQ-06.
 2026-11-19: Player - Fixed health regeneration rounding issue by adding an accumulator (`_health_regen_acc`), and reverted regen speed to 125 seconds.
 2026-11-19: ObjectiveTracker UI - Completely redesigned to remove generic background box. Implemented "Cracked Mirror" aesthetic using custom procedural fractured gold separators and optimized text shadows for high legibility.
 2026-11-19: Player - Stamina System updated: Dodge is now infinite, Landing Plunge consumes 50 stamina, and stamina regeneration rate increased 3x (from 2.0 to 6.0 units/s).
+2026-11-19: Agent Army Full Audit & Freeze Fixes - Resolved critical combat/respawn freeze issues across the entire pipeline:
+- EncounterDirector: Replaced IDENTITY fallback spawn with Start Terrace (0, 0, -136.0); removed destructive apply_saved_world_state() on death rewind; synchronized checkpoint sections; added GoreFX, SquadCoordinator, and GameFeel resets on player death/restart.
+- Combat AI & Squad Coordinator: Restricted attack token hoarding to striking range (dist <= ring_r + 0.5); gated poise counter-attacks; added token pruning when exiting combat states; added SquadCoordinator.reset().
+- Ally Squad AI & Comms: Connected player_respawned to AllySquadManager.regroup(true); added LoS raycast check in _catch_up() for occluded allies; tiered voice cooldowns; guarded Win32 SAPI COM tts_stop/tts_speak against rapid main-thread deadlocks (>=80ms frame yield).
+- VFX & Physics: Disabled continuous_cd on RigidBody3D gibs (continuous_cd = false) to prevent physics solver overload against trimeshes; reduced MAX_GIBS to 32; added GoreFX.cleanup_all_fx(); passed ignore_time_scale = true on all combat timer cleanups; guarded GameFeel against NaN/INF time_scale.
+- Player Controller & Rig: Closed finisher window and reset dodge charges on death/respawn; fixed dead code in _verify_spawn_safety(); stabilized camera _fov_kick with NaN-safe spring math.
+- Breakable Props & Triggers: SectionTriggerVolume re-arms on uncompleted encounter reset; BreakableProp complete_break_now accepts apply_hazard = false to prevent spurious hazard damage during world restore.
+- Headless verification: Passed godot --check-only on all modified scripts, restart_flow_test.gd, and charged_heavy_test.gd (17 checks, 0 failed).

@@ -36,6 +36,7 @@ var _cloud_failed: bool = false
 var _sys_voices: PackedStringArray = []
 var _sys_checked: bool = false
 var _sys_quiet: int = 0
+var _last_sys_speak_ms: int = 0
 
 
 func _ready() -> void:
@@ -143,6 +144,7 @@ func interrupt() -> void:
 	_playback = null
 	if String(_current.get("engine", "")) == "system" and DisplayServer.get_name() != "headless":
 		DisplayServer.tts_stop()
+		_last_sys_speak_ms = Time.get_ticks_msec()
 	if not _current.is_empty():
 		line_finished.emit(String(_current["speaker"]))
 	_current = {}
@@ -174,6 +176,15 @@ func _start(it: Dictionary, eng: String) -> void:
 	_current["started_ms"] = Time.get_ticks_msec()
 	if eng == "system":
 		var voices: PackedStringArray = _system_voices()
+		if voices.is_empty():
+			line_dropped.emit(String(it["speaker"]), String(it["text"]))
+			_current = {}
+			_next()
+			return
+		var now_ms: int = Time.get_ticks_msec()
+		if now_ms - _last_sys_speak_ms < 80 and is_inside_tree():
+			await get_tree().process_frame
+		_last_sys_speak_ms = Time.get_ticks_msec()
 		var vid: String = voices[int(it["slot"]) % voices.size()]
 		DisplayServer.tts_speak(String(it["text"]), vid, 80, float(it["pitch"]), float(it["rate"]), 0, false)
 		_sys_quiet = 0

@@ -82,7 +82,7 @@ func trigger_break(by_heavy_attack: bool = true) -> bool:
 	return true
 
 
-func complete_break_now(explicit_candidates: Array[Node] = []) -> void:
+func complete_break_now(explicit_candidates: Array[Node] = [], apply_hazard: bool = true) -> void:
 	if current_state == PropState.BROKEN:
 		return
 	current_state = PropState.BROKEN
@@ -91,8 +91,9 @@ func complete_break_now(explicit_candidates: Array[Node] = []) -> void:
 	_sync_visuals_and_colliders()
 
 	if prop_kind == PropKind.CRACKED_PILLAR:
-		_apply_pillar_fall_hazard(explicit_candidates)
-		_emit_collapse_feedback()
+		if apply_hazard:
+			_apply_pillar_fall_hazard(explicit_candidates)
+			_emit_collapse_feedback()
 	elif prop_kind == PropKind.CENTRAL_MIRROR_PLANE:
 		_spawn_shatter_fragments()
 		if RealmManager.instance != null and not RealmManager.instance.is_merged:

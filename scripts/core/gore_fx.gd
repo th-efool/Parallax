@@ -8,7 +8,7 @@ const WORLD_MASK: int = 4 | 8 | 16  # World_Shared | World_Reality | World_Mirro
 const BLOOD_RED: Color = Color(0.40, 0.012, 0.018, 1.0)
 const ICHOR_CYAN: Color = Color(0.22, 0.86, 1.0, 1.0)
 const MAX_DECALS: int = 48
-const MAX_GIBS: int = 80
+const MAX_GIBS: int = 32
 
 static var _decals: Array[Node] = []
 static var _gibs: Array[Node] = []
@@ -18,9 +18,19 @@ static var _bind_cache: Dictionary = {}
 static var _rng := RandomNumberGenerator.new()
 
 
-static func clear_caches() -> void:
-	_decals.clear()
+static func cleanup_all_fx() -> void:
+	for g in _gibs:
+		if is_instance_valid(g):
+			(g as Node).queue_free()
 	_gibs.clear()
+	for d in _decals:
+		if is_instance_valid(d):
+			(d as Node).queue_free()
+	_decals.clear()
+
+
+static func clear_caches() -> void:
+	cleanup_all_fx()
 	_splat_tex = null
 	_droplet_meshes.clear()
 	_bind_cache.clear()
@@ -40,7 +50,7 @@ static func blood_color_for(is_spectral: bool) -> Color:
 static func _free_after(node: Node, seconds: float) -> void:
 	if node == null or not node.is_inside_tree():
 		return
-	node.get_tree().create_timer(seconds, false).timeout.connect(node.queue_free)
+	node.get_tree().create_timer(seconds, false, false, true).timeout.connect(node.queue_free)
 
 
 # ---------------------------------------------------------------- particles
@@ -366,7 +376,7 @@ static func ground_crack(context: Node, origin: Vector3, dir: Vector3, length: f
 	for i in range(steps):
 		var at: Vector3 = origin + flat * (0.4 + float(i) * length / steps)
 		var delay: float = 0.025 * i
-		var tmr: SceneTreeTimer = host.get_tree().create_timer(delay, false)
+		var tmr: SceneTreeTimer = host.get_tree().create_timer(delay, false, false, true)
 		tmr.timeout.connect(func() -> void:
 			if not is_instance_valid(host):
 				return
@@ -446,7 +456,7 @@ static func dismember(context: Node, model_root: Node3D, impulse_dir: Vector3, f
 		rb.name = "Gib_" + key.replace(".", "_")
 		rb.collision_layer = 0
 		rb.collision_mask = WORLD_MASK
-		rb.continuous_cd = true
+		rb.continuous_cd = false
 		rb.gravity_scale = 1.35
 		rb.linear_damp = 0.15
 		rb.angular_damp = 0.6

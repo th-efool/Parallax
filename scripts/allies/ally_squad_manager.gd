@@ -50,6 +50,16 @@ func _ready() -> void:
 	add_child(intel)
 	if spawn_allies:
 		call_deferred("_spawn_squad")
+	call_deferred("_connect_director")
+
+
+func _connect_director() -> void:
+	if EncounterDirector.instance != null and not EncounterDirector.instance.player_respawned.is_connected(_on_director_player_respawned):
+		EncounterDirector.instance.player_respawned.connect(_on_director_player_respawned)
+
+
+func _on_director_player_respawned(_sec_id: int, _xform: Transform3D) -> void:
+	regroup(true)
 
 
 # ------------------------------------------------------------------ spawning
@@ -271,7 +281,11 @@ func _tick_banter(delta: float) -> void:
 
 ## Teleport the squad to formation around the player (full heal on respawn / new run).
 func regroup(full_heal: bool) -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player") as Node3D
 	for a in allies:
+		if not is_instance_valid(a):
+			continue
 		var p: Vector3 = a.call("_formation_point", _player) as Vector3
 		if full_heal:
 			a.reset_full(p)

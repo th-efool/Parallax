@@ -91,7 +91,7 @@ static func spawn_impact_burst(host: Node, world_pos: Vector3, mirror_style: boo
 	var tw := p.create_tween()
 	tw.tween_property(flash, "light_energy", 0.0, 0.14)
 
-	host.get_tree().create_timer(p.lifetime + 0.6, false).timeout.connect(p.queue_free)
+	host.get_tree().create_timer(p.lifetime + 0.6, false, false, true).timeout.connect(p.queue_free)
 	return p
 
 

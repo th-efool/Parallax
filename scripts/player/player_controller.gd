@@ -576,6 +576,10 @@ func _poll_action_inputs(delta: float) -> void:
 func _update_heavy_hold(w: float, delta: float) -> bool:
 	if not _heavy_hold or current_state != State.HEAVY_ATTACK or attack_phase != AttackPhase.WINDUP:
 		return false
+	if ui_input_locked:
+		_abort_attack()
+		_set_state(State.LOCOMOTION, 0.0)
+		return false
 	var held: bool = Input.is_action_pressed("heavy_attack") and not ui_input_locked
 	if not held:
 		_release_heavy_charge()
@@ -1119,8 +1123,9 @@ func _update_finisher_window() -> void:
 	# gap beyond 50 ms is credited back.
 	var now_ms: int = Time.get_ticks_msec()
 	var gap: int = now_ms - _finisher_last_tick_ms
-	if _finisher_last_tick_ms > 0 and gap > 50:
-		_finisher_window_end_ms += gap - 50
+	# Cap lag-hitch extension to 300 ms so pauses/respawns never produce runaway windows
+	if _finisher_last_tick_ms > 0 and gap > 50 and gap < 500:
+		_finisher_window_end_ms += mini(gap - 50, 300)
 	_finisher_last_tick_ms = now_ms
 	if now_ms >= _finisher_window_end_ms or current_state == State.DEAD or current_state == State.STAGGER:
 		_close_finisher_window("")
@@ -1242,6 +1247,9 @@ func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 		return false
 	if current_state != State.LOCOMOTION:
 		return false
+	_dodge_charges -= 1
+	if _dodge_cooldown_timer <= 0.0:
+		_dodge_cooldown_timer = dodge_cooldown
 	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
 	if airborne:
 		if not allow_air_dash or _air_dash_used:
@@ -1428,6 +1436,8 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	combo_step = 0
 	_combo_window_timer = 0.0
 	_dodge_elapsed = 0.0
+	_dodge_charges = max_dodge_charges
+	_dodge_cooldown_timer = 0.0
 	_coyote_timer = 0.0
 	_pending_ground_slam = false
 	_landing_recover_timer = 0.0
@@ -1443,7 +1453,9 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	_update_camera_pivot()
 	_update_hurtbox_invulnerability(false)
 	_abort_attack()
+	_close_finisher_window("")
 	_set_state(State.LOCOMOTION, 0.0)
+	health_changed.emit(health, max_health)
 
 func _verify_spawn_safety(pos: Vector3) -> Vector3:
 	var space_state = get_world_3d().direct_space_state
@@ -1452,9 +1464,8 @@ func _verify_spawn_safety(pos: Vector3) -> Vector3:
 	
 	if result.is_empty():
 		push_warning("Respawn position invalid! Using fallback.")
-		return Vector3(0, 5, 0)
+		return Vector3(0.0, 0.5, -136.0)
 	return pos
-	health_changed.emit(health, max_health)
 
 
 func get_sword_hitbox() -> Hitbox3D:
@@ -1652,9 +1663,6 @@ func _process_dodge_state(delta: float) -> void:
 
 	if _state_timer <= 0.0:
 		_update_hurtbox_invulnerability(false)
-		_dodge_charges -= 1
-		if _dodge_charges < max_dodge_charges:
-			_dodge_cooldown_timer = dodge_cooldown
 		run_time = sprint_ramp_time * 0.8  # come out of a roll already moving fast
 		_set_state(State.LOCOMOTION, 0.0)
 
@@ -1697,6 +1705,7 @@ func _update_hurtbox_invulnerability(invuln: bool) -> void:
 
 func _on_death() -> void:
 	_abort_attack()
+	_close_finisher_window("")
 	_update_hurtbox_invulnerability(false)
 	_set_state(State.DEAD, 0.0)
 	player_died.emit()

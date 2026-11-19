@@ -829,7 +829,20 @@ func _process_chase(delta: float, target: Node3D) -> void:
 		_enraged = _squad.is_last_standing(self, target)
 	var speed: float = move_speed * (1.25 if _enraged else 1.0)
 	var desired: Vector3
-	var has_token: bool = _squad == null or _squad.request_attack_token(self, target)
+
+	var ring_r: float = attack_range + ring_margin + _ring_jitter
+	if health < max_health * 0.3:
+		ring_r += 1.2
+
+	# Only request a token when within striking/commitment reach; otherwise approach without starving ring mates.
+	var can_request_token: bool = dist <= ring_r + 0.5
+	var has_token: bool = false
+	if _squad == null:
+		has_token = true
+	elif can_request_token:
+		has_token = _squad.request_attack_token(self, target)
+	else:
+		_release_token()
 
 	if has_token:
 		if dist <= attack_range:
@@ -838,15 +851,12 @@ func _process_chase(delta: float, target: Node3D) -> void:
 		desired = dir_to_p * speed * 1.15
 	else:
 		# Hold a spaced ring just outside reach, circling to find a flank.
-		var ring_r: float = attack_range + ring_margin + _ring_jitter
-		if health < max_health * 0.3:
-			ring_r += 1.2
-		var goal: Vector3 = _squad.get_ring_position(self, target, ring_r, _orbit_sign)
+		var goal: Vector3 = _squad.get_ring_position(self, target, ring_r, _orbit_sign) if _squad != null else target.global_position
 		var to_goal: Vector3 = goal - global_position
 		to_goal.y = 0.0
 		var g_len: float = to_goal.length()
-		var strafe_speed: float = speed * 0.62
-		desired = to_goal / g_len * minf(strafe_speed, g_len * 3.0) if g_len > 0.05 else Vector3.ZERO
+		var move_rate: float = speed if dist > ring_r + 1.2 else speed * 0.62
+		desired = to_goal / g_len * minf(move_rate, g_len * 3.0) if g_len > 0.05 else Vector3.ZERO
 		# Too close while not attacking: back off.
 		if dist < attack_range + 0.4:
 			desired += -dir_to_p * speed * 0.8
@@ -1097,10 +1107,12 @@ func _on_hit_reaction(final_damage: int, is_heavy: bool, source_type: String, st
 		if _rng.randf() < counter_attack_chance:
 			var p: Node3D = _resolve_target_player()
 			if p != null and global_position.distance_to(p.global_position) <= attack_range + 0.9:
+				var got_token: bool = true
 				if _squad != null:
 					_squad.release_token(self)
-					_squad.request_attack_token(self, p)
-				start_windup(windup_duration * 0.65)
+					got_token = _squad.request_attack_token(self, p)
+				if got_token:
+					start_windup(windup_duration * 0.65)
 		return
 	enter_stagger(flinch_duration)
 

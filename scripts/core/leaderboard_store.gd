@@ -909,11 +909,11 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 			if bool(flags.get("hall_pillar_broken", false)):
 				var pil: Node = level_root.get_node_or_null("Stage02_HallOfEchoes/CrackedCentralPillar")
 				if pil != null and pil.has_method("complete_break_now"):
-					pil.call("complete_break_now")
+					pil.call("complete_break_now", [], false)
 			if bool(flags.get("gallery_support_broken", false)):
 				var sup: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/WeakStoneSupport")
 				if sup != null and sup.has_method("complete_break_now"):
-					sup.call("complete_break_now")
+					sup.call("complete_break_now", [], false)
 			if bool(flags.get("gallery_bridge_repaired", false)):
 				var brg: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/GallerySpectralBridge")
 				var sw3: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/BridgeAnchorSwitch")

@@ -107,9 +107,12 @@ func _on_encounter_cleared(cleared_id: String, _sec_id: int) -> void:
 
 
 func _on_section_reset_requested(reset_sec_id: int) -> void:
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	if reset_sec_id <= target_section:
+		if ed != null and not bool(ed.completed_encounters.get(encounter_id, false)):
+			has_triggered = false
 	if reset_sec_id != target_section:
 		return
-	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
 	if ed != null and not encounter_id.is_empty() and encounter_enemy_count > 0:
 		if not bool(ed.completed_encounters.get(encounter_id, false)):
 			ed.begin_combat_encounter(encounter_id, encounter_enemy_count)

@@ -43,8 +43,9 @@ const MAX_HISTORY: int = 5
 func _enter_tree() -> void:
 	instance = self
 	add_to_group("encounter_director")
-	# Initialize history with Entry Vestibule
-	_checkpoint_history.append({"section": Section.ENTRY, "transform": Transform3D.IDENTITY, "realm": 0})
+	# Initialize history with Entry Vestibule at start terrace
+	var default_spawn := Transform3D(Basis.IDENTITY.rotated(Vector3.UP, PI), Vector3(0.0, 0.0, -136.0))
+	_checkpoint_history.append({"section": Section.ENTRY, "transform": default_spawn, "realm": 0})
 
 
 func _exit_tree() -> void:
@@ -108,6 +109,8 @@ func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: in
 		_checkpoint_history.append(new_cp)
 		if _checkpoint_history.size() > MAX_HISTORY:
 			_checkpoint_history.remove_at(0)
+	else:
+		_checkpoint_history[_checkpoint_history.size() - 1] = new_cp
 			
 	var run_state: Node = _get_run_state()
 	if run_state != null and run_state.has_method("bank_section_score"):
@@ -191,8 +194,10 @@ func handle_player_death(player: Node = null) -> void:
 	
 	var target_cp = _checkpoint_history[target_idx]
 	current_section = target_cp.section
+	checkpoint_section = target_cp.section
 	checkpoint_transform = target_cp.transform
 	checkpoint_realm = target_cp.realm
+	_checkpoint_history.resize(target_idx + 1)
 	
 	# Clear progress for sections ahead of the rewind
 	var sections_to_clear = []
@@ -201,11 +206,21 @@ func handle_player_death(player: Node = null) -> void:
 			sections_to_clear.append(sec)
 	for sec in sections_to_clear:
 		completed_sections.erase(sec)
-		
-	# Re-sync world state from save
-	var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
-	if store != null and store.has_method("apply_saved_world_state"):
-		store.call("apply_saved_world_state")
+		section_reset_requested.emit(int(sec))
+
+	# Clean up leftover combat gibs, decals, and particles from failed encounter
+	var gore_script = load("res://scripts/core/gore_fx.gd")
+	if gore_script != null and gore_script.has_method("cleanup_all_fx"):
+		gore_script.call("cleanup_all_fx")
+
+	# Reset squad coordinator attack tokens
+	var squad_coord = get_tree().root.get_node_or_null("SquadCoordinator")
+	if squad_coord != null and squad_coord.has_method("reset"):
+		squad_coord.call("reset")
+
+	var game_feel = load("res://scripts/core/game_feel.gd")
+	if game_feel != null and game_feel.has_method("reset_time_scale"):
+		game_feel.call("reset_time_scale")
 
 	# 4. Restore checkpoint realm state (unlocks shift if died during Warden Phase 2)
 	if RealmManager.instance != null:
@@ -230,6 +245,22 @@ func restart_full_run() -> void:
 	checkpoint_realm = 0
 	active_enemy_count = 0
 	current_encounter_id = ""
+
+	var default_spawn := Transform3D(Basis.IDENTITY.rotated(Vector3.UP, PI), Vector3(0.0, 0.0, -136.0))
+	_checkpoint_history.clear()
+	_checkpoint_history.append({"section": Section.ENTRY, "transform": default_spawn, "realm": 0})
+
+	var gore_script = load("res://scripts/core/gore_fx.gd")
+	if gore_script != null and gore_script.has_method("cleanup_all_fx"):
+		gore_script.call("cleanup_all_fx")
+
+	var squad_coord = get_tree().root.get_node_or_null("SquadCoordinator")
+	if squad_coord != null and squad_coord.has_method("reset"):
+		squad_coord.call("reset")
+
+	var game_feel = load("res://scripts/core/game_feel.gd")
+	if game_feel != null and game_feel.has_method("reset_time_scale"):
+		game_feel.call("reset_time_scale")
 
 	var run_state: Node = _get_run_state()
 	if run_state != null and run_state.has_method("start_new_run"):

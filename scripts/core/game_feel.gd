@@ -50,6 +50,12 @@ static func slowmo(context: Node, time_scale: float, duration: float) -> void:
 		gf.push_time_effect(time_scale, duration)
 
 
+static func reset_time_scale() -> void:
+	if _instance != null and is_instance_valid(_instance):
+		(_instance as GameFeel).clear_time_effects()
+	Engine.time_scale = 1.0
+
+
 static func add_trauma(context: Node, amount: float, world_pos: Variant = null, falloff_radius: float = 18.0) -> void:
 	if context == null or not context.is_inside_tree():
 		return
@@ -77,9 +83,11 @@ static func _hit_stop_allowed(context: Node) -> bool:
 
 
 func push_time_effect(time_scale: float, duration: float) -> void:
+	if not is_finite(time_scale) or not is_finite(duration):
+		return
 	if duration <= 0.0:
 		return
-	var end_usec: int = Time.get_ticks_usec() + int(duration * 1000000.0)
+	var end_usec: int = Time.get_ticks_usec() + int(clampf(duration, 0.001, 10.0) * 1000000.0)
 	_effects.append({"scale": clampf(time_scale, 0.01, 1.0), "end": end_usec})
 	_apply_time_scale()
 
@@ -117,7 +125,7 @@ func _apply_time_scale() -> void:
 		_owns_time_scale = false
 		return
 	_owns_time_scale = true
-	Engine.time_scale = lowest
+	Engine.time_scale = clampf(lowest, 0.01, 1.0)
 
 
 func _exit_tree() -> void:
