@@ -401,11 +401,9 @@ func _process(delta: float) -> void:
 				landing_prompt_bright = now_airborne
 				_sync_ui_nodes()
 		if _stamina_bar != null:
-			var dodge_cd: float = float(_player_ref.get("_dodge_cooldown_timer")) if _player_ref.get("_dodge_cooldown_timer") != null else 0.0
-			var ratio: float = 1.0 - clampf(dodge_cd / 0.25, 0.0, 1.0)
-			if int(_player_ref.get("current_state")) == 1: # DODGE
-				ratio = 0.25
-			_stamina_bar.value = ratio * 100.0
+			var stamina: float = float(_player_ref.get("stamina")) if _player_ref.get("stamina") != null else 100.0
+			var max_stamina: float = float(_player_ref.get("max_stamina")) if _player_ref.get("max_stamina") != null else 100.0
+			_stamina_bar.value = (stamina / max_stamina) * 100.0
 
 
 func bind_singletons() -> void:

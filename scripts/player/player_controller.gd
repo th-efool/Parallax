@@ -157,7 +157,9 @@ const FINISHER_BY_INPUT: Dictionary = {
 
 @export_group("Health & Survival")
 @export var max_health: int = 100
-@export var health_regen_seconds_to_full: float = 125.0
+@export var health_regen_seconds_to_full: float = 60.0
+@export var max_stamina: float = 250.0
+@export var stamina_regen_rate: float = 2.0
 
 @export_group("Locomotion")
 @export var run_speed: float = 6.0
@@ -181,7 +183,7 @@ const FINISHER_BY_INPUT: Dictionary = {
 @export var dodge_speed: float = 10.5
 @export var dodge_iframe_start: float = 0.03
 @export var dodge_iframe_duration: float = 0.26
-@export var dodge_cooldown: float = 0.14
+@export var dodge_cooldown: float = 0.70
 @export var allow_air_dash: bool = true
 @export var perfect_dodge_slowmo_scale: float = 0.3
 @export var perfect_dodge_slowmo_time: float = 0.55
@@ -231,6 +233,7 @@ const FINISHER_BY_INPUT: Dictionary = {
 static var ui_input_locked: bool = false
 
 var health: int = 100
+var stamina: float = 250.0
 var current_state: State = State.LOCOMOTION
 var camera_yaw: float = 0.0
 var camera_pitch: float = deg_to_rad(-15.0)
@@ -479,6 +482,7 @@ func _physics_process(delta: float) -> void:
 	_poll_action_inputs(delta)
 	_update_finisher_window()
 	_apply_regen(delta)
+	_apply_stamina_regen(delta)
 
 	if _dodge_cooldown_timer > 0.0:
 		_dodge_cooldown_timer = maxf(0.0, _dodge_cooldown_timer - delta)
@@ -589,6 +593,10 @@ func _apply_regen(delta: float) -> void:
 		health = mini(max_health, health + int(round(regen_per_sec * delta)))
 		if health != old_health:
 			health_changed.emit(health, max_health)
+
+func _apply_stamina_regen(delta: float) -> void:
+	if stamina < max_stamina:
+		stamina = minf(max_stamina, stamina + stamina_regen_rate * delta)
 
 
 # ------------------------------------------------------------------ attacks
@@ -1145,8 +1153,9 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 # ------------------------------------------------------------------ dodge / plunge
 
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
-	if _dodge_cooldown_timer > 0.0:
+	if _dodge_cooldown_timer > 0.0 or stamina < 50.0:
 		return false
+	stamina -= 50.0
 	if current_state != State.LOCOMOTION:
 		return false
 	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
