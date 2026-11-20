@@ -568,19 +568,19 @@ func _make_gate(node_name: String, pos: Vector3, sec_id: int, encounter_id: Stri
 	gate.starts_open = starts_open_flag
 	gate.gate_mesh_path = NodePath("GateMesh")
 
-	var mesh := _make_mesh_box("GateMesh", Vector3(4.0, 3.0, 0.35), Color(0.75, 0.32, 0.18), "plain")
-	mesh.position = Vector3(0.0, 1.5, 0.0)
+	var mesh := _make_mesh_box("GateMesh", Vector3(4.6, 3.4, 0.35), Color(0.75, 0.32, 0.18), "plain")
+	mesh.position = Vector3(0.0, 1.7, 0.0)
 	gate.add_child(mesh)
 
 	var body := StaticBody3D.new()
 	body.name = "BlockerBody"
-	body.collision_layer = LAYER_WORLD_SHARED
+	body.collision_layer = LAYER_WORLD_SHARED | RealmManager.LAYER_PLAYER_BLOCKER
 	body.collision_mask = 0
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(4.0, 3.0, 0.4)
+	shape.size = Vector3(5.2, 5.0, 1.2)
 	col.shape = shape
-	col.position = Vector3(0.0, 1.5, 0.0)
+	col.position = Vector3(0.0, 2.5, 0.0)
 	body.add_child(col)
 	gate.add_child(body)
 	return gate

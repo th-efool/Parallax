@@ -90,6 +90,21 @@ func _apply_gate_state() -> void:
 		visible = not is_open
 
 	_set_colliders_disabled_recursive(self, is_open)
+	_sync_blocker_layer(self, is_open)
+
+
+func _sync_blocker_layer(node: Node, gate_open: bool) -> void:
+	if node is StaticBody3D:
+		var sb: StaticBody3D = node as StaticBody3D
+		if gate_open:
+			if not sb.has_meta("_orig_collision_layer"):
+				sb.set_meta("_orig_collision_layer", sb.collision_layer)
+			sb.collision_layer = 0
+		else:
+			var orig: int = int(sb.get_meta("_orig_collision_layer", RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_PLAYER_BLOCKER))
+			sb.collision_layer = orig | RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_PLAYER_BLOCKER
+	for child in node.get_children():
+		_sync_blocker_layer(child, gate_open)
 
 
 func _animate_mesh(mesh_node: Node3D) -> void:
@@ -99,7 +114,7 @@ func _animate_mesh(mesh_node: Node3D) -> void:
 	var can_animate: bool = animate_gate and is_inside_tree() and _ready_msec > 0 and Time.get_ticks_msec() - _ready_msec > 250
 	if not can_animate:
 		mesh_node.visible = not is_open
-		mesh_node.position.y = _mesh_rest_y
+		mesh_node.position.y = (_mesh_rest_y + lift_height) if is_open else _mesh_rest_y
 		return
 	mesh_node.visible = true
 	_gate_tween = create_tween()
@@ -108,10 +123,15 @@ func _animate_mesh(mesh_node: Node3D) -> void:
 		_gate_tween.tween_callback(func() -> void:
 			if is_instance_valid(mesh_node) and is_open:
 				mesh_node.visible = false
-				mesh_node.position.y = _mesh_rest_y)
+				mesh_node.position.y = _mesh_rest_y + lift_height)
 	else:
-		mesh_node.position.y = _mesh_rest_y + lift_height
+		if mesh_node.position.y <= _mesh_rest_y + 0.1:
+			mesh_node.position.y = _mesh_rest_y + lift_height
 		_gate_tween.tween_property(mesh_node, "position:y", _mesh_rest_y, close_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		_gate_tween.tween_callback(func() -> void:
+			if is_instance_valid(mesh_node) and not is_open:
+				mesh_node.visible = true
+				mesh_node.position.y = _mesh_rest_y)
 
 
 func _set_colliders_disabled_recursive(node: Node, disable_collision: bool) -> void:

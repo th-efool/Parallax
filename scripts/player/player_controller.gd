@@ -312,6 +312,9 @@ var _finisher_invuln_timer: float = 0.0
 
 func _ready() -> void:
 	add_to_group("player")
+	floor_snap_length = 0.45
+	floor_constant_speed = true
+	floor_max_angle = deg_to_rad(48.0)
 	health = max_health
 	camera_yaw = global_rotation.y
 	var fwd: Vector3 = -global_transform.basis.z

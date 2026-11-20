@@ -871,7 +871,7 @@ func _crystal_cluster(parent: Node3D, pos: Vector3, size: float, seed_val: int, 
 	_multimesh(parent, "CrystalCluster", prism, _m_crystal(), xforms, false)
 
 
-func _style_gate(gate: EncounterGate, width: float = 4.0, height: float = 3.2) -> void:
+func _style_gate(gate: EncounterGate, width: float = 4.6, height: float = 3.6) -> void:
 	var gm: MeshInstance3D = gate.get_node_or_null("GateMesh") as MeshInstance3D
 	if gm == null:
 		return
@@ -986,7 +986,7 @@ func _build_stage_01_entry() -> Node3D:
 	# --- Gameplay core (unchanged greybox coordinates) ---
 	_solid(root, "EntryFloorSouth", Vector3(0.0, -0.25, -2.75), Vector3(12.0, 0.5, 4.5), floor_m)
 	_solid(root, "EntryFloorNorth", Vector3(0.0, -0.25, 3.75), Vector3(12.0, 0.5, 2.5), floor_m)
-	_solid(root, "Corridor01_Floor", Vector3(0.0, -0.25, 6.5), Vector3(4.0, 0.5, 3.0), floor_m)
+	_solid(root, "Corridor01_Floor", Vector3(0.0, -0.25, 6.75), Vector3(4.6, 0.5, 3.5), floor_m)
 
 	var stones := RealmPlatform.new()
 	stones.name = "EntrySteppingStones"
@@ -1018,8 +1018,8 @@ func _build_stage_01_entry() -> Node3D:
 	# Gatehouse wings double as the stage-01 containment walls (old Wall_West / Wall_East footprint).
 	_solid(root, "Wall_West", Vector3(-6.75, 4.0, 0.0), Vector3(1.5, 9.0, 10.5), _m_wall())
 	_solid(root, "Wall_East", Vector3(6.75, 4.0, 0.0), Vector3(1.5, 9.0, 10.5), _m_wall())
-	_invisible_wall(root, "Tunnel_W", Vector3(-2.2, 2.5, 6.5), Vector3(0.4, 5.0, 3.0))
-	_invisible_wall(root, "Tunnel_E", Vector3(2.2, 2.5, 6.5), Vector3(0.4, 5.0, 3.0))
+	_invisible_wall(root, "Tunnel_W", Vector3(-2.4, 2.5, 6.75), Vector3(0.4, 5.0, 3.5))
+	_invisible_wall(root, "Tunnel_E", Vector3(2.4, 2.5, 6.75), Vector3(0.4, 5.0, 3.5))
 
 	root.add_child(_make_pit_kill_zone("PitKillZone_Stage01", Vector3(0.0, -4.5, 1.0), Vector3(8.0, 2.5, 4.0)))
 	root.add_child(_make_section_trigger("Trigger_Stage01_Entry", Vector3(0.0, 1.25, -56.0 + JourneyLayout.OFF_S1_TERRACE), Vector3(6.0, 2.5, 3.0),
@@ -1389,7 +1389,9 @@ func _build_bastion(root: Node3D, g: Array[Node3D], bname: String, c: Vector3, r
 		var a: float = float(spots[ei % spots.size()])
 		var ep := Vector3(c.x + sin(a) * 3.4, c.y, c.z + cos(a) * 3.4)
 		var kind: String = String(kinds[ei])
-		_add_roamer(_roamer_group(root), kind, "%s_%s%d" % [bname, kind.capitalize(), ei + 1], ep, section, face)
+		var roamer := _add_roamer(_roamer_group(root), kind, "%s_%s%d" % [bname, kind.capitalize(), ei + 1], ep, section, face)
+		if roamer is EnemyAI:
+			(roamer as EnemyAI).patrol_radius = maxf(2.0, r - 2.5)
 
 
 func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array, nb: Array) -> void:
@@ -1409,9 +1411,11 @@ func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array,
 	var a_deck: Vector3 = a + u * (ra - 0.4) if ra > 0.0 else a
 	var b_deck: Vector3 = b - u * (rb - 0.4) if rb > 0.0 else b
 	if ra <= 0.0:
-		_ramp(root, lname + "_ApronA", a - u * (w * 0.5 * tan_th + 0.6), a, w, _m_path())
+		var apron_a := _ramp(root, lname + "_ApronA", a - u * (w * 0.5 * tan_th + 0.6), a, w, _m_path())
+		apron_a.collision_layer = 0
 	if rb <= 0.0:
-		_ramp(root, lname + "_ApronB", b, b + u * (w * 0.5 * tan_th + 0.6), w, _m_path())
+		var apron_b := _ramp(root, lname + "_ApronB", b, b + u * (w * 0.5 * tan_th + 0.6), w, _m_path())
+		apron_b.collision_layer = 0
 	_ramp(root, lname, a_deck, b_deck, w, _m_path())
 	# Side parapets: from the bastion ring (or the floor edge line) to the next ring / edge.
 	for s in [-1.0, 1.0]:
@@ -1440,10 +1444,11 @@ func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array,
 		var xr: float = _line_at_z(a, b, off, ez).x
 		var lo: float = minf(xl, xr)
 		var hi: float = maxf(xl, xr)
-		if absf(lo + hw) > 0.05:
-			_parapet(root, lname + "_JoinW", Vector3(-hw, ey, ez), Vector3(lo, ey, ez), _m_wall())
-		if absf(hi - hw) > 0.05:
-			_parapet(root, lname + "_JoinE", Vector3(hw, ey, ez), Vector3(hi, ey, ez), _m_wall())
+		var join_hw: float = hw + 0.25
+		if lo < -join_hw:
+			_parapet(root, lname + "_JoinW", Vector3(-join_hw, ey, ez), Vector3(lo, ey, ez), _m_wall())
+		if hi > join_hw:
+			_parapet(root, lname + "_JoinE", Vector3(join_hw, ey, ez), Vector3(hi, ey, ez), _m_wall())
 	# Masonry piers under long spans (visual only; the kill plane still catches falls).
 	var piers: int = int(flat.length() / 16.0)
 	for k in range(piers):
