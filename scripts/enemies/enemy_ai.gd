@@ -59,9 +59,9 @@ const DAMAGE_SCALE: float = 1.4
 
 @export_group("Telegraph Feedback")
 @export var telegraph_color: Color = Color(1.0, 0.12, 0.06, 1.0)
-@export var telegraph_overlay_peak_alpha: float = 0.42
+@export var telegraph_overlay_peak_alpha: float = 0.20
 @export var telegraph_light_height: float = 1.55
-@export var telegraph_light_energy: float = 2.4
+@export var telegraph_light_energy: float = 1.8
 
 @export_group("Squad Tactics")
 @export var use_squad_tactics: bool = true
@@ -1372,10 +1372,13 @@ func _begin_telegraph_flash(windup_sec: float) -> void:
 		return
 	if _telegraph_mat == null:
 		_telegraph_mat = StandardMaterial3D.new()
-		_telegraph_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_telegraph_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		_telegraph_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_telegraph_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		_telegraph_mat.cull_mode = BaseMaterial3D.CULL_BACK
+		_telegraph_mat.emission_enabled = true
+		_telegraph_mat.emission = Color(telegraph_color.r, telegraph_color.g, telegraph_color.b)
+		_telegraph_mat.emission_energy_multiplier = 0.6
 	_telegraph_mat.albedo_color = Color(telegraph_color.r, telegraph_color.g, telegraph_color.b, 0.0)
 
 	_telegraph_active = true

@@ -83,7 +83,7 @@
 | **Player stagger** (`State.STAGGER`, QA-A04) | *Superseded* | Now handled by `GameFeel` / `PlayerFeelRig` / `SwordTrail` (see table above). `add_camera_trauma()` / `trigger_hit_stop()` remain as compatibility wrappers on `PlayerController`. |
 | **Slash ribbon** | *Superseded* | Now handled by `GameFeel` / `PlayerFeelRig` / `SwordTrail` (see table above). `add_camera_trauma()` / `trigger_hit_stop()` remain as compatibility wrappers on `PlayerController`. |
 | **Impact burst** | Any accepted sword hit; Shielded Guard deflect; Pillar collapse. | One-shot `GPUParticles3D`: amber sparks (Reality / parries) or cobalt glass shards (Mirror / Warden rune strikes) + `0.14 s` omni flash; self-frees. |
-| **Wind-up telegraph** | `EnemyAI.start_windup()` | Additive red `material_overlay` on all `VisualRoot` meshes + red `TelegraphGlow` omni at eye height, ramping over the wind-up; fast falloff on strike; cleared on stagger/reset/death. |
+| **Wind-up telegraph** | `EnemyAI.start_windup()` | Per-pixel shaded additive red `material_overlay` (peak alpha 0.20, emission 0.6) on all `VisualRoot` meshes + red `TelegraphGlow` omni (energy 1.8) at eye height, ramping over wind-up while preserving character diffuse textures; fast falloff on strike; cleared on stagger/reset/death. |
 | **Warden chest rune** | `_enter_recover()` in Phase 1 (`is_chest_rune_exposed`). | Cobalt `ChestRuneGlow` (sphere + omni) on `VisualRoot`: bright pulsing in Mirror, faint hint in Reality; re-evaluated in `on_realm_changed()`. |
 
 ### 2.2 Combo System

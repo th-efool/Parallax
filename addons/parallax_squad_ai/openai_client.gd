@@ -69,7 +69,7 @@ func transcribe(wav_bytes: PackedByteArray, prompt_hint: String = "") -> int:
 	if SquadAIConfig.provider() == "gemini":
 		var body: Dictionary = {
 			"contents": [{"role": "user", "parts": [
-				{"text": "Transcribe this spoken game command verbatim. Reply with only the transcript, no quotes. " + prompt_hint},
+				{"text": "Listen to the audio and transcribe only what the player actually spoke verbatim. If the audio is silence, background noise, or inaudible, reply with empty text. Do not invent words or repeat instructions. " + prompt_hint},
 				{"inline_data": {"mime_type": "audio/wav", "data": Marshalls.raw_to_base64(wav_bytes)}},
 			]}],
 			"generationConfig": {"temperature": 0.0},

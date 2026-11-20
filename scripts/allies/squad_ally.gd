@@ -828,12 +828,13 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 	if player == null:
 		_halt(delta)
 		return
-	# Auto-engage: defend the player / self, never stacking on an enemy another ally already holds.
+	# Auto-engage: only peel enemies that are directly threatening the player (< 4.0m).
+	# Allies following the player must stay in formation and never chase enemies across the arena.
 	if auto_engage and not _is_ceasefire():
 		if _engage_target == null or not _enemy_ok(_engage_target):
-			_engage_target = _pick_auto_target(player)
+			_engage_target = _pick_auto_target(player, 4.0)
 		if _engage_target != null:
-			if _engage_target.global_position.distance_to(player.global_position) > FOLLOW_LEASH:
+			if _engage_target.global_position.distance_to(player.global_position) > 5.5:
 				_engage_target = null
 			else:
 				_fight(_engage_target, delta)
