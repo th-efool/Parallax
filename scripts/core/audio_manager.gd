@@ -156,21 +156,21 @@ func _exit_tree() -> void:
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if instance != null and instance != self and is_instance_valid(instance):
+		return
 	add_to_group("audio_manager")
 	_ensure_buses()
 	_load_streams()
 	_build_players()
-	if instance == null or not is_instance_valid(instance):
-		instance = self
+	instance = self
 	bind_singletons()
-	if instance == self:
-		_ensure_master_lowpass()
-		if is_inside_tree() and get_tree() != null:
-			if not get_tree().node_added.is_connected(_bind_recursive):
-				get_tree().node_added.connect(_bind_recursive)
-		call_deferred("_deferred_bind_tree")
-		if auto_start_music:
-			start_ambient_drone()
+	_ensure_master_lowpass()
+	if is_inside_tree() and get_tree() != null:
+		if not get_tree().node_added.is_connected(_bind_recursive):
+			get_tree().node_added.connect(_bind_recursive)
+	call_deferred("_deferred_bind_tree")
+	if auto_start_music:
+		start_ambient_drone()
 
 
 func _deferred_bind_tree() -> void:
@@ -251,6 +251,8 @@ func bind_to_world(root_node: Node) -> void:
 	bind_singletons()
 	if root_node == null:
 		return
+	_warden_dead = false
+	_player_hp = 100
 	_bind_recursive(root_node)
 
 
@@ -549,6 +551,8 @@ func _bind_recursive(node: Node) -> void:
 				sg.shield_deflected.connect(_on_shield_deflected)
 		if node is WardenBoss:
 			var wb: WardenBoss = node as WardenBoss
+			if wb.is_dead:
+				_warden_dead = true
 			if not wb.mirror_plane_shattered.is_connected(_on_mirror_plane_shattered):
 				wb.mirror_plane_shattered.connect(_on_mirror_plane_shattered)
 	elif node is BreakableProp:

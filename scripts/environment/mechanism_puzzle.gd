@@ -10,6 +10,7 @@ signal pressure_plate_depressed()
 signal mechanism_solved()
 
 @export var require_mirror_realm: bool = true
+@export var section_id: int = 3
 @export var linked_gate_path: NodePath
 @export var weight_node_path: NodePath = NodePath("SuspendedWeight")
 @export var plate_node_path: NodePath = NodePath("PressurePlate")
@@ -19,6 +20,11 @@ var is_solved: bool = false
 var is_plate_pressed: bool = false
 var _initial_weight_position: Vector3 = Vector3(0.0, 2.5, 0.0)
 var _drop_tween: Tween = null
+
+
+func _exit_tree() -> void:
+	if EncounterDirector.instance != null and EncounterDirector.instance.section_reset_requested.is_connected(_on_section_reset_requested):
+		EncounterDirector.instance.section_reset_requested.disconnect(_on_section_reset_requested)
 
 
 func _ready() -> void:
@@ -37,6 +43,18 @@ func _ready() -> void:
 		evaluate_for_realm(int(rm.current_realm), rm.is_merged)
 	else:
 		evaluate_for_realm(0, false)
+	_connect_director()
+	call_deferred("_connect_director")
+
+
+func _connect_director() -> void:
+	if EncounterDirector.instance != null and not EncounterDirector.instance.section_reset_requested.is_connected(_on_section_reset_requested):
+		EncounterDirector.instance.section_reset_requested.connect(_on_section_reset_requested)
+
+
+func _on_section_reset_requested(reset_sec_id: int) -> void:
+	if reset_sec_id == section_id:
+		reset_puzzle()
 
 
 func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:

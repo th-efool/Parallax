@@ -37,6 +37,10 @@ const MENU_GROUPS: Array[String] = ["title_screen", "pause_menu", "options_scree
 var _previous_menu: Control = null
 
 
+func _enter_tree() -> void:
+	add_to_group("main_controller")
+
+
 func _ready() -> void:
 	add_to_group("main_controller")
 	# NOTE: Main is the scene root, so we must NOT set PROCESS_MODE_ALWAYS here (every child would ignore pause).
@@ -65,16 +69,25 @@ func _on_tree_process_frame() -> void:
 func is_gameplay_active() -> bool:
 	if not is_inside_tree() or get_tree() == null:
 		return false
-	if get_tree().paused:
+	if get_tree().paused or not level_ready or _building or _loading != null:
 		return false
 	for grp in MENU_GROUPS:
 		for n in get_tree().get_nodes_in_group(grp):
 			if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
 				return false
 	var player: PlayerController = get_node_or_null(player_path) as PlayerController
-	if player != null and player.current_state == PlayerController.State.DEAD:
+	if player != null and (player.current_state == PlayerController.State.DEAD or player.process_mode == Node.PROCESS_MODE_DISABLED):
 		return false
 	return true
+
+
+func _get_audio_manager() -> AudioManager:
+	var audio_mgr: AudioManager = get_node_or_null(audio_manager_path) as AudioManager
+	if audio_mgr == null and is_inside_tree() and get_tree() != null and get_tree().root != null:
+		audio_mgr = get_tree().root.get_node_or_null("GameAudio") as AudioManager
+	if audio_mgr == null:
+		audio_mgr = AudioManager.instance as AudioManager
+	return audio_mgr
 
 
 func get_desired_mouse_mode() -> Input.MouseMode:
@@ -96,10 +109,11 @@ func _update_mouse_mode() -> void:
 
 
 func _wire_all_subsystems() -> void:
+	PlayerController.ui_input_locked = false
 	var player: Node = get_node_or_null(player_path)
 	var level_root: Node = get_node_or_null(level_root_path)
 	var hud: HUDController = get_node_or_null(hud_path) as HUDController
-	var audio_mgr: AudioManager = get_node_or_null(audio_manager_path) as AudioManager
+	var audio_mgr: AudioManager = _get_audio_manager()
 	var death_ui: DeathOverlayController = get_node_or_null(death_overlay_path) as DeathOverlayController
 	var title_ui: TitleScreenController = get_node_or_null(title_screen_path) as TitleScreenController
 	var pause_ui: PauseMenuController = get_node_or_null(pause_menu_path) as PauseMenuController
@@ -149,6 +163,8 @@ func _wire_all_subsystems() -> void:
 		pause_ui.full_run_restarted.connect(_on_start_run_requested)
 
 	if results_ui != null:
+		if not results_ui.results_presented.is_connected(_on_results_presented):
+			results_ui.results_presented.connect(_on_results_presented)
 		if not results_ui.leaderboard_requested.is_connected(_on_open_leaderboard.bind(results_ui)):
 			results_ui.leaderboard_requested.connect(_on_open_leaderboard.bind(results_ui))
 		if not results_ui.main_menu_requested.is_connected(_on_return_to_title):
@@ -190,9 +206,14 @@ func _wire_level_dependent() -> void:
 			for sw in get_tree().get_nodes_in_group("interactable_switch"):
 				if sw != null and sw.has_signal("prompt_changed") and not sw.is_connected("prompt_changed", hud.set_interact_prompt):
 					sw.connect("prompt_changed", hud.set_interact_prompt)
-	var audio_mgr: AudioManager = get_node_or_null(audio_manager_path) as AudioManager
+	var audio_mgr: AudioManager = _get_audio_manager()
 	if audio_mgr != null:
 		audio_mgr.bind_to_world(self)
+	var wd: Node = get_node_or_null("WeatherDirector")
+	if wd == null and get_tree() != null:
+		wd = get_tree().get_first_node_in_group("weather_director")
+	if wd != null and wd.has_method("bind_warden"):
+		wd.call("bind_warden", warden)
 
 
 func _set_player_active(active: bool) -> void:
@@ -242,7 +263,16 @@ func _begin_run_loading() -> void:
 		return
 	_building = true
 	_run_started_once = true
+	PlayerController.ui_input_locked = false
+	if is_inside_tree() and get_tree() != null:
+		get_tree().paused = false
 	_set_player_active(false)
+
+	var ed_early: Node = get_tree().get_first_node_in_group("encounter_director") if get_tree() != null else null
+	var prev_auto_save: bool = bool(ed_early.get("auto_save_on_checkpoint")) if ed_early != null else true
+	if ed_early != null:
+		ed_early.set("auto_save_on_checkpoint", false)
+
 	_loading = LoadingScreen.new()
 	add_child(_loading)
 	_loading.set_progress(0.0, "Stepping through the mirror")
@@ -278,10 +308,16 @@ func _begin_run_loading() -> void:
 		# Now that the enemies exist, set their section activation and the run state.
 		ed.call("restart_full_run")
 
+	var squad: Node = get_tree().get_first_node_in_group("squad_manager") if get_tree() != null else null
+	if squad != null and squad.has_method("spawn_squad"):
+		squad.call("spawn_squad")
+
 	_set_player_active(true)
 	var hud_node: HUDController = get_node_or_null(hud_path) as HUDController
 	if hud_node != null:
 		hud_node.visible = true
+	if ed != null:
+		ed.set("auto_save_on_checkpoint", prev_auto_save)
 	level_ready = true
 	_building = false
 	level_ready_changed.emit(true)
@@ -317,7 +353,27 @@ func _on_close_subscreen(subscreen: Control) -> void:
 		_previous_menu = null
 
 
+func _on_results_presented(_summary: Dictionary) -> void:
+	if is_inside_tree() and get_tree() != null:
+		get_tree().paused = true
+	_set_player_active(false)
+	var hud_node: HUDController = get_node_or_null(hud_path) as HUDController
+	if hud_node != null:
+		hud_node.visible = false
+
+
 func _on_return_to_title() -> void:
+	PlayerController.ui_input_locked = false
+	if is_inside_tree() and get_tree() != null:
+		get_tree().paused = true
+		if get_tree().root != null:
+			var run_state: Node = get_tree().root.get_node_or_null("RunState")
+			if run_state != null and run_state.has_method("pause_timer"):
+				run_state.call("pause_timer")
+	_set_player_active(false)
+	var hud_node: HUDController = get_node_or_null(hud_path) as HUDController
+	if hud_node != null:
+		hud_node.visible = false
 	var title_ui: TitleScreenController = get_node_or_null(title_screen_path) as TitleScreenController
 	if title_ui != null:
 		title_ui._sync_ui_nodes()

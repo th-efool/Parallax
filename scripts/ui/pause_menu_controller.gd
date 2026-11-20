@@ -66,7 +66,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("pause"):
 		# Do not toggle pause off while Options or Leaderboard subscreen is open on top
-		if _is_subscreen_visible():
+		# or when Title, Loading, Results, or Player death screen is active.
+		if _is_subscreen_visible() or not _can_toggle_pause():
 			return
 		toggle_pause()
 		if get_viewport() != null:
@@ -74,6 +75,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func toggle_pause() -> void:
+	if not is_paused_state and not _can_toggle_pause():
+		return
 	set_paused(not is_paused_state)
 
 
@@ -108,7 +111,15 @@ func press_save_checkpoint() -> Dictionary:
 	var saved: Dictionary = {}
 	if store != null and store.has_method("capture_and_save_world_state"):
 		saved = store.call("capture_and_save_world_state") as Dictionary
-	last_save_status_text = "CHECKPOINT SAVED"
+	var save_ok: bool = false
+	if store != null:
+		if saved.has("_save_ok"):
+			save_ok = bool(saved.get("_save_ok", false))
+		elif "last_save_error" in store:
+			save_ok = int(store.get("last_save_error")) == OK
+		else:
+			save_ok = not saved.is_empty()
+	last_save_status_text = "CHECKPOINT SAVED" if save_ok else "SAVE FAILED"
 	_sync_ui_nodes()
 	checkpoint_saved.emit(saved)
 	return saved
@@ -358,6 +369,26 @@ func _sync_ui_nodes() -> void:
 		if slbl != null:
 			slbl.text = last_save_status_text
 			slbl.visible = not last_save_status_text.is_empty()
+			var col: Color = Color(0.95, 0.35, 0.30) if last_save_status_text == "SAVE FAILED" else Color(0.48, 0.90, 0.55)
+			slbl.add_theme_color_override("font_color", col)
+
+
+func _can_toggle_pause() -> bool:
+	if _is_subscreen_visible():
+		return false
+	if is_inside_tree() and get_tree() != null:
+		for grp in ["title_screen", "results_screen"]:
+			for n in get_tree().get_nodes_in_group(grp):
+				if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
+					return false
+		var mc: Node = get_tree().get_first_node_in_group("main_controller")
+		if mc != null and (not bool(mc.get("level_ready")) or bool(mc.get("_building")) or mc.get("_loading") != null):
+			return false
+		var player: Node = get_tree().get_first_node_in_group("player")
+		if not is_paused_state and player != null:
+			if player.process_mode == Node.PROCESS_MODE_DISABLED or int(player.get("current_state")) == PlayerController.State.DEAD:
+				return false
+	return true
 
 
 func _is_subscreen_visible() -> bool:

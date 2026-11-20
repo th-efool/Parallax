@@ -35,11 +35,22 @@ func _ready() -> void:
 			EncounterDirector.instance.section_reset_requested.connect(_on_section_reset_requested)
 
 
+func _is_world_ready_for_trigger(player: Node = null) -> bool:
+	if not is_inside_tree() or get_tree() == null:
+		return false
+	var mc: Node = get_tree().get_first_node_in_group("main_controller")
+	if mc != null and not bool(mc.get("level_ready")):
+		return false
+	if player != null and player.process_mode == Node.PROCESS_MODE_DISABLED:
+		return false
+	return true
+
+
 func _physics_process(_delta: float) -> void:
 	if has_triggered or not check_position_bounds_each_frame or get_tree() == null:
 		return
 	for p in get_tree().get_nodes_in_group("player"):
-		if is_instance_valid(p) and p is Node3D:
+		if is_instance_valid(p) and p is Node3D and _is_world_ready_for_trigger(p):
 			if is_point_inside_trigger((p as Node3D).global_position):
 				trigger_for_player(p)
 				return
@@ -58,6 +69,8 @@ func trigger_for_player(player: Node = null) -> bool:
 	if has_triggered:
 		return false
 	if player != null and not player.is_in_group("player") and not (player is PlayerController):
+		return false
+	if not _is_world_ready_for_trigger(player):
 		return false
 
 	has_triggered = true
@@ -93,7 +106,7 @@ func trigger_for_player(player: Node = null) -> bool:
 
 
 func _on_body_entered(body: Node3D) -> void:
-	if body != null and (body.is_in_group("player") or body is PlayerController):
+	if body != null and (body.is_in_group("player") or body is PlayerController) and _is_world_ready_for_trigger(body):
 		call_deferred("trigger_for_player", body)
 
 
@@ -108,14 +121,9 @@ func _on_encounter_cleared(cleared_id: String, _sec_id: int) -> void:
 
 func _on_section_reset_requested(reset_sec_id: int) -> void:
 	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
-	if reset_sec_id <= target_section:
-		if ed != null and not bool(ed.completed_encounters.get(encounter_id, false)):
+	if reset_sec_id == target_section:
+		if ed == null or encounter_id.is_empty() or not bool(ed.completed_encounters.get(encounter_id, false)):
 			has_triggered = false
-	if reset_sec_id != target_section:
-		return
-	if ed != null and not encounter_id.is_empty() and encounter_enemy_count > 0:
-		if not bool(ed.completed_encounters.get(encounter_id, false)):
-			ed.begin_combat_encounter(encounter_id, encounter_enemy_count)
 
 
 func _get_run_state() -> Node:

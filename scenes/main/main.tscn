@@ -1,10 +1,9 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/core/main_controller.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/core/realm_manager.gd" id="2_rm"]
 [ext_resource type="Script" path="res://scripts/core/encounter_director.gd" id="3_ed"]
 [ext_resource type="Script" path="res://scripts/environment/realm_environment_controller.gd" id="4_env"]
-[ext_resource type="Script" path="res://scripts/core/audio_manager.gd" id="5_audio"]
 [ext_resource type="PackedScene" path="res://scenes/environment/ambient_life.tscn" id="20_ambient"]
 [ext_resource type="PackedScene" path="res://scenes/environment/grand_journey.tscn" id="6_level"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="7_player"]
@@ -63,9 +62,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-
-[node name="AudioManager" type="Node" parent="."]
-script = ExtResource("5_audio")
 
 [node name="LevelRoot" parent="." instance=ExtResource("6_level")]
 

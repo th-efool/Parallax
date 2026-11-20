@@ -71,6 +71,7 @@ var _entries: Array[Dictionary] = []
 var _settings: Dictionary = {}
 var _save_data: Dictionary = {}
 var _muted_by_focus: bool = false
+var last_save_error: Error = OK
 
 
 func _ready() -> void:
@@ -712,10 +713,13 @@ func get_default_save_data() -> Dictionary:
 		"checkpoint_realm": 0,
 		"completed_sections": {},
 		"completed_encounters": {},
+		"score": 0,
 		"banked_score": 0,
 		"elapsed_seconds": 0.0,
 		"encounter_no_hit_awarded": {},
+		"awarded_event_ids": {},
 		"banked_event_ids": {},
+		"checkpoint_history": [],
 		"player_health": 100,
 		"layout_version": 1,   # JourneyLayout.VERSION of the save; files without the key are the old layout
 		"world_flags": {
@@ -761,9 +765,12 @@ func save_run_checkpoint(checkpoint_dict: Dictionary) -> Dictionary:
 			_save_data[k] = checkpoint_dict[k]
 
 	_save_data["timestamp"] = Time.get_datetime_string_from_system(false, true)
-	_save_savegame_to_disk()
-	game_saved.emit(get_saved_run_data())
-	return get_saved_run_data()
+	var err: Error = _save_savegame_to_disk()
+	var saved_copy: Dictionary = get_saved_run_data()
+	saved_copy["_save_ok"] = (err == OK)
+	if err == OK:
+		game_saved.emit(saved_copy)
+	return saved_copy
 
 
 func capture_and_save_world_state(root_node: Node = null) -> Dictionary:
@@ -795,6 +802,20 @@ func capture_and_save_world_state(root_node: Node = null) -> Dictionary:
 		snapshot["checkpoint_realm"] = int(ed.get("checkpoint_realm"))
 		snapshot["completed_sections"] = (ed.get("completed_sections") as Dictionary).duplicate()
 		snapshot["completed_encounters"] = (ed.get("completed_encounters") as Dictionary).duplicate()
+		var raw_hist: Variant = ed.get("_checkpoint_history")
+		var serialized_hist: Array = []
+		if raw_hist is Array:
+			for item in (raw_hist as Array):
+				if item is Dictionary:
+					var hd: Dictionary = item as Dictionary
+					var hx: Transform3D = hd.get("transform", Transform3D.IDENTITY) as Transform3D
+					serialized_hist.append({
+						"section": int(hd.get("section", 0)),
+						"position": hx.origin,
+						"rotation_y": hx.basis.get_euler().y,
+						"realm": int(hd.get("realm", 0)),
+					})
+		snapshot["checkpoint_history"] = serialized_hist
 		if cur_sec == 5: # COMPLETE
 			snapshot["has_active_run"] = false
 
@@ -802,11 +823,15 @@ func capture_and_save_world_state(root_node: Node = null) -> Dictionary:
 		snapshot["checkpoint_realm"] = int(rm.get("current_realm"))
 
 	if run_state != null:
+		snapshot["score"] = int(run_state.get("score"))
 		snapshot["banked_score"] = int(run_state.get("banked_score"))
 		snapshot["elapsed_seconds"] = float(run_state.get("elapsed_seconds"))
 		var no_hit: Variant = run_state.get("encounter_no_hit_awarded")
 		if no_hit is Dictionary:
 			snapshot["encounter_no_hit_awarded"] = (no_hit as Dictionary).duplicate()
+		var live_ids: Variant = run_state.get("awarded_event_ids")
+		if live_ids is Dictionary:
+			snapshot["awarded_event_ids"] = (live_ids as Dictionary).duplicate()
 		var banked_ids: Variant = run_state.get("_banked_event_ids")
 		if banked_ids is Dictionary:
 			snapshot["banked_event_ids"] = (banked_ids as Dictionary).duplicate()
@@ -868,21 +893,43 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 		if run_state.has_method("start_new_run"):
 			run_state.call("start_new_run")
 		var b_score: int = int(_save_data.get("banked_score", 0))
+		var live_score: int = maxi(b_score, int(_save_data.get("score", b_score)))
 		run_state.set("banked_score", b_score)
-		run_state.set("score", b_score)
+		run_state.set("score", live_score)
 		run_state.set("elapsed_seconds", float(_save_data.get("elapsed_seconds", 0.0)))
 		var saved_no_hit: Variant = _save_data.get("encounter_no_hit_awarded", {})
 		if saved_no_hit is Dictionary:
 			run_state.set("encounter_no_hit_awarded", (saved_no_hit as Dictionary).duplicate())
 		var saved_ids: Variant = _save_data.get("banked_event_ids", {})
+		var saved_live_ids: Variant = _save_data.get("awarded_event_ids", saved_ids)
 		if saved_ids is Dictionary:
 			run_state.set("_banked_event_ids", (saved_ids as Dictionary).duplicate())
+		if saved_live_ids is Dictionary:
+			run_state.set("awarded_event_ids", (saved_live_ids as Dictionary).duplicate())
+		elif saved_ids is Dictionary:
 			run_state.set("awarded_event_ids", (saved_ids as Dictionary).duplicate())
 		if run_state.has_signal("score_changed"):
-			run_state.emit_signal("score_changed", b_score, 0, "loaded_save")
+			run_state.emit_signal("score_changed", live_score, 0, "loaded_save")
 
 	if rm != null and rm.has_method("force_realm"):
 		rm.call("force_realm", saved_realm, false)
+
+	var legacy_save: bool = int(_save_data.get("layout_version", 1)) < JourneyLayout.VERSION
+	var restored_hist: Array = []
+	var raw_hist: Variant = _save_data.get("checkpoint_history", [])
+	if raw_hist is Array:
+		for item in (raw_hist as Array):
+			if item is Dictionary:
+				var hd: Dictionary = item as Dictionary
+				var h_pos: Vector3 = hd.get("position", Vector3(0.0, 0.0, -136.0))
+				if legacy_save:
+					h_pos = JourneyLayout.to_world(h_pos)
+				var h_rot: float = float(hd.get("rotation_y", PI))
+				restored_hist.append({
+					"section": int(hd.get("section", 0)),
+					"transform": Transform3D(Basis.IDENTITY.rotated(Vector3.UP, h_rot), h_pos),
+					"realm": int(hd.get("realm", 0)),
+				})
 
 	if ed != null:
 		ed.set("completed_sections", (_save_data.get("completed_sections", {}) as Dictionary).duplicate())
@@ -892,6 +939,8 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 		ed.set("checkpoint_realm", saved_realm)
 		if ed.has_method("advance_to_section"):
 			ed.call("advance_to_section", saved_sec, spawn_xform, false)
+		if ed.has_method("restore_checkpoint_history"):
+			ed.call("restore_checkpoint_history", restored_hist, saved_sec, spawn_xform, saved_realm)
 
 	if tree_root != null:
 		var level_root: Node = tree_root.get_node_or_null("LevelRoot")
@@ -906,14 +955,15 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 					sw1.set("is_activated", true)
 				if gate1 != null and gate1.has_method("unlock_and_open"):
 					gate1.call("unlock_and_open")
+			var empty_nodes: Array[Node] = []
 			if bool(flags.get("hall_pillar_broken", false)):
 				var pil: Node = level_root.get_node_or_null("Stage02_HallOfEchoes/CrackedCentralPillar")
 				if pil != null and pil.has_method("complete_break_now"):
-					pil.call("complete_break_now", [], false)
+					pil.call("complete_break_now", empty_nodes, false)
 			if bool(flags.get("gallery_support_broken", false)):
 				var sup: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/WeakStoneSupport")
 				if sup != null and sup.has_method("complete_break_now"):
-					sup.call("complete_break_now", [], false)
+					sup.call("complete_break_now", empty_nodes, false)
 			if bool(flags.get("gallery_bridge_repaired", false)):
 				var brg: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/GallerySpectralBridge")
 				var sw3: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/BridgeAnchorSwitch")
@@ -925,8 +975,11 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 				var puz: Node = level_root.get_node_or_null("Stage04_MechanismChamber/ChamberMechanismPuzzle")
 				var gate4: Node = level_root.get_node_or_null("Stage04_MechanismChamber/Gate04_MechanismToArena")
 				if puz != null:
-					puz.set("is_solved", true)
-					puz.set("is_plate_pressed", true)
+					if puz.has_method("force_solve_bypass"):
+						puz.call("force_solve_bypass")
+					else:
+						puz.set("is_solved", true)
+						puz.set("is_plate_pressed", true)
 				if gate4 != null and gate4.has_method("unlock_and_open"):
 					gate4.call("unlock_and_open")
 
@@ -955,6 +1008,55 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 					var gate3: Node = level_root.get_node_or_null("Stage03_CollapsedGallery/Gate03_GalleryToMechanism")
 					if gate3 != null and gate3.has_method("unlock_and_open"):
 						gate3.call("unlock_and_open")
+				if bool(comp_enc.get("the_warden", false)):
+					var warden: Node = level_root.get_node_or_null("Stage05_ExecutionArena/Enemies/TheWarden")
+					if warden != null:
+						warden.set("is_dead", true)
+						if warden.has_method("_refresh_active_state"):
+							warden.call("_refresh_active_state")
+					var mplane: Node = level_root.get_node_or_null("Stage05_ExecutionArena/CentralMirrorPlane")
+					if mplane != null and mplane.has_method("complete_break_now"):
+						mplane.call("complete_break_now", empty_nodes, false)
+					var gate5: Node = level_root.get_node_or_null("Stage05_ExecutionArena/Gate05_ArenaExit")
+					if gate5 != null and gate5.has_method("unlock_and_open"):
+						gate5.call("unlock_and_open")
+					if AudioManager.instance != null:
+						AudioManager.instance.set("_warden_dead", true)
+					if is_inside_tree() and get_tree() != null:
+						var wd_c: Node = get_tree().get_first_node_in_group("weather_director")
+						if wd_c != null:
+							wd_c.set("warden_dead", true)
+
+				# Prevent passed triggers from re-firing; seal and resume an active mid-section encounter if saved inside one.
+				if is_inside_tree() and get_tree() != null:
+					for trig in get_tree().get_nodes_in_group("section_trigger"):
+						if trig == null:
+							continue
+						if bool(trig.get("complete_run_on_enter")) and saved_sec < 5:
+							continue
+						var t_sec: int = int(trig.get("target_section"))
+						var enc_id: String = String(trig.get("encounter_id"))
+						if t_sec < saved_sec:
+							trig.set("has_triggered", true)
+						elif t_sec == saved_sec:
+							var inside_or_past: bool = false
+							if trig is Node3D:
+								inside_or_past = (trig as Node3D).global_position.z <= saved_pos.z + 2.0
+							if not inside_or_past and trig.has_method("is_point_inside_trigger"):
+								inside_or_past = bool(trig.call("is_point_inside_trigger", saved_pos))
+							if not enc_id.is_empty() and bool(comp_enc.get(enc_id, false)):
+								trig.set("has_triggered", true)
+							elif inside_or_past:
+								trig.set("has_triggered", true)
+								if not enc_id.is_empty() and not bool(comp_enc.get(enc_id, false)):
+									var seal_path: NodePath = trig.get("entry_gate_to_seal_path") as NodePath
+									if not seal_path.is_empty():
+										var seal_gate: Node = trig.get_node_or_null(seal_path)
+										if seal_gate != null and seal_gate.has_method("seal_gate_for_encounter"):
+											seal_gate.call("seal_gate_for_encounter")
+									var e_cnt: int = int(trig.get("encounter_enemy_count"))
+									if e_cnt > 0 and ed.has_method("begin_combat_encounter"):
+										ed.call("begin_combat_encounter", enc_id, e_cnt)
 
 	if player != null:
 		if player.has_method("respawn_at"):
@@ -963,6 +1065,13 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 		player.set("health", saved_hp)
 		if player.has_signal("health_changed"):
 			player.emit_signal("health_changed", saved_hp, int(player.get("max_health")))
+
+	if is_inside_tree() and get_tree() != null:
+		var squad: Node = get_tree().get_first_node_in_group("squad_manager")
+		if squad != null and squad.has_method("regroup"):
+			var ally_list: Variant = squad.get("allies")
+			if ally_list is Array and not (ally_list as Array).is_empty():
+				squad.call("regroup", true)
 
 	if hud != null:
 		var tuts: Variant = _save_data.get("dismissed_tutorials", {})
@@ -1069,7 +1178,7 @@ func _load_leaderboard_from_disk() -> void:
 	_sort_entries()
 
 
-func _save_leaderboard_to_disk() -> void:
+func _save_leaderboard_to_disk() -> Error:
 	var cfg := ConfigFile.new()
 	cfg.set_value("meta", "count", _entries.size())
 	for i in range(_entries.size()):
@@ -1080,7 +1189,11 @@ func _save_leaderboard_to_disk() -> void:
 		cfg.set_value(sec, "time_sec", float(e.get("time_sec", 0.0)))
 		cfg.set_value(sec, "rank", String(e.get("rank", "C")))
 		cfg.set_value(sec, "timestamp", String(e.get("timestamp", "")))
-	cfg.save(leaderboard_path)
+	var err: Error = cfg.save(leaderboard_path)
+	last_save_error = err
+	if err != OK:
+		push_warning("Failed to save leaderboard to '%s' (err=%d)" % [leaderboard_path, int(err)])
+	return err
 
 
 func _load_settings_from_disk() -> void:
@@ -1108,7 +1221,7 @@ func _load_settings_from_disk() -> void:
 			_settings[k] = cfg.get_value("settings", k, _settings[k])
 
 
-func _save_settings_to_disk() -> void:
+func _save_settings_to_disk() -> Error:
 	var cfg := ConfigFile.new()
 	for k in _settings.keys():
 		if k == "keybindings":
@@ -1117,7 +1230,11 @@ func _save_settings_to_disk() -> void:
 				cfg.set_value("keybindings", String(act), String(binds[act]))
 		else:
 			cfg.set_value("settings", k, _settings[k])
-	cfg.save(settings_path)
+	var err: Error = cfg.save(settings_path)
+	last_save_error = err
+	if err != OK:
+		push_warning("Failed to save settings to '%s' (err=%d)" % [settings_path, int(err)])
+	return err
 
 
 func _load_savegame_from_disk() -> void:
@@ -1142,7 +1259,7 @@ func _load_savegame_from_disk() -> void:
 			_save_data[k] = cfg.get_value("run", k, _save_data[k])
 
 
-func _save_savegame_to_disk() -> void:
+func _save_savegame_to_disk() -> Error:
 	var cfg := ConfigFile.new()
 	for k in _save_data.keys():
 		if k == "custom_claude_data":
@@ -1155,4 +1272,8 @@ func _save_savegame_to_disk() -> void:
 				cfg.set_value("profile", String(pk), stats[pk])
 		else:
 			cfg.set_value("run", k, _save_data[k])
-	cfg.save(savegame_path)
+	var err: Error = cfg.save(savegame_path)
+	last_save_error = err
+	if err != OK:
+		push_warning("Failed to save run data to '%s' (err=%d)" % [savegame_path, int(err)])
+	return err

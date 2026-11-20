@@ -58,6 +58,8 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if visible and not quote_overlay_visible and event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_Q:
 		_toggle_realm_glimpse()
+		if get_viewport() != null:
+			get_viewport().set_input_as_handled()
 		return
 	if not visible or not quote_overlay_visible:
 		return

@@ -323,7 +323,9 @@ func try_rebind_action(action_name: String, binding_code: String, swap_on_confli
 	if bool(res.get("valid", false)):
 		conflict_warning_text = ""
 		if store.has_method("get_settings"):
-			working_settings = (store.call("get_settings") as Dictionary).duplicate(true)
+			var store_settings: Dictionary = store.call("get_settings") as Dictionary
+			if store_settings.get("keybindings") is Dictionary:
+				working_settings["keybindings"] = (store_settings["keybindings"] as Dictionary).duplicate(true)
 		var new_lbl: String = String(store.call("get_action_display_label", action_name))
 		_sync_keybind_buttons()
 		action_rebound.emit(action_name, binding_code, new_lbl)
@@ -347,7 +349,10 @@ func press_reset_controls() -> void:
 	var labels: Dictionary = {}
 	if store != null and store.has_method("reset_keybindings_to_default"):
 		labels = store.call("reset_keybindings_to_default") as Dictionary
-		working_settings = (store.call("get_settings") as Dictionary).duplicate(true)
+		if store.has_method("get_settings"):
+			var store_settings: Dictionary = store.call("get_settings") as Dictionary
+			if store_settings.get("keybindings") is Dictionary:
+				working_settings["keybindings"] = (store_settings["keybindings"] as Dictionary).duplicate(true)
 	_sync_keybind_buttons()
 	controls_reset_to_default.emit(labels)
 

@@ -39,6 +39,8 @@ var encounter_no_hit_awarded: Dictionary = {}
 var awarded_event_ids: Dictionary = {}
 var _banked_event_ids: Dictionary = {}
 var warden_defeat_awarded: bool = false
+var _run_finalized: bool = false
+var _final_summary: Dictionary = {}
 
 
 func _process(delta: float) -> void:
@@ -67,6 +69,8 @@ func start_new_run() -> void:
 	awarded_event_ids.clear()
 	_banked_event_ids.clear()
 	warden_defeat_awarded = false
+	_run_finalized = false
+	_final_summary.clear()
 	score_changed.emit(score, 0, "reset")
 	combo_changed.emit(1, 0, 0.0)
 
@@ -169,6 +173,8 @@ func revert_to_banked_score() -> void:
 	score = banked_score
 	combo_hits = 0
 	combo_timer = 0.0
+	current_active_encounter = ""
+	encounter_damaged.clear()
 	awarded_event_ids = _banked_event_ids.duplicate()
 	score_changed.emit(score, 0, "checkpoint_revert")
 	combo_changed.emit(1, 0, 0.0)
@@ -190,6 +196,9 @@ func calculate_rank(total_score: int) -> String:
 
 
 func finalize_run(award_warden_bonus: bool = true) -> Dictionary:
+	if _run_finalized:
+		return _final_summary.duplicate(true)
+	_run_finalized = true
 	timer_running = false
 	var warden_bonus: int = 0
 	if award_warden_bonus and not warden_defeat_awarded:
@@ -221,6 +230,7 @@ func finalize_run(award_warden_bonus: bool = true) -> Dictionary:
 		"rank": final_rank,
 		"max_combo": max_combo_multiplier_reached,
 	}
+	_final_summary = summary.duplicate(true)
 	run_finalized.emit(summary)
 	return summary
 

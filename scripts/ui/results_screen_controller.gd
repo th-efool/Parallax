@@ -39,6 +39,11 @@ var placed_leaderboard_rank: int = -1
 var current_initials: String = "WAR"
 
 
+func _exit_tree() -> void:
+	if visible:
+		PlayerController.ui_input_locked = false
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("results_screen")
@@ -76,6 +81,7 @@ func populate_from_summary(summary: Dictionary) -> void:
 		qualifies_for_top_five = true
 
 	visible = true
+	PlayerController.ui_input_locked = true
 	_sync_ui_nodes()
 	_play_reveal.call_deferred()
 	results_presented.emit(summary)
@@ -126,12 +132,14 @@ func press_leaderboard() -> void:
 
 func press_replay() -> void:
 	visible = false
+	PlayerController.ui_input_locked = false
 	# MainController reloads the level for a fresh run (the world is rebuilt, not just the director reset).
 	replay_requested.emit()
 
 
 func press_main_menu() -> void:
 	visible = false
+	PlayerController.ui_input_locked = false
 	main_menu_requested.emit()
 	if main_menu_requested.get_connections().is_empty() and is_inside_tree() and get_tree() != null:
 		var title: Node = get_tree().get_first_node_in_group("title_screen")

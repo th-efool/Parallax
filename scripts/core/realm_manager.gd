@@ -65,6 +65,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not handle_input_directly:
 		return
 	if event.is_action_pressed("dimension_shift"):
+		if is_inside_tree() and get_tree() != null:
+			var mc: Node = get_tree().get_first_node_in_group("main_controller")
+			if mc != null and mc.has_method("is_gameplay_active") and not bool(mc.call("is_gameplay_active")):
+				return
+		if PlayerController.ui_input_locked:
+			return
 		# Inside the critical-hit window Q is the Mirror Break finisher, not a realm shift.
 		if player_ref != null and player_ref.has_method("is_finisher_window_open") and bool(player_ref.call("is_finisher_window_open")):
 			return

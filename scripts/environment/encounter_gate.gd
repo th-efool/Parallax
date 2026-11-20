@@ -76,7 +76,8 @@ func _on_encounter_cleared(encounter_id: String, _sec_id: int) -> void:
 
 
 func _on_section_reset_requested(reset_sec_id: int) -> void:
-	if reset_sec_id == section_id and not is_permanently_unlocked:
+	if reset_sec_id == section_id:
+		is_permanently_unlocked = false
 		is_open = starts_open
 		_apply_gate_state()
 

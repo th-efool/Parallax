@@ -16,6 +16,7 @@ signal prompt_changed(show_prompt: bool, prompt_text: String)
 
 @export var switch_role: SwitchRole = SwitchRole.GATE_OPENER
 @export var required_realm: int = 1 # 1 = MIRROR, 0 = REALITY, -1 = ANY
+@export var section_id: int = -1
 @export var linked_gate_path: NodePath
 @export var linked_platform_path: NodePath
 @export var blocking_prop_path: NodePath
@@ -30,6 +31,8 @@ func _exit_tree() -> void:
 	if store != null and store.has_signal("controls_rebound"):
 		if store.is_connected("controls_rebound", _on_controls_rebound):
 			store.disconnect("controls_rebound", _on_controls_rebound)
+	if EncounterDirector.instance != null and EncounterDirector.instance.section_reset_requested.is_connected(_on_section_reset_requested):
+		EncounterDirector.instance.section_reset_requested.disconnect(_on_section_reset_requested)
 
 
 func _ready() -> void:
@@ -43,6 +46,46 @@ func _ready() -> void:
 	if store != null and store.has_signal("controls_rebound"):
 		if not store.is_connected("controls_rebound", _on_controls_rebound):
 			store.connect("controls_rebound", _on_controls_rebound)
+	_connect_director()
+	call_deferred("_connect_director")
+
+
+func _connect_director() -> void:
+	if EncounterDirector.instance != null and not EncounterDirector.instance.section_reset_requested.is_connected(_on_section_reset_requested):
+		EncounterDirector.instance.section_reset_requested.connect(_on_section_reset_requested)
+
+
+func _resolved_section_id() -> int:
+	if section_id >= 0:
+		return section_id
+	var cur: Node = get_parent()
+	while cur != null:
+		var n: String = String(cur.name)
+		if n.begins_with("Stage01"):
+			return 0
+		if n.begins_with("Stage02"):
+			return 1
+		if n.begins_with("Stage03"):
+			return 2
+		if n.begins_with("Stage04"):
+			return 3
+		if n.begins_with("Stage05"):
+			return 4
+		cur = cur.get_parent()
+	return 0
+
+
+func reset_switch() -> void:
+	is_activated = false
+	if _player_inside and can_interact():
+		prompt_changed.emit(true, get_formatted_prompt_text())
+	elif _player_inside:
+		prompt_changed.emit(false, "")
+
+
+func _on_section_reset_requested(reset_sec_id: int) -> void:
+	if reset_sec_id == _resolved_section_id():
+		reset_switch()
 
 
 func get_action_verb() -> String:

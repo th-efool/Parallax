@@ -71,6 +71,7 @@ var _wind: AudioStreamPlayer = null
 var _thunder: Array[AudioStream] = []
 var _thunder_player: AudioStreamPlayer = null
 var _rng := RandomNumberGenerator.new()
+var _bound_warden: Node = null
 
 
 func _ready() -> void:
@@ -85,19 +86,46 @@ func _ready() -> void:
 
 
 func _bind_warden() -> void:
-	var w: Node = get_node_or_null(warden_path)
+	bind_warden()
+
+
+func bind_warden(warden_override: Node = null) -> bool:
+	var w: Node = warden_override
 	if w == null:
-		return
-	if w.has_signal("boss_defeated"):
-		w.connect("boss_defeated", func() -> void: warden_dead = true)
-	if w.has_signal("boss_phase_changed"):
-		w.connect("boss_phase_changed", func(p: int) -> void: warden_phase2 = p >= 2)
-	if w.has_signal("health_changed"):
-		# Reset/respawn restores HP -> weather returns to the Phase 1 blood storm.
-		w.connect("health_changed", func(hp: int, max_hp: int) -> void:
-			if hp >= max_hp:
-				warden_phase2 = false
-				warden_dead = false)
+		w = get_node_or_null(warden_path)
+	if w == null and is_inside_tree() and get_tree() != null:
+		for e in get_tree().get_nodes_in_group("enemy"):
+			if e is WardenBoss:
+				w = e
+				break
+	if w == null or not is_instance_valid(w):
+		return false
+	if _bound_warden == w and is_instance_valid(_bound_warden):
+		return true
+	_bound_warden = w
+	if w.has_signal("boss_defeated") and not w.is_connected("boss_defeated", _on_warden_defeated):
+		w.connect("boss_defeated", _on_warden_defeated)
+	if w.has_signal("boss_phase_changed") and not w.is_connected("boss_phase_changed", _on_warden_phase_changed):
+		w.connect("boss_phase_changed", _on_warden_phase_changed)
+	if w.has_signal("health_changed") and not w.is_connected("health_changed", _on_warden_health_changed):
+		w.connect("health_changed", _on_warden_health_changed)
+	warden_dead = bool(w.get("is_dead"))
+	warden_phase2 = int(w.get("current_phase")) >= 2
+	return true
+
+
+func _on_warden_defeated() -> void:
+	warden_dead = true
+
+
+func _on_warden_phase_changed(p: int) -> void:
+	warden_phase2 = p >= 2
+
+
+func _on_warden_health_changed(hp: int, max_hp: int) -> void:
+	if hp >= max_hp:
+		warden_phase2 = false
+		warden_dead = false
 
 
 ## 0..1 surface wetness (same value pushed to the realm_wetness shader global). Used for wet footsteps.
@@ -119,6 +147,8 @@ func get_profile_for(z: float) -> String:
 
 
 func _process(delta: float) -> void:
+	if _bound_warden == null or not is_instance_valid(_bound_warden):
+		bind_warden()
 	var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	var probe: Vector3 = player.global_position if player != null else (cam.global_position if cam != null else Vector3.ZERO)
