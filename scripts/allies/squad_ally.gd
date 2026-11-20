@@ -59,6 +59,16 @@ var _retreating: bool = false
 var _low_hp_warned: bool = false
 var _stuck_timer: float = 0.0
 var _last_pos: Vector3 = Vector3.ZERO
+var _want_move_this_frame: bool = false
+var _want_move_goal: Vector3 = Vector3.INF
+var _stuck_anchor_pos: Vector3 = Vector3.ZERO
+var _stuck_strikes: int = 0
+var _embed_scan_t: float = 0.0
+var _safe_pos_scan_t: float = 0.0
+var _pit_rescue_count: int = 0
+var _pit_rescue_window_ms: int = 0
+var _stand_cap: CapsuleShape3D = null
+var _embed_cap: CapsuleShape3D = null
 var _engage_target: EnemyAI = null
 var _combat_quiet: float = 0.0
 var _speak_cd: float = 0.0
@@ -110,6 +120,7 @@ func _ready() -> void:
 		rm.realm_changed.connect(func(_r: int) -> void: _sync_realm_mask())
 		rm.realms_merged.connect(_sync_realm_mask)
 	_last_pos = global_position
+	_stuck_anchor_pos = global_position
 	_idle_chatter = _rng.randf_range(25.0, 50.0)
 
 
@@ -441,6 +452,9 @@ func assign(cmd: SquadCommand) -> void:
 	current = cmd
 	current.step = ""
 	current.timer = 0.0
+	_stuck_timer = 0.0
+	_stuck_strikes = 0
+	_stuck_anchor_pos = global_position
 	# Combo halves keep handshake data the manager may already have posted while they were queued.
 	if cmd.combo_id == 0:
 		var keep_rally: bool = bool(current.data.get("rally", false)) or bool(current.args.get("rally", false))
@@ -530,17 +544,22 @@ func has_free_leash() -> bool:
 func _physics_process(delta: float) -> void:
 	if profile == null or not is_inside_tree():
 		return
+	_want_move_this_frame = false
+	_want_move_goal = Vector3.INF
 	_tick_timers(delta)
 	if is_downed:
 		_process_downed(delta)
 		return
-	if is_on_floor() and not _in_pit_kill_zone():
-		_last_safe_pos = global_position
-		_has_safe_pos = true
+	_record_safe_pos_if_valid(delta)
 	_regen(delta)
 	var player: Node3D = _player()
 	if player != null:
 		_catch_up(player)
+	_embed_scan_t -= delta
+	if _embed_scan_t <= 0.0:
+		_embed_scan_t = 0.35
+		if _is_embedded_in_world():
+			_recover_from_embedded(player)
 	if _dash_timer > 0.0:
 		_process_dash(delta)
 		_finish_frame(delta)
@@ -763,10 +782,19 @@ func _formation_resolve(player: Node3D, want: Vector3, f: Vector3, r: Vector3) -
 		var cand2: Vector3 = player.global_position.lerp(mirrored, 1.0 - 0.2 * float(k))
 		if _slot_free(cand2, player):
 			return cand2
-	# Last resort: a per-slot spot level with the player and well off the camera line (never two allies on
-	# the same point, never straight behind the player where the lens is).
-	var lat: Array[float] = [1.7, -1.7, 2.6, -2.6, 3.4, -3.4]
-	return player.global_position - f * 0.4 + r * lat[slot_index % lat.size()]
+	# Last resort: validated stand spot near the player instead of raw parapet/cliff offsets.
+	var s: float = 1.0 if slot_index % 2 == 0 else -1.0
+	for off in [
+		-f * 1.2 + r * (0.9 * s),
+		-f * 1.2 - r * (0.9 * s),
+		-f * 1.4,
+		r * (1.0 * s),
+		-r * (1.0 * s),
+	]:
+		var spot: Vector3 = _validate_stand_spot(player.global_position + (off as Vector3), player.global_position, true, false, 0.95)
+		if spot != Vector3.INF:
+			return spot
+	return player.global_position
 
 
 func _slot_free(p: Vector3, player: Node3D) -> bool:
@@ -1784,15 +1812,27 @@ func _skill_ground_breaker(s: AllySkill) -> bool:
 func _skill_shadowstep(s: AllySkill, e: EnemyAI) -> bool:
 	if e == null or not _enemy_ok(e) or e.global_position.distance_to(global_position) > s.cast_range:
 		return false
-	var spot: Vector3 = e.global_position - e.get_facing_direction() * 1.1
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(spot + Vector3.UP * 1.2, spot + Vector3.DOWN * 2.0, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
-	var hit: Dictionary = space.intersect_ray(q)
-	if hit.is_empty():
+	var fwd: Vector3 = e.get_facing_direction()
+	if Vector2(fwd.x, fwd.z).length_squared() < 0.001:
+		fwd = Vector3.FORWARD
+	fwd = Vector3(fwd.x, 0.0, fwd.z).normalized()
+	var side := Vector3(-fwd.z, 0.0, fwd.x)
+	var extra_excl: Array[RID] = [e.get_rid()]
+	var spot: Vector3 = Vector3.INF
+	for cand in [
+		e.global_position - fwd * 1.1,
+		e.global_position + side * 1.1,
+		e.global_position - side * 1.1,
+	]:
+		spot = _validate_stand_spot(cand as Vector3, e.global_position, true, false, 1.0, false, extra_excl)
+		if spot != Vector3.INF:
+			break
+	if spot == Vector3.INF:
 		return false
 	GoreFXScript.dust_puff(self, global_position, 0.5, 14, Color(s.color.r, s.color.g, s.color.b, 0.5), 1.6)
-	global_position = (hit["position"] as Vector3) + Vector3.UP * 0.05
+	global_position = spot
 	_last_pos = global_position
+	_stuck_anchor_pos = global_position
 	velocity = Vector3.ZERO
 	set_facing(e.global_position - global_position)
 	GoreFXScript.flash_light(self, global_position + Vector3.UP, s.color, 3.5, 0.25, 4.0)
@@ -3053,13 +3093,17 @@ func interact() -> bool:
 	return true
 
 
-func _in_pit_kill_zone() -> bool:
+func _is_point_in_pit_kill_zone(pos: Vector3) -> bool:
 	if not is_inside_tree() or get_tree() == null:
 		return false
 	for z in get_tree().get_nodes_in_group("pit_kill_zone"):
-		if z != null and z.has_method("is_point_inside_zone") and bool(z.call("is_point_inside_zone", global_position)):
+		if z != null and z.has_method("is_point_inside_zone") and bool(z.call("is_point_inside_zone", pos)):
 			return true
 	return false
+
+
+func _in_pit_kill_zone() -> bool:
+	return _is_point_in_pit_kill_zone(global_position)
 
 
 func _process_downed(delta: float) -> void:
@@ -3077,16 +3121,9 @@ func _process_downed(delta: float) -> void:
 			if not (pl is PlayerController and (pl as PlayerController).is_currently_airborne()):
 				_blink_to(pl)
 			elif pit_or_void or global_position.y < pl.global_position.y - 6.0:
-				if _has_safe_pos:
-					global_position = _last_safe_pos + Vector3.UP * 0.05
-					_last_pos = global_position
-				velocity = Vector3.ZERO
-		elif _has_safe_pos:
-			global_position = _last_safe_pos + Vector3.UP * 0.05
-			_last_pos = global_position
-			velocity = Vector3.ZERO
+				_rescue_from_pit(pl)
 		else:
-			velocity.y = 0.0
+			_rescue_from_pit(null)
 	_update_revive_prompt()
 
 
@@ -3125,6 +3162,11 @@ func reset_full(at: Vector3) -> void:
 	global_position = at
 	velocity = Vector3.ZERO
 	_last_pos = at
+	_stuck_anchor_pos = at
+	_stuck_timer = 0.0
+	_stuck_strikes = 0
+	_pit_rescue_count = 0
+	_pit_rescue_window_ms = 0
 	_last_safe_pos = at
 	_has_safe_pos = true
 	health_changed.emit(self, health, max_health)
@@ -3327,6 +3369,9 @@ func _move_to(goal: Vector3, speed: float, delta: float, avoid_allies: bool = tr
 	if d < 0.05:
 		_halt(delta)
 		return
+	if d >= 0.85 and speed > 0.2:
+		_want_move_this_frame = true
+		_want_move_goal = goal
 	# Arrival: ease in over the last metre and a half instead of slamming into the spot.
 	var arrive: float = clampf(d / 1.5, 0.25, 1.0)
 	_steer_toward_dir(to / d, speed * arrive, delta, avoid_allies, d)
@@ -3337,6 +3382,8 @@ func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
 	if d.length_squared() < 0.0001:
 		_halt(delta)
 		return
+	if speed > 0.2:
+		_want_move_this_frame = true
 	_steer_toward_dir(d.normalized(), speed, delta, true, 99.0)
 
 
@@ -3373,7 +3420,11 @@ func _steer_toward_dir(desired: Vector3, speed: float, delta: float, social: boo
 	var cur_v := Vector3(velocity.x, 0.0, velocity.z)
 	var target_v: Vector3 = _steer_dir * speed * _steer_speed_k
 	if social:
-		target_v += _personal_space_push() * 2.2
+		var push: Vector3 = _personal_space_push()
+		if push.length_squared() > 0.0001 and _floor_ahead(push.normalized(), 0.7):
+			var combined: Vector3 = target_v + push * 2.2
+			if combined.length_squared() <= 0.0001 or _floor_ahead(combined.normalized(), 0.65):
+				target_v = combined
 	var cur := cur_v.move_toward(target_v, 26.0 * delta)
 	velocity.x = cur.x
 	velocity.z = cur.z
@@ -3470,9 +3521,9 @@ func _turn_toward(cur: Vector3, target: Vector3, t: float) -> Vector3:
 
 
 func _halt(delta: float) -> void:
-	# Standing still still keeps personal space: step aside when a squad-mate or the player walks into us.
+	# Standing still still keeps personal space: step aside only onto confirmed floor away from drop-offs.
 	var push: Vector3 = _personal_space_push()
-	if push.length_squared() > 0.0025 and _floor_ahead(push.normalized(), 0.5):
+	if push.length_squared() > 0.0025 and _floor_ahead(push.normalized(), 0.75):
 		var tv: Vector3 = push * 2.4
 		velocity.x = move_toward(velocity.x, tv.x, 20.0 * delta)
 		velocity.z = move_toward(velocity.z, tv.z, 20.0 * delta)
@@ -3625,6 +3676,269 @@ func _approach_timeout(base_sec: float, target_pos: Vector3, cmd: SquadCommand =
 	return lim
 
 
+func _get_stand_cap() -> CapsuleShape3D:
+	if _stand_cap == null:
+		_stand_cap = CapsuleShape3D.new()
+		_stand_cap.radius = 0.36
+		_stand_cap.height = 1.70
+	return _stand_cap
+
+
+func _get_embed_cap() -> CapsuleShape3D:
+	if _embed_cap == null:
+		_embed_cap = CapsuleShape3D.new()
+		_embed_cap.radius = 0.28
+		_embed_cap.height = 1.45
+	return _embed_cap
+
+
+func _validate_stand_spot(cand: Vector3, ref_pos: Vector3 = Vector3.INF, require_los: bool = false, check_allies: bool = false, max_y_diff: float = 0.95, persistent_floor_only: bool = false, extra_excl: Array[RID] = []) -> Vector3:
+	if not is_inside_tree() or get_world_3d() == null:
+		return Vector3.INF
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	if space == null:
+		return Vector3.INF
+	var floor_mask: int = (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY) if persistent_floor_only else (collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER)
+	var excl: Array[RID] = [get_rid()]
+	for r_id in extra_excl:
+		excl.append(r_id)
+	var pl_n: Node3D = _player()
+	if pl_n is CollisionObject3D:
+		excl.append((pl_n as CollisionObject3D).get_rid())
+	var ray_from: Vector3 = cand + Vector3.UP * 1.0
+	var ray_to: Vector3 = cand + Vector3.DOWN * 2.2
+	var q := PhysicsRayQueryParameters3D.create(ray_from, ray_to, floor_mask, excl)
+	q.hit_from_inside = true
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return Vector3.INF
+	var floor_pos: Vector3 = hit["position"] as Vector3
+	if floor_pos.distance_to(ray_from) < 0.05 or (hit["normal"] as Vector3).y < 0.78:
+		return Vector3.INF
+	if ref_pos != Vector3.INF and absf(floor_pos.y - ref_pos.y) > max_y_diff:
+		return Vector3.INF
+	if _is_point_in_pit_kill_zone(floor_pos) or floor_pos.y < -18.0:
+		return Vector3.INF
+	# Require at least a 0.68 m x 0.68 m continuous floor pad (rejects parapet caps and razor cliff lips).
+	for off in [Vector3(0.34, 0.0, 0.34), Vector3(-0.34, 0.0, 0.34), Vector3(0.34, 0.0, -0.34), Vector3(-0.34, 0.0, -0.34)]:
+		var c_from: Vector3 = floor_pos + (off as Vector3) + Vector3.UP * 0.6
+		var cq := PhysicsRayQueryParameters3D.create(c_from, floor_pos + (off as Vector3) + Vector3.DOWN * 0.9, floor_mask, excl)
+		cq.hit_from_inside = true
+		var chit: Dictionary = space.intersect_ray(cq)
+		if chit.is_empty():
+			return Vector3.INF
+		var ch_pos: Vector3 = chit["position"] as Vector3
+		if ch_pos.distance_to(c_from) < 0.05 or (chit["normal"] as Vector3).y < 0.70 or absf(ch_pos.y - floor_pos.y) > 0.55:
+			return Vector3.INF
+	var spq := PhysicsShapeQueryParameters3D.new()
+	spq.shape = _get_stand_cap()
+	spq.transform = Transform3D(Basis.IDENTITY, floor_pos + Vector3.UP * 0.92)
+	spq.collision_mask = collision_mask
+	spq.exclude = excl
+	if not space.intersect_shape(spq, 1).is_empty():
+		return Vector3.INF
+	if require_los and ref_pos != Vector3.INF:
+		for h_los in [0.85, 1.45]:
+			var lq := PhysicsRayQueryParameters3D.create(ref_pos + Vector3.UP * float(h_los), floor_pos + Vector3.UP * float(h_los), collision_mask, excl)
+			lq.hit_from_inside = true
+			if not space.intersect_ray(lq).is_empty():
+				return Vector3.INF
+	if check_allies and get_tree() != null:
+		for a in get_tree().get_nodes_in_group("squad_ally"):
+			if a != self and a is SquadAlly and not (a as SquadAlly).is_downed:
+				if (a as Node3D).global_position.distance_to(floor_pos) < 0.85:
+					return Vector3.INF
+	return floor_pos + Vector3.UP * 0.05
+
+
+func _is_embedded_in_world() -> bool:
+	if not is_inside_tree() or get_world_3d() == null:
+		return false
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	if space == null:
+		return false
+	var excl: Array[RID] = [get_rid()]
+	var pl_n: Node3D = _player()
+	if pl_n is CollisionObject3D:
+		excl.append((pl_n as CollisionObject3D).get_rid())
+	var spq := PhysicsShapeQueryParameters3D.new()
+	spq.shape = _get_embed_cap()
+	spq.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * 0.95)
+	spq.collision_mask = collision_mask
+	spq.exclude = excl
+	return not space.intersect_shape(spq, 1).is_empty()
+
+
+func _find_safe_spot_near(origin: Vector3, radii: Array, check_allies: bool = true, ref_pos: Vector3 = Vector3.INF, require_los: bool = false, max_y_diff: float = 1.2) -> Vector3:
+	var r_ref: Vector3 = ref_pos if ref_pos != Vector3.INF else origin
+	for rad in radii:
+		var r_m: float = float(rad)
+		for i in range(12):
+			var ang: float = TAU * float(i) / 12.0
+			var cand: Vector3 = origin + Vector3(sin(ang) * r_m, 0.0, cos(ang) * r_m)
+			var valid: Vector3 = _validate_stand_spot(cand, r_ref, require_los, check_allies, max_y_diff)
+			if valid != Vector3.INF:
+				return valid
+	return Vector3.INF
+
+
+func find_safe_spot_around(player: Node3D) -> Vector3:
+	if player == null or not is_instance_valid(player) or not is_inside_tree():
+		return Vector3.INF
+	var pf: Vector3 = Vector3.FORWARD
+	if player.has_method("get_facing_direction"):
+		pf = player.call("get_facing_direction") as Vector3
+	if Vector2(pf.x, pf.z).length_squared() < 0.001:
+		pf = Vector3.FORWARD
+	pf = Vector3(pf.x, 0.0, pf.z).normalized()
+	var pr := Vector3(-pf.z, 0.0, pf.x)
+	var s: float = 1.0 if slot_index % 2 == 0 else -1.0
+	var ppos: Vector3 = player.global_position
+	var cands: Array[Vector3] = [
+		_formation_point(player),
+		ppos - pf * 1.4 + pr * (1.3 * s),
+		ppos - pf * 1.4 - pr * (1.3 * s),
+		ppos - pf * 1.5,
+		ppos + pr * (1.3 * s),
+		ppos - pr * (1.3 * s),
+		ppos - pf * 2.2 + pr * (1.6 * s),
+		ppos - pf * 2.2 - pr * (1.6 * s),
+		ppos + pf * 1.3 + pr * (1.1 * s),
+		ppos + pf * 1.3 - pr * (1.1 * s),
+		ppos - pf * 0.8 + pr * (0.9 * s),
+		ppos - pf * 0.8 - pr * (0.9 * s),
+		ppos - pf * 0.9,
+	]
+	for cand in cands:
+		var v1: Vector3 = _validate_stand_spot(cand, ppos, true, true, 0.95)
+		if v1 != Vector3.INF:
+			return v1
+	for cand in cands:
+		var v2: Vector3 = _validate_stand_spot(cand, ppos, true, false, 0.95)
+		if v2 != Vector3.INF:
+			return v2
+	var v_feet: Vector3 = _validate_stand_spot(ppos, ppos, false, false, 1.2)
+	if v_feet != Vector3.INF:
+		return v_feet
+	var v_ring: Vector3 = _find_safe_spot_near(ppos, [1.5, 2.5, 3.8], false, ppos, false, 3.0)
+	if v_ring != Vector3.INF:
+		return v_ring
+	if get_tree() != null:
+		var ed: Node = get_tree().get_first_node_in_group("encounter_director")
+		if ed != null:
+			var cp_xf: Transform3D = ed.get("checkpoint_transform") as Transform3D
+			var v_cp: Vector3 = _validate_stand_spot(cp_xf.origin, cp_xf.origin, false, false, 50.0)
+			if v_cp != Vector3.INF:
+				return v_cp
+	return Vector3.INF
+
+
+func _record_safe_pos_if_valid(delta: float) -> void:
+	_safe_pos_scan_t -= delta
+	if _has_safe_pos and _safe_pos_scan_t > 0.0:
+		return
+	if not is_on_floor() or get_floor_normal().y < 0.85 or _in_pit_kill_zone():
+		return
+	_safe_pos_scan_t = 0.25
+	if _validate_stand_spot(global_position, global_position, false, false, 0.6, true) != Vector3.INF:
+		_last_safe_pos = global_position
+		_has_safe_pos = true
+
+
+func _rescue_from_pit(player: Node3D) -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _pit_rescue_window_ms > 6000:
+		_pit_rescue_count = 0
+		_pit_rescue_window_ms = now_ms
+	_pit_rescue_count += 1
+	if _has_safe_pos and _pit_rescue_count < 2:
+		var safe_spot: Vector3 = _validate_stand_spot(_last_safe_pos, _last_safe_pos, false, false, 0.9, false)
+		if safe_spot != Vector3.INF:
+			global_position = safe_spot
+			velocity = Vector3.ZERO
+			_last_pos = global_position
+			_stuck_anchor_pos = global_position
+			return
+	_has_safe_pos = false
+	if player != null and is_instance_valid(player):
+		_blink_to(player)
+	if (_in_pit_kill_zone() or global_position.y < -20.0) and get_tree() != null:
+		var ed: Node = get_tree().get_first_node_in_group("encounter_director")
+		if ed != null:
+			var cp_xf: Transform3D = ed.get("checkpoint_transform") as Transform3D
+			global_position = cp_xf.origin + Vector3.UP * 0.1
+			velocity = Vector3.ZERO
+			_last_pos = global_position
+			_stuck_anchor_pos = global_position
+	_pit_rescue_count = 0
+
+
+func _recover_from_embedded(player: Node3D) -> void:
+	var spot: Vector3 = _find_safe_spot_near(global_position, [0.9, 1.5, 2.2, 3.2], false, global_position, false, 1.5)
+	if spot != Vector3.INF:
+		global_position = spot
+		velocity = Vector3.ZERO
+		_last_pos = spot
+		_stuck_anchor_pos = spot
+		_stuck_timer = 0.0
+		return
+	if player != null and is_instance_valid(player):
+		_blink_to(player)
+
+
+func _crosses_closed_gate(from_pos: Vector3, to_pos: Vector3) -> bool:
+	if not is_inside_tree() or get_world_3d() == null:
+		return false
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	if space == null:
+		return false
+	var q := PhysicsRayQueryParameters3D.create(from_pos + Vector3.UP * 1.0, to_pos + Vector3.UP * 1.0, collision_mask, [get_rid()])
+	q.hit_from_inside = true
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return false
+	var cur: Node = hit.get("collider", null) as Node
+	var hops: int = 0
+	while cur != null and hops < 4:
+		if cur.is_in_group("encounter_gate"):
+			return not bool(cur.get("is_open"))
+		cur = cur.get_parent()
+		hops += 1
+	return false
+
+
+func _unstick_bypass(goal: Vector3) -> bool:
+	if goal == Vector3.INF or not is_inside_tree():
+		return false
+	var to_g := Vector3(goal.x - global_position.x, 0.0, goal.z - global_position.z)
+	var cur_d: float = to_g.length()
+	if cur_d < 1.0:
+		return false
+	var fwd: Vector3 = to_g / cur_d
+	for check_mates in [true, false]:
+		for rad in [2.2, 3.6, 5.2]:
+			for deg in [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0]:
+				var dir: Vector3 = fwd.rotated(Vector3.UP, deg_to_rad(float(deg)))
+				var cand: Vector3 = global_position + dir * float(rad)
+				var spot: Vector3 = _validate_stand_spot(cand, global_position, false, check_mates, 2.0)
+				if spot == Vector3.INF:
+					continue
+				var new_d: float = Vector2(goal.x - spot.x, goal.z - spot.z).length()
+				if new_d >= cur_d - 0.6:
+					continue
+				if _crosses_closed_gate(global_position, spot):
+					continue
+				GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 2.0, 0.2, 2.5)
+				global_position = spot
+				velocity = Vector3.ZERO
+				_last_pos = spot
+				_stuck_anchor_pos = spot
+				_stuck_strikes = 0
+				GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 2.5, 0.25, 2.5)
+				return true
+	return false
+
+
 func _unstick_nudge() -> void:
 	var fwd: Vector3 = facing_direction.normalized() if facing_direction.length_squared() > 0.001 else Vector3.FORWARD
 	var side := Vector3(-fwd.z, 0.0, fwd.x)
@@ -3639,50 +3953,78 @@ func _unstick_nudge() -> void:
 
 func _update_stuck(delta: float) -> void:
 	var moved: float = Vector2(global_position.x - _last_pos.x, global_position.z - _last_pos.z).length()
-	var wants: bool = Vector2(velocity.x, velocity.z).length() > 1.0
+	var anchor_dx: float = global_position.x - _stuck_anchor_pos.x
+	var anchor_dz: float = global_position.z - _stuck_anchor_pos.z
+	var anchor_dist: float = Vector2(anchor_dx, anchor_dz).length()
+	var wants: bool = _want_move_this_frame or Vector2(velocity.x, velocity.z).length() > 1.0
 	_last_pos = global_position
-	if wants and moved < 0.6 * delta:
-		_stuck_timer += delta
+	var progressed: bool = false
+	if _want_move_goal != Vector3.INF:
+		var gx: float = _want_move_goal.x - _stuck_anchor_pos.x
+		var gz: float = _want_move_goal.z - _stuck_anchor_pos.z
+		var g_dir := Vector2(gx, gz)
+		if g_dir.length() > 0.5:
+			progressed = Vector2(anchor_dx, anchor_dz).dot(g_dir.normalized()) > 1.0
+		else:
+			progressed = anchor_dist > 1.25
+	else:
+		progressed = anchor_dist > 1.25
+	if progressed:
+		_stuck_anchor_pos = global_position
+		_stuck_timer = 0.0
+		_stuck_strikes = 0
+	elif wants:
+		_stuck_timer += delta if moved < 0.75 * delta else delta * 0.85
 	else:
 		_stuck_timer = maxf(0.0, _stuck_timer - delta * 2.0)
-	if _stuck_timer > 2.0:
+	if _stuck_timer > 1.6:
 		_stuck_timer = 0.0
+		_stuck_anchor_pos = global_position
 		var p: Node3D = _player()
+		if _in_pit_kill_zone() or global_position.y < -20.0:
+			_rescue_from_pit(p)
+			return
+		if _is_embedded_in_world():
+			_recover_from_embedded(p)
+			return
 		if p == null:
 			return
-		if has_free_leash():
-			if _in_pit_kill_zone() or global_position.y < -20.0:
-				if _has_safe_pos:
-					global_position = _last_safe_pos + Vector3.UP * 0.05
-					velocity = Vector3.ZERO
-					_last_pos = global_position
-				else:
-					_blink_to(p)
-				return
+		var player_bound_stuck: bool = not has_free_leash() or (
+			_want_move_goal != Vector3.INF
+			and _want_move_goal.distance_to(p.global_position) <= 5.0
+			and current != null
+			and current.verb in ["position", "retreat", "rearguard", "bodyguard"]
+		)
+		if player_bound_stuck:
+			_blink_to(p)
+			return
+		if _stuck_strikes == 0:
 			_steer_dir = Vector3.ZERO
 			_steer_timer = 0.0
 			if is_on_floor():
 				velocity.y = 4.5
 			_unstick_nudge()
-		elif global_position.distance_to(p.global_position) > 6.0:
+			_stuck_strikes = 1
+		elif _stuck_strikes == 1:
+			if _unstick_bypass(_want_move_goal):
+				return
+			_unstick_nudge()
+			_stuck_strikes = 2
+		else:
 			_blink_to(p)
+			_stuck_strikes = 0
 
 
 ## Catch-up: allies are mirror echoes — passive follow/ceasefire allies blink back to the player when left behind,
 ## whereas allies under ANY active command (has_free_leash() == true) never distance-teleport and only rescue
-## back to their own last safe ground position on real pit/void falls.
+## safely on real pit/void falls.
 func _catch_up(player: Node3D) -> void:
 	var free_leash: bool = has_free_leash()
 	var in_pit: bool = _in_pit_kill_zone() or global_position.y < -20.0
 	if free_leash:
 		if not in_pit:
 			return
-		if _has_safe_pos:
-			global_position = _last_safe_pos + Vector3.UP * 0.05
-			velocity = Vector3.ZERO
-			_last_pos = global_position
-		else:
-			_blink_to(player)
+		_rescue_from_pit(player)
 		return
 	var d: Vector3 = player.global_position - global_position
 	var cam_exempt: bool = _distant_order_cam_visible()
@@ -3705,31 +4047,26 @@ func _catch_up(player: Node3D) -> void:
 				if hit.is_empty() and d.length() < (150.0 if cam_exempt else 40.0):
 					return
 	if player is PlayerController and (player as PlayerController).is_currently_airborne():
-		if fallen_pit and _has_safe_pos:
-			global_position = _last_safe_pos + Vector3.UP * 0.05
-			velocity = Vector3.ZERO
-			_last_pos = global_position
+		if fallen_pit:
+			_rescue_from_pit(player)
 		return
 	_blink_to(player)
 
 
 func _blink_to(player: Node3D) -> void:
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	if space == null:
+	if player == null or not is_instance_valid(player) or not is_inside_tree():
 		return
-	var base: Vector3 = _formation_point(player)
-	var pf: Vector3 = (player.call("get_facing_direction") as Vector3) if player.has_method("get_facing_direction") else Vector3.FORWARD
-	var tries: Array[Vector3] = [base, player.global_position - pf * 1.5, player.global_position]
-	for t in tries:
-		var q := PhysicsRayQueryParameters3D.create(t + Vector3.UP * 1.5, t + Vector3.DOWN * 3.0, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
-		var hit: Dictionary = space.intersect_ray(q)
-		if not hit.is_empty():
-			GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 2.5, 0.25, 3.0)
-			global_position = (hit["position"] as Vector3) + Vector3.UP * 0.05
-			velocity = Vector3.ZERO
-			_last_pos = global_position
-			GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 3.0, 0.3, 3.0)
-			return
+	var spot: Vector3 = find_safe_spot_around(player)
+	if spot == Vector3.INF:
+		return
+	GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 2.5, 0.25, 3.0)
+	global_position = spot
+	velocity = Vector3.ZERO
+	_last_pos = spot
+	_stuck_anchor_pos = spot
+	_stuck_timer = 0.0
+	_stuck_strikes = 0
+	GoreFXScript.flash_light(self, global_position + Vector3.UP, profile.color, 3.0, 0.3, 3.0)
 
 
 func _update_anim() -> void:

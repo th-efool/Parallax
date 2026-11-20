@@ -19,6 +19,7 @@ const ArchetypeEnemyScript := preload("res://scripts/enemies/archetype_enemy.gd"
 const HexArchetype := preload("res://data/enemies/hollow_hexcaster.tres")
 const PhantomScript := preload("res://scripts/enemies/phantom_twin.gd")
 const PitKillZoneScript := preload("res://scripts/environment/pit_kill_zone.gd")
+const EncounterGateScript := preload("res://scripts/environment/encounter_gate.gd")
 
 var _fails: int = 0
 var _checks: int = 0
@@ -455,6 +456,197 @@ func _run() -> void:
 		scaled_lim > 20.0 and scaled_lim <= 45.0
 		and not r_cmd.done and r_cmd.step == "closing to range",
 		"lim=%.1f done=%s step=%s" % [scaled_lim, r_cmd.done, r_cmd.step])
+
+	# ---- MRK-13: Safe blink never lands on parapets, blockers, or inside walls ----
+	e_rng_far.queue_free()
+	await process_frame
+	for a_rst in [brannoc, sera, ivo]:
+		a_rst.reset_full(Vector3.ZERO)
+		a_rst.assign(CommandScript.make("follow", {}, "test"))
+	var make_box := func(parent: Node, nm: String, pos: Vector3, sz: Vector3, layer: int) -> StaticBody3D:
+		var sb := StaticBody3D.new()
+		sb.name = nm
+		sb.collision_layer = layer
+		var cs := CollisionShape3D.new()
+		var bx := BoxShape3D.new()
+		bx.size = sz
+		cs.shape = bx
+		sb.add_child(cs)
+		sb.position = pos
+		parent.add_child(sb)
+		return sb
+
+	var iso13 := Node3D.new()
+	harness.add_child(iso13)
+	make_box.call(iso13, "BridgeDeck13", Vector3(400.0, -0.5, 0.0), Vector3(2.6, 1.0, 14.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso13, "ParapetRailW13", Vector3(398.5, 0.56, 0.0), Vector3(0.61, 1.12, 14.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso13, "ParapetRailE13", Vector3(401.5, 0.56, 0.0), Vector3(0.61, 1.12, 14.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso13, "ParapetBlkW13", Vector3(398.5, 1.35, 0.0), Vector3(0.45, 2.7, 14.0), RealmManagerScript.LAYER_PLAYER_BLOCKER)
+	make_box.call(iso13, "ParapetBlkE13", Vector3(401.5, 1.35, 0.0), Vector3(0.45, 2.7, 14.0), RealmManagerScript.LAYER_PLAYER_BLOCKER)
+	make_box.call(iso13, "RearWall13", Vector3(400.0, 2.5, 1.5), Vector3(6.0, 5.0, 1.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	await physics_frame
+	player.global_position = Vector3(400.0, 0.0, -2.0)
+	player.set_facing_direction(Vector3.FORWARD)
+	await physics_frame
+	for a13 in [brannoc, sera, ivo]:
+		a13.global_position = Vector3(400.0, 0.0, -40.0)
+		a13._blink_to(player)
+	var all_on_deck13: bool = true
+	for a13 in [brannoc, sera, ivo]:
+		if a13.global_position.y < -0.2 or a13.global_position.y > 0.3 or absf(a13.global_position.x - 400.0) > 1.1 or a13._is_embedded_in_world():
+			all_on_deck13 = false
+	_check("mrk13_blink_never_lands_on_parapet_or_inside_wall", all_on_deck13,
+		"b=%s s=%s i=%s" % [brannoc.global_position, sera.global_position, ivo.global_position])
+	iso13.queue_free()
+	await process_frame
+
+	# ---- MRK-14: Mirror stone & invalid _last_safe_pos / repeat falls never loop into valley ----
+	var iso14 := Node3D.new()
+	harness.add_child(iso14)
+	make_box.call(iso14, "SafeDeck14", Vector3(450.0, -0.5, 0.0), Vector3(12.0, 1.0, 12.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso14, "MirrorStone14", Vector3(450.0, -0.5, -10.0), Vector3(3.0, 1.0, 3.0), RealmManagerScript.LAYER_WORLD_MIRROR)
+	await physics_frame
+	player.global_position = Vector3(450.0, 0.0, 0.0)
+	brannoc.reset_full(Vector3(450.0, 0.0, 0.0))
+	rm.force_realm(RealmManagerScript.Realm.MIRROR, false)
+	await physics_frame
+	brannoc.global_position = Vector3(450.0, 0.0, -10.0)
+	brannoc._safe_pos_scan_t = 0.0
+	for _m14 in range(3):
+		brannoc._physics_process(0.05)
+	var stone_ignored: bool = brannoc._last_safe_pos.z > -6.0
+	rm.force_realm(RealmManagerScript.Realm.REALITY, false)
+	await physics_frame
+	brannoc.assign(CommandScript.make("attack", {"target": "M1"}, "test"))
+	brannoc._last_safe_pos = Vector3(450.0, 0.0, -20.0)
+	brannoc._has_safe_pos = true
+	brannoc._pit_rescue_count = 0
+	brannoc.global_position = Vector3(450.0, -25.0, -20.0)
+	brannoc._catch_up(player)
+	var invalid_safe_rescued_to_player: bool = brannoc.global_position.distance_to(player.global_position) < 5.0 and brannoc.global_position.y >= -0.2
+	brannoc._last_safe_pos = Vector3(450.0, 0.0, -3.5)
+	brannoc._has_safe_pos = true
+	brannoc._pit_rescue_count = 0
+	brannoc._pit_rescue_window_ms = Time.get_ticks_msec()
+	brannoc.global_position = Vector3(450.0, -25.0, -10.0)
+	brannoc._rescue_from_pit(player)
+	var first_safe_z: float = brannoc.global_position.z
+	brannoc.global_position = Vector3(450.0, -25.0, -10.0)
+	brannoc._rescue_from_pit(player)
+	var repeat_broke_loop: bool = absf(first_safe_z + 3.5) < 0.8 and brannoc.global_position.distance_to(player.global_position) < 5.0
+	_check("mrk14_mirror_stone_safe_pos_never_causes_infinite_valley_fall",
+		stone_ignored and invalid_safe_rescued_to_player and repeat_broke_loop,
+		"stone=%s inv=%s rep=%s z1=%.1f" % [stone_ignored, invalid_safe_rescued_to_player, repeat_broke_loop, first_safe_z])
+	iso14.queue_free()
+	await process_frame
+
+	# ---- MRK-15: Close follow stuck (< 6 m across chasm in camera view) still recovers ----
+	var iso15 := Node3D.new()
+	harness.add_child(iso15)
+	make_box.call(iso15, "DeckNorth15", Vector3(500.0, -0.5, 0.0), Vector3(4.0, 1.0, 6.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso15, "DeckSouth15", Vector3(500.0, -0.5, -7.5), Vector3(4.0, 1.0, 6.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	await physics_frame
+	player.global_position = Vector3(500.0, 0.0, 0.0)
+	player.set_facing_direction(Vector3.BACK)
+	player.camera_yaw = PI
+	player._update_camera_pivot()
+	await physics_frame
+	brannoc.reset_full(Vector3(500.0, 0.0, -5.0))
+	brannoc.assign(CommandScript.make("follow", {}, "test"))
+	brannoc._stuck_anchor_pos = brannoc.global_position
+	brannoc._last_pos = brannoc.global_position
+	for _s15 in range(48):
+		brannoc._physics_process(0.05)
+	var recovered_close_chasm: bool = brannoc.global_position.z > -3.5 and brannoc.global_position.distance_to(player.global_position) < 4.5
+	_check("mrk15_stuck_close_to_player_on_follow_or_across_chasm_recovers", recovered_close_chasm, str(brannoc.global_position))
+	iso15.queue_free()
+	await process_frame
+
+	# ---- MRK-16: Ally embedded inside Blocker/wall pops out cleanly on scan ----
+	var iso16 := Node3D.new()
+	harness.add_child(iso16)
+	make_box.call(iso16, "Floor16", Vector3(550.0, -0.5, 0.0), Vector3(10.0, 1.0, 10.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso16, "Blocker16", Vector3(550.0, 1.35, 0.0), Vector3(0.5, 2.7, 6.0), RealmManagerScript.LAYER_PLAYER_BLOCKER)
+	brannoc.set_physics_process(false)
+	await physics_frame
+	player.global_position = Vector3(552.0, 0.0, 0.0)
+	brannoc.reset_full(Vector3(550.0, 0.0, 0.0))
+	await physics_frame
+	var was_emb16: bool = brannoc._is_embedded_in_world()
+	brannoc.set_physics_process(true)
+	brannoc._embed_scan_t = 0.0
+	brannoc._physics_process(0.05)
+	var popped_out16: bool = was_emb16 and not brannoc._is_embedded_in_world() and brannoc.global_position.y >= -0.2
+	_check("mrk16_embedded_in_wall_or_parapet_pops_out_automatically", popped_out16,
+		"was=%s now_emb=%s pos=%s" % [was_emb16, brannoc._is_embedded_in_world(), brannoc.global_position])
+	iso16.queue_free()
+	await process_frame
+
+	# ---- MRK-17: Free-leash staged unstick (bypass wall, block closed gate, Strike 2 rescue) ----
+	var iso17 := Node3D.new()
+	harness.add_child(iso17)
+	make_box.call(iso17, "Floor17", Vector3(600.0, -0.5, -10.0), Vector3(14.0, 1.0, 36.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	make_box.call(iso17, "CornerWall17", Vector3(600.0, 1.5, -2.0), Vector3(4.0, 3.0, 0.8), RealmManagerScript.LAYER_WORLD_SHARED)
+	var gate17: EncounterGate = EncounterGateScript.new() as EncounterGate
+	gate17.starts_open = false
+	gate17.animate_gate = false
+	gate17.position = Vector3(600.0, 0.0, -18.0)
+	make_box.call(gate17, "GateBody17", Vector3(0.0, 2.0, 0.0), Vector3(14.0, 4.0, 0.6), RealmManagerScript.LAYER_WORLD_SHARED)
+	iso17.add_child(gate17)
+	var e_bypass: EnemyAI = _make_enemy(EnemyAIScript, Vector3(600.0, 0.0, -15.0), "BypassTarget17")
+	iso17.add_child(e_bypass)
+	await physics_frame
+	player.global_position = Vector3(600.0, 0.0, 5.0)
+	intel.mark_enemy(e_bypass)
+	brannoc.reset_full(Vector3(600.0, 0.0, -1.0))
+	brannoc.assign(CommandScript.make("attack", {"target": "M1"}, "test"))
+	brannoc._stuck_anchor_pos = brannoc.global_position
+	brannoc._last_pos = brannoc.global_position
+	brannoc._want_move_this_frame = true
+	brannoc._want_move_goal = e_bypass.global_position
+	brannoc._stuck_timer = 1.7
+	brannoc._update_stuck(0.05)
+	var strike0_stayed: bool = brannoc._stuck_strikes == 1 and brannoc.global_position.z > -1.8
+	brannoc._stuck_anchor_pos = brannoc.global_position
+	brannoc._last_pos = brannoc.global_position
+	brannoc._want_move_this_frame = true
+	brannoc._want_move_goal = e_bypass.global_position
+	brannoc._stuck_timer = 1.7
+	brannoc._update_stuck(0.05)
+	var strike1_bypassed: bool = brannoc.global_position.z < -2.3 and brannoc.global_position.distance_to(e_bypass.global_position) < 13.5
+	brannoc.global_position = Vector3(600.0, 0.0, -16.8)
+	brannoc._last_pos = brannoc.global_position
+	brannoc._stuck_anchor_pos = brannoc.global_position
+	var crossed_gate: bool = brannoc._unstick_bypass(Vector3(600.0, 0.0, -24.0))
+	brannoc._stuck_strikes = 2
+	brannoc._want_move_this_frame = true
+	brannoc._want_move_goal = Vector3(600.0, 0.0, -24.0)
+	brannoc._stuck_timer = 1.7
+	brannoc._update_stuck(0.05)
+	var strike2_rescued: bool = brannoc.global_position.distance_to(player.global_position) < 5.0
+	intel.clear_marks()
+	_check("mrk17_free_leash_staged_unstick_and_closed_gate_respect",
+		strike0_stayed and strike1_bypassed and not crossed_gate and strike2_rescued,
+		"s0=%s s1=%s gate=%s s2=%s" % [strike0_stayed, strike1_bypassed, crossed_gate, strike2_rescued])
+	iso17.queue_free()
+	await process_frame
+
+	# ---- MRK-18: Personal space push never shoves ally off unrailed ledge ----
+	var iso18 := Node3D.new()
+	harness.add_child(iso18)
+	make_box.call(iso18, "Ledge18", Vector3(660.0, -0.5, 0.0), Vector3(2.0, 1.0, 10.0), RealmManagerScript.LAYER_WORLD_SHARED)
+	await physics_frame
+	player.global_position = Vector3(659.5, 0.0, 0.0)
+	brannoc.reset_full(Vector3(660.6, 0.0, 0.0))
+	brannoc.assign(CommandScript.make("follow", {}, "test"))
+	await physics_frame
+	for _h18 in range(15):
+		brannoc._halt(0.05)
+		brannoc._steer_toward_dir(Vector3.FORWARD, 3.0, 0.05, true, 5.0)
+	var stayed_on_ledge: bool = brannoc.global_position.x <= 660.95 and brannoc.global_position.y >= -0.2
+	_check("mrk18_personal_space_push_never_shoves_ally_off_ledge", stayed_on_ledge, str(brannoc.global_position))
+	iso18.queue_free()
+	await process_frame
 
 	harness.queue_free()
 	await process_frame

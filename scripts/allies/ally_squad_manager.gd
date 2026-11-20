@@ -111,8 +111,9 @@ func _spawn_squad() -> void:
 		var a: SquadAlly = AllyScript.new() as SquadAlly
 		a.setup(p, self, idx)
 		add_child(a)
-		var spawn: Vector3 = (a.call("_formation_point", _player) as Vector3) if _player != null else Vector3(float(idx) * 1.5, 0.0, 0.0)
-		a.global_position = spawn + Vector3.UP * 0.1
+		var safe_spawn: Vector3 = a.find_safe_spot_around(_player) if _player != null else Vector3.INF
+		var spawn: Vector3 = safe_spawn if safe_spawn != Vector3.INF else ((a.call("_formation_point", _player) as Vector3) if _player != null else Vector3(float(idx) * 1.5, 0.0, 0.0))
+		a.global_position = spawn + (Vector3.ZERO if safe_spawn != Vector3.INF else Vector3.UP * 0.1)
 		a.health_changed.connect(_on_ally_health)
 		a.downed.connect(_on_ally_downed)
 		a.revived.connect(_on_ally_revived)
@@ -317,7 +318,8 @@ func regroup(full_heal: bool) -> void:
 	for a in allies:
 		if not is_instance_valid(a):
 			continue
-		var p: Vector3 = (a.call("_formation_point", _player) as Vector3) if _player != null else a.global_position
+		var safe_p: Vector3 = a.find_safe_spot_around(_player) if _player != null else Vector3.INF
+		var p: Vector3 = safe_p if safe_p != Vector3.INF else ((a.call("_formation_point", _player) as Vector3) if _player != null else a.global_position)
 		if full_heal:
 			a.reset_full(p)
 		else:
