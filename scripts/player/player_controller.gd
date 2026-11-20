@@ -11,6 +11,7 @@ const GoreFXScript := preload("res://scripts/core/gore_fx.gd")
 const SquadCoordinatorScript := preload("res://scripts/enemies/squad_coordinator.gd")
 const PlayerFeelRigScript := preload("res://scripts/player/player_feel_rig.gd")
 const FinisherFXScript := preload("res://scripts/player/finisher_fx.gd")
+const BreakablePropScript := preload("res://scripts/environment/breakable_prop.gd")
 
 enum State {
 	LOCOMOTION = 0,
@@ -305,6 +306,8 @@ var _health_regen_acc: float = 0.0
 ## Heavy "hold to charge" (see _update_heavy_hold). _heavy_hold is true for the whole wind-up of a plain `heavy`.
 var _heavy_hold: bool = false
 var _heavy_charge_t: float = 0.0
+var _was_deflected: bool = false
+var _finisher_invuln_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -577,6 +580,8 @@ func _update_heavy_hold(w: float, delta: float) -> bool:
 	if not _heavy_hold or current_state != State.HEAVY_ATTACK or attack_phase != AttackPhase.WINDUP:
 		return false
 	if ui_input_locked:
+		velocity.x = 0.0
+		velocity.z = 0.0
 		_abort_attack()
 		_set_state(State.LOCOMOTION, 0.0)
 		return false
@@ -680,6 +685,8 @@ func set_simulated_airborne(airborne: bool) -> void:
 func is_invulnerable() -> bool:
 	var hb: Hurtbox3D = get_hurtbox()
 	if hb != null and hb.is_invulnerable:
+		return true
+	if _finisher_invuln_timer > 0.0:
 		return true
 	if current_state == State.DODGE:
 		return _dodge_elapsed >= dodge_iframe_start and _dodge_elapsed <= (dodge_iframe_start + dodge_iframe_duration)
@@ -792,6 +799,7 @@ func _begin_attack(attack_name: String, damage: int, heavy: bool, state: State, 
 	_attack_elapsed = 0.0
 	_attack_hits = 0
 	_multi_tick = 0
+	_was_deflected = false
 	_heavy_hold = attack_name == "heavy"
 	_heavy_charge_t = 0.0
 
@@ -831,6 +839,12 @@ func _process_attack_state(delta: float) -> void:
 	var w: float = float(current_attack.get("windup", 0.1))
 	var a: float = float(current_attack.get("active", 0.1))
 	var holding: bool = _update_heavy_hold(w, delta)
+	if current_state != State.LIGHT_ATTACK and current_state != State.HEAVY_ATTACK:
+		return
+	if _finisher_invuln_timer > 0.0:
+		_finisher_invuln_timer = maxf(0.0, _finisher_invuln_timer - delta)
+		if _finisher_invuln_timer <= 0.0:
+			_update_hurtbox_invulnerability(false)
 
 	# Track the magnetised target through the wind-up (souls-like "tracking" that ends at the strike).
 	if attack_phase == AttackPhase.WINDUP and is_instance_valid(current_target):
@@ -867,7 +881,7 @@ func _process_attack_state(delta: float) -> void:
 				var hbm: Hitbox3D = get_sword_hitbox()
 				if hbm != null:
 					hbm.end_swing()
-					hbm.begin_swing(_attack_damage, true, "player_heavy")
+					hbm.begin_swing(_attack_damage, true, _current_swing_source_type())
 				if current_attack_name == "fin_mirror_break":
 					FinisherFXScript.mirror_shards(self, tick)
 				else:
@@ -888,7 +902,7 @@ func _process_attack_state(delta: float) -> void:
 		move_and_slide()
 
 	# Cancels: dodge any time outside the strike frames, attacks/jump inside the recovery cancel window.
-	if _buffer_action == "dodge" and attack_phase != AttackPhase.ACTIVE:
+	if _buffer_action == "dodge" and attack_phase != AttackPhase.ACTIVE and _can_dodge_from(true):
 		_consume_buffer()
 		_abort_attack()
 		_set_state(State.LOCOMOTION, 0.0)
@@ -922,14 +936,19 @@ func _process_attack_state(delta: float) -> void:
 		_set_state(State.LOCOMOTION, 0.0)
 
 
+func _current_swing_source_type() -> String:
+	if current_attack.has("execute") or current_attack_name == "fin_execution":
+		return "player_execution"
+	if bool(current_attack.get("finisher_move", false)):
+		return current_attack_name
+	return "player_heavy" if _attack_heavy else "player_light"
+
+
 func _enter_strike() -> void:
 	_set_attack_phase(AttackPhase.ACTIVE)
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
-		var src: String = "player_heavy" if _attack_heavy else "player_light"
-		if current_attack.has("execute"):
-			src = "player_execution"
-		hb.begin_swing(_attack_damage, _attack_heavy, src)
+		hb.begin_swing(_attack_damage, _attack_heavy, _current_swing_source_type())
 	var step_num: int = 0
 	if current_attack_name.begins_with("light_"):
 		step_num = int(current_attack_name.substr(6))
@@ -962,14 +981,22 @@ func _finish_attack_cleanup() -> void:
 	var hb: Hitbox3D = get_sword_hitbox()
 	if hb != null:
 		hb.end_swing()
+	if _finisher_invuln_timer > 0.0:
+		_finisher_invuln_timer = 0.0
+		if current_state != State.DODGE:
+			_update_hurtbox_invulnerability(false)
 
 
 func _abort_attack() -> void:
 	_finish_attack_cleanup()
 	_set_attack_phase(AttackPhase.NONE)
+	current_attack = {}
 	current_target = null
 	_heavy_hold = false
 	_heavy_charge_t = 0.0
+	_was_deflected = false
+	if current_state != State.DODGE:
+		_update_hurtbox_invulnerability(false)
 
 
 ## Manual strike-shape query every active frame, in addition to Area3D overlap signals, so fast lunges
@@ -1021,7 +1048,7 @@ func _acquire_target(dir_hint: Vector3, max_range: float, any_direction: bool = 
 	var cos_limit: float = -1.01 if any_direction else cos(deg_to_rad(magnet_half_angle_deg))
 	for n in get_tree().get_nodes_in_group("enemy"):
 		var e: EnemyBase = n as EnemyBase
-		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree():
+		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree() or not e.is_hittable_now():
 			continue
 		var rel: Vector3 = e.global_position - global_position
 		if absf(rel.y) > 2.0:
@@ -1056,8 +1083,8 @@ func _on_sword_hit_landed(target: Node, _damage_dealt: int, _is_heavy_hit: bool,
 		GameFeelScript.hitstop(self, stop)
 	if trauma > 0.0:
 		GameFeelScript.add_trauma(self, trauma)
-	# Execution: anything left at or below the threshold after the plunge is finished outright.
-	if not killed and current_attack.has("execute") and target is EnemyBase:
+	# Execution: anything left at or below the threshold after the execution strike is finished outright.
+	if not killed and source_type == "player_execution" and current_attack.has("execute") and target is EnemyBase:
 		var eb: EnemyBase = target as EnemyBase
 		if not eb.execute_immune and float(eb.health) <= float(eb.max_health) * float(current_attack["execute"]):
 			eb.apply_damage(eb.health + 999, true, "player_execution", self)
@@ -1088,6 +1115,8 @@ func get_finisher_target() -> Node3D:
 
 ## A critical hit: the chain enders (light_5 / heavy / heavy_spin) always crit; other light hits crit at `crit_chance_light`.
 func _try_open_finisher_window(target: Node3D) -> void:
+	if _was_deflected:
+		return
 	if is_finisher_window_open() or Time.get_ticks_msec() < _finisher_cooldown_end_ms:
 		return
 	if bool(current_attack.get("finisher_move", false)):
@@ -1110,6 +1139,7 @@ func finisher_window_enabled() -> bool:
 
 
 func open_finisher_window(target: Node3D) -> void:
+	_consume_buffer()
 	_finisher_target = target
 	_finisher_window_end_ms = Time.get_ticks_msec() + int(finisher_window_sec * 1000.0)
 	_finisher_last_tick_ms = Time.get_ticks_msec()
@@ -1165,24 +1195,17 @@ func start_finisher(fin_name: String) -> bool:
 		_set_state(State.LOCOMOTION, 0.0)
 	var tgt: Node3D = _finisher_target if is_instance_valid(_finisher_target) and not (_finisher_target as EnemyBase).is_dead else null
 	if def.has("blink") and tgt != null and tgt.global_position.distance_to(global_position) < 6.0:
-		# Phantom Step: vanish into a mirror afterimage and reappear behind the target.
+		# Phantom Step: vanish into a mirror afterimage and reappear behind the target on safe floor.
 		var from: Vector3 = global_position
 		var away: Vector3 = tgt.global_position - from
 		away.y = 0.0
 		away = away.normalized() if away.length_squared() > 0.001 else get_facing_direction()
-		var dest: Vector3 = tgt.global_position + away * float(def["blink"])
-		dest.y = global_position.y
-		# Never blink through a wall: stop short of world geometry (World_Shared/Reality/Mirror = layers 3-5).
-		var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-		var probe_from: Vector3 = Vector3(tgt.global_position.x, global_position.y + 0.9, tgt.global_position.z)
-		var q := PhysicsRayQueryParameters3D.create(probe_from, dest + Vector3.UP * 0.9, 0b11100)
-		var hit: Dictionary = space.intersect_ray(q)
-		if not hit.is_empty():
-			dest = Vector3((hit["position"] as Vector3).x, global_position.y, (hit["position"] as Vector3).z) - away * 0.45
-		FinisherFXScript.phantom_blink(self, from, dest)
-		global_position = dest
-		set_facing_direction(-away)
-		camera_yaw = atan2(away.x, away.z)  # swing the camera round so the target stays in view
+		var dest: Vector3 = _resolve_phantom_blink_dest(from, tgt, away, float(def["blink"]))
+		if dest.distance_squared_to(from) > 0.0025:
+			FinisherFXScript.phantom_blink(self, from, dest)
+			global_position = dest
+			set_facing_direction(-away)
+			camera_yaw = atan2(away.x, away.z)  # swing the camera round so the target stays in view
 	combo_step = 0
 	_combo_window_timer = 0.0
 	_begin_attack(fin_name, int(def.get("damage", 60)), true, State.HEAVY_ATTACK)
@@ -1194,15 +1217,46 @@ func start_finisher(fin_name: String) -> bool:
 			set_facing_direction(to_tgt)
 	_finisher_target = null
 	_finisher_cooldown_end_ms = Time.get_ticks_msec() + int(finisher_cooldown_sec * 1000.0)
+	_finisher_invuln_timer = get_attack_total_duration(fin_name) * 0.8
 	_update_hurtbox_invulnerability(true)
-	get_tree().create_timer(get_attack_total_duration(fin_name) * 0.8, true, false, true).timeout.connect(func() -> void:
-		if is_instance_valid(self) and current_state != State.DODGE:
-			_update_hurtbox_invulnerability(false))
 	var rs: Node = _get_run_state()
 	if rs != null and rs.has_method("add_score_event"):
 		rs.call("add_score_event", "finisher", true, "")
 	finisher_executed.emit(fin_name)
 	return true
+
+
+func _resolve_phantom_blink_dest(from: Vector3, tgt: Node3D, away: Vector3, blink_dist: float) -> Vector3:
+	if not is_inside_tree() or get_world_3d() == null or get_world_3d().direct_space_state == null:
+		var raw_dest: Vector3 = tgt.global_position + away * blink_dist
+		raw_dest.y = from.y
+		return raw_dest
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	var world_mask: int = rm.get_realm_world_mask(rm.current_realm) if rm != null else (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY)
+	var wall_mask: int = world_mask | RealmManager.LAYER_PLAYER_BLOCKER
+	var exclude: Array[RID] = [get_rid()]
+	if tgt is CollisionObject3D:
+		exclude.append((tgt as CollisionObject3D).get_rid())
+	var ray_from: Vector3 = Vector3(from.x, from.y + 0.9, from.z)
+	for d in [blink_dist, blink_dist * 0.55]:
+		var cand: Vector3 = tgt.global_position + away * float(d)
+		cand.y = from.y
+		var q_wall := PhysicsRayQueryParameters3D.create(ray_from, cand + Vector3.UP * 0.9, wall_mask, exclude)
+		var hit_wall: Dictionary = space.intersect_ray(q_wall)
+		if not hit_wall.is_empty():
+			var hp: Vector3 = hit_wall["position"] as Vector3
+			var delta_xz := Vector2(hp.x - from.x, hp.z - from.z)
+			var safe_len: float = maxf(0.0, delta_xz.length() - 0.45)
+			var flat_dir: Vector3 = Vector3(delta_xz.x, 0.0, delta_xz.y).normalized() if delta_xz.length_squared() > 0.0001 else away
+			cand = Vector3(from.x + flat_dir.x * safe_len, from.y, from.z + flat_dir.z * safe_len)
+		var floor_origin: Vector3 = Vector3(cand.x, cand.y + 1.0, cand.z)
+		var q_floor := PhysicsRayQueryParameters3D.create(floor_origin, floor_origin + Vector3.DOWN * 2.2, world_mask, exclude)
+		var hit_floor: Dictionary = space.intersect_ray(q_floor)
+		if not hit_floor.is_empty():
+			cand.y = (hit_floor["position"] as Vector3).y
+			return cand
+	return from
 
 
 ## Last enemy of a fight dies -> brief dramatic slow motion.
@@ -1233,6 +1287,7 @@ func is_hit_stop_active() -> bool:
 func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> void:
 	if current_state != State.LIGHT_ATTACK and current_state != State.HEAVY_ATTACK:
 		return
+	_was_deflected = true
 	if is_heavy:
 		GameFeelScript.hitstop(self, 0.07)
 		GameFeelScript.add_trauma(self, 0.3)
@@ -1254,18 +1309,28 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 
 # ------------------------------------------------------------------ dodge / plunge
 
-func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
+func _can_dodge_from(allow_attack_cancel: bool = false) -> bool:
 	if _dodge_charges <= 0:
 		return false
-	if current_state != State.LOCOMOTION and current_state != State.DODGE:
+	var valid_state: bool = (current_state == State.LOCOMOTION or current_state == State.DODGE)
+	if allow_attack_cancel and (current_state == State.LIGHT_ATTACK or current_state == State.HEAVY_ATTACK):
+		valid_state = true
+	if not valid_state:
 		return false
+	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
+	if airborne and (not allow_air_dash or _air_dash_used):
+		return false
+	return true
+
+
+func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
+	if not _can_dodge_from(false):
+		return false
+	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
 	_dodge_charges -= 1
 	if _dodge_cooldown_timer <= 0.0:
 		_dodge_cooldown_timer = dodge_cooldown
-	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
 	if airborne:
-		if not allow_air_dash or _air_dash_used:
-			return false
 		_air_dash_used = true
 
 	if input_dir.length_squared() > 0.001:
@@ -1277,7 +1342,7 @@ func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 	_dodge_elapsed = 0.0
 	_perfect_dodge_spent = false
 	_set_state(State.DODGE, dodge_duration)
-	_update_hurtbox_invulnerability(false)
+	_update_hurtbox_invulnerability(dodge_iframe_start <= 0.0)
 	dodge_started.emit(_dodge_direction, dodge_duration)
 	return true
 
@@ -1319,6 +1384,8 @@ func complete_landing_slam(candidates: Array[Node] = []) -> int:
 			for n in get_tree().get_nodes_in_group("mechanism_target"):
 				tree_targets.append(n)
 			for n in get_tree().get_nodes_in_group("breakable"):
+				if n is BreakablePropScript and (n as BreakablePropScript).prop_kind == BreakablePropScript.PropKind.CENTRAL_MIRROR_PLANE:
+					continue
 				tree_targets.append(n)
 			hits = hb.pulse_radial_targets(global_position, landing_attack_radius, tree_targets, landing_attack_damage, true, "player_landing")
 
@@ -1445,17 +1512,31 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	global_transform.basis = spawn_transform.basis
 	velocity = Vector3.ZERO
 	health = max_health
+	stamina = max_stamina
+	_health_regen_acc = 0.0
 	combo_step = 0
 	_combo_window_timer = 0.0
+	_flow_tap = false
+	_flow_streak = 0
+	_presses_this_swing = 0
+	_since_attack_end = 99.0
+	_ally_ward_hp = 0
+	_ally_ward_until_ms = 0
+	_finisher_cooldown_end_ms = 0
 	_dodge_elapsed = 0.0
 	_dodge_charges = max_dodge_charges
 	_dodge_cooldown_timer = 0.0
 	_coyote_timer = 0.0
+	_jump_buffer_timer = 0.0
+	_jump_held = false
 	_pending_ground_slam = false
+	_pending_ground_slam_timer = 0.0
+	_plunge_hang_timer = 0.0
 	_landing_recover_timer = 0.0
 	_simulated_airborne = false
 	_air_dash_used = false
 	_buffer_action = ""
+	_buffer_timer = 0.0
 	run_time = 0.0
 	camera_yaw = global_rotation.y
 	var fwd: Vector3 = -global_transform.basis.z
@@ -1470,10 +1551,15 @@ func respawn_at(spawn_transform: Transform3D) -> void:
 	health_changed.emit(health, max_health)
 
 func _verify_spawn_safety(pos: Vector3) -> Vector3:
-	var space_state = get_world_3d().direct_space_state
-	var ray_query = PhysicsRayQueryParameters3D.create(pos + Vector3(0, 2, 0), pos - Vector3(0, 5, 0))
-	var result = space_state.intersect_ray(ray_query)
-	
+	if not is_inside_tree() or get_world_3d() == null or get_world_3d().direct_space_state == null:
+		return pos
+	var space_state := get_world_3d().direct_space_state
+	var world_mask: int = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR
+	if RealmManager.instance != null and RealmManager.instance.has_method("get_realm_world_mask"):
+		world_mask = RealmManager.instance.get_realm_world_mask(RealmManager.instance.current_realm)
+	var ray_query := PhysicsRayQueryParameters3D.create(pos + Vector3(0, 2, 0), pos - Vector3(0, 5, 0), world_mask, [get_rid()])
+	var result := space_state.intersect_ray(ray_query)
+
 	if result.is_empty():
 		push_warning("Respawn position invalid! Using fallback.")
 		return Vector3(0.0, 0.5, -136.0)
@@ -1539,11 +1625,10 @@ func _process_locomotion_state(delta: float) -> void:
 
 	if _pending_ground_slam:
 		_pending_ground_slam_timer = maxf(0.0, _pending_ground_slam_timer - delta)
-		if _pending_ground_slam_timer <= 0.0 and is_currently_airborne():
-			start_landing_attack()
-			return
-		elif _pending_ground_slam_timer <= 0.0:
+		if _pending_ground_slam_timer <= 0.0:
 			_pending_ground_slam = false
+			if is_currently_airborne() and start_landing_attack():
+				return
 
 	var move_dir: Vector3 = _read_move_dir()
 	_last_move_input_dir = move_dir.normalized() if move_dir.length_squared() > 0.001 else Vector3.ZERO
@@ -1584,9 +1669,9 @@ func _process_locomotion_state(delta: float) -> void:
 	if act == "plunge":
 		_consume_buffer()
 		if is_currently_airborne():
-			start_landing_attack()
-			return
-		elif on_floor:
+			if start_landing_attack():
+				return
+		elif on_floor and stamina >= 50.0 and _landing_recover_timer <= 0.0:
 			velocity.y = landing_leap_velocity
 			_jump_held = true
 			_pending_ground_slam = true
@@ -1663,11 +1748,10 @@ func _process_dodge_state(delta: float) -> void:
 
 	# Chained dodge: cancel into a second dodge once past the early i-frame window if charges remain.
 	if t_norm > 0.45 and _buffer_action == "dodge" and _dodge_charges > 0:
-		_consume_buffer()
-		_update_hurtbox_invulnerability(false)
 		var d_dir: Vector3 = _read_move_dir()
-		start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction)
-		return
+		if start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction):
+			_consume_buffer()
+			return
 
 	# Attack out of a dodge late in the roll (dodge-attack chain).
 	if t_norm > 0.6 and (_buffer_action == "light" or _buffer_action == "heavy") and is_on_floor():
@@ -1686,9 +1770,9 @@ func _process_dodge_state(delta: float) -> void:
 		run_time = sprint_ramp_time * 0.8  # come out of a roll already moving fast
 		_set_state(State.LOCOMOTION, 0.0)
 		if _buffer_action == "dodge" and _dodge_charges > 0:
-			_consume_buffer()
 			var d_dir: Vector3 = _read_move_dir()
-			start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction)
+			if start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction):
+				_consume_buffer()
 
 
 func _process_landing_plunge_state(delta: float) -> void:
@@ -1712,6 +1796,8 @@ func _process_landing_plunge_state(delta: float) -> void:
 func _set_state(next_state: State, duration: float) -> void:
 	current_state = next_state
 	_state_timer = duration
+	if next_state != State.LOCOMOTION:
+		_pending_ground_slam = false
 	if next_state != State.HEAVY_ATTACK:
 		_heavy_hold = false
 		_heavy_charge_t = 0.0

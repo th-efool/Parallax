@@ -66,6 +66,8 @@ func _process(delta: float) -> void:
 
 
 func trigger_break(by_heavy_attack: bool = true) -> bool:
+	if prop_kind == PropKind.CENTRAL_MIRROR_PLANE:
+		return false
 	if current_state != PropState.INTACT:
 		return false
 	if require_heavy_attack and not by_heavy_attack:
@@ -285,18 +287,15 @@ func _sync_visuals_and_colliders() -> void:
 	for child in get_children():
 		if child is CollisionShape3D:
 			var cs: CollisionShape3D = child as CollisionShape3D
-			cs.disabled = not is_intact
 			cs.set_deferred("disabled", not is_intact)
 		elif child is StaticBody3D:
 			for sub in child.get_children():
 				if sub is CollisionShape3D:
 					var scs: CollisionShape3D = sub as CollisionShape3D
-					scs.disabled = not is_intact
 					scs.set_deferred("disabled", not is_intact)
 		elif child is Hurtbox3D:
 			var hb: Hurtbox3D = child as Hurtbox3D
 			hb.set_deferred("monitorable", is_intact)  # may run inside a physics signal flush
-			hb.set_deferred("monitorable", is_intact)
 
 	# Debris colliders living under the broken visual are solid only once the prop is broken.
 	if broken_vis != null:
@@ -307,6 +306,5 @@ func _set_debris_colliders(node: Node, enabled: bool) -> void:
 	for sub in node.get_children():
 		if sub is CollisionShape3D:
 			var cs: CollisionShape3D = sub as CollisionShape3D
-			cs.disabled = not enabled
 			cs.set_deferred("disabled", not enabled)
 		_set_debris_colliders(sub, enabled)

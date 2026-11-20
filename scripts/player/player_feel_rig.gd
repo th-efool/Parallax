@@ -107,7 +107,19 @@ func _ready() -> void:
 		_smooth_y = _pc.global_position.y if _pc.is_inside_tree() else 0.0
 		_prev_yaw = _pc.get_visual_yaw()
 		_connect_player()
+	_sync_fov_from_store(true)
+	if is_inside_tree() and get_tree() != null and get_tree().root != null:
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null and store.has_signal("settings_changed") and not store.is_connected("settings_changed", _on_settings_changed):
+			store.connect("settings_changed", _on_settings_changed)
 	_setup_trail.call_deferred()
+
+
+func _exit_tree() -> void:
+	if get_tree() != null and get_tree().root != null:
+		var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+		if store != null and store.has_signal("settings_changed") and store.is_connected("settings_changed", _on_settings_changed):
+			store.disconnect("settings_changed", _on_settings_changed)
 
 
 func _connect_player() -> void:
@@ -152,6 +164,31 @@ func kick_fov(amount: float) -> void:
 	_fov_kick_vel += amount * 28.0
 
 
+func _sync_fov_from_store(snap: bool = false) -> void:
+	if not is_inside_tree() or get_tree() == null or get_tree().root == null:
+		return
+	var store: Node = get_tree().root.get_node_or_null("LeaderboardStore")
+	if store == null or not store.has_method("get_settings"):
+		return
+	var s: Dictionary = store.call("get_settings") as Dictionary
+	var fov: float = clampf(float(s.get("camera_fov", _base_fov)), 55.0, 95.0)
+	_base_fov = fov
+	if snap:
+		_fov_smoothed = fov
+		if _camera != null:
+			_camera.fov = clampf(fov + _fov_kick, 40.0, 110.0)
+
+
+func _on_settings_changed(settings: Dictionary) -> void:
+	if settings.has("camera_fov"):
+		var fov: float = clampf(float(settings.get("camera_fov", 65.0)), 55.0, 95.0)
+		if not is_equal_approx(_base_fov, fov):
+			_base_fov = fov
+			_fov_smoothed = fov
+			if _camera != null:
+				_camera.fov = clampf(_fov_smoothed + _fov_kick, 40.0, 110.0)
+
+
 # ------------------------------------------------------------------ per frame
 
 func _process(delta: float) -> void:
@@ -173,7 +210,8 @@ func _update_camera(dt: float) -> void:
 	# start, clearly rumbling at full charge).
 	var charge_k: float = _pc.get_heavy_charge_ratio()
 	if charge_k > 0.0:
-		trauma = maxf(trauma, 0.10 + 0.45 * charge_k * charge_k)
+		var shake_k: float = clampf(_pc.camera_shake_intensity, 0.0, 1.5)
+		trauma = maxf(trauma, (0.10 + 0.45 * charge_k * charge_k) * shake_k)
 	_noise_t += dt * 32.0
 	var hvel: Vector3 = Vector3(_pc.velocity.x, 0.0, _pc.velocity.z)
 	var speed_k: float = clampf((hvel.length() - _pc.run_speed * 0.9) / maxf(0.1, _pc.sprint_speed - _pc.run_speed * 0.9), 0.0, 1.0)
@@ -435,6 +473,7 @@ func _realm_color() -> Color:
 
 func _on_attack_started(attack_name: String, timing: Dictionary) -> void:
 	if _trail != null:
+		_trail.split_stroke()
 		_trail.color = _realm_color()
 		_trail.width_boost = float(timing.get("trail", 1.0))
 		_trail.max_age = 0.12 if not attack_name.begins_with("heavy") else 0.18

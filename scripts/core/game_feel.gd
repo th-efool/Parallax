@@ -63,9 +63,15 @@ static func add_trauma(context: Node, amount: float, world_pos: Variant = null, 
 		if not rig.has_method("add_trauma"):
 			continue
 		var k: float = 1.0
-		if world_pos is Vector3 and rig is Node3D:
-			var d: float = (rig as Node3D).global_position.distance_to(world_pos as Vector3)
-			k = clampf(1.0 - d / maxf(0.1, falloff_radius), 0.0, 1.0)
+		if world_pos is Vector3:
+			var ref_node: Node3D = null
+			if rig is Node3D:
+				ref_node = rig as Node3D
+			elif rig is Node and (rig as Node).get_parent() is Node3D:
+				ref_node = (rig as Node).get_parent() as Node3D
+			if ref_node != null and ref_node.is_inside_tree():
+				var d: float = ref_node.global_position.distance_to(world_pos as Vector3)
+				k = clampf(1.0 - d / maxf(0.1, falloff_radius), 0.0, 1.0)
 		if k > 0.0:
 			rig.call("add_trauma", amount * k)
 

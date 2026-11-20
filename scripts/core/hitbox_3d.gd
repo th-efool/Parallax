@@ -117,7 +117,13 @@ func try_hit_target(candidate: Node) -> bool:
 
 	hit_targets_this_swing.append(logical_target)
 
-	if register_combo_on_enemy_hit and is_target_enemy and (source_type == "player_light" or source_type == "player_heavy"):
+	var is_player_combo_source: bool = (
+		source_type == "player_light"
+		or source_type == "player_heavy"
+		or source_type == "player_execution"
+		or source_type.begins_with("fin_")
+	)
+	if register_combo_on_enemy_hit and is_target_enemy and is_player_combo_source:
 		var run_state: Node = _get_run_state()
 		if run_state != null and run_state.has_method("register_hit"):
 			run_state.call("register_hit")
