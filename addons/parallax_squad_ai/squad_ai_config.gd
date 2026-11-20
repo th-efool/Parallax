@@ -81,6 +81,8 @@ static func ensure_loaded() -> void:
 		ambient_chatter = bool(cf.get_value("comms", "ambient_chatter", ambient_chatter))
 	if not VOICE_ENGINES.has(voice_engine):
 		voice_engine = "auto"
+	if OS.get_name() == "Windows" and voice_engine == "system":
+		voice_engine = "auto"
 	if not MODES.has(mode):
 		mode = "both"
 	if not PROVIDERS.has(provider_pref):

@@ -480,12 +480,12 @@ func _attach_voice(e: EnemyBase) -> void:
 
 
 func _enemy_vocal(e: EnemyBase, cue: String, chance: float = 1.0, force: bool = false) -> void:
-	if e == null or not is_instance_valid(e) or _headless():
+	if e == null or not is_instance_valid(e) or not e.is_inside_tree() or _headless():
 		return
 	if chance < 1.0 and randf() > chance:
 		return
 	var v: AudioStreamPlayer3D = e.get_node_or_null("Voice") as AudioStreamPlayer3D
-	if v == null:
+	if v == null or not v.is_inside_tree():
 		return
 	var bank: String = "enemy/%s_%s" % [_enemy_kind(e), cue]
 	if not _banks.has(bank):
@@ -503,7 +503,7 @@ func _update_voices() -> void:
 	for i in range(_voices.size() - 1, -1, -1):
 		var entry: Array = _voices[i]
 		var e: EnemyBase = (entry[0] as WeakRef).get_ref() as EnemyBase
-		if e == null or not is_instance_valid(e):
+		if e == null or not is_instance_valid(e) or not e.is_inside_tree():
 			_voices.remove_at(i)
 			continue
 		if now < float(entry[3]):

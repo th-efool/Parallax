@@ -55,7 +55,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	stop_all()
-	if DisplayServer.get_name() != "headless":
+	if DisplayServer.get_name() != "headless" and OS.get_name() != "Windows":
 		DisplayServer.tts_stop()
 
 
@@ -94,6 +94,10 @@ func _cloud_ok() -> bool:
 
 
 func _system_ok() -> bool:
+	# On Windows, Godot 4's DisplayServerWindows SAPI implementation causes synchronous
+	# COM STA deadlocks on the main thread during gameplay/combat, freezing the engine into "Not Responding".
+	if OS.get_name() == "Windows":
+		return false
 	if not SquadAIConfig.tts_enabled:
 		return false
 	if not bool(ProjectSettings.get_setting("audio/general/text_to_speech", false)):
@@ -105,7 +109,7 @@ func _system_voices() -> PackedStringArray:
 	if _sys_checked:
 		return _sys_voices
 	_sys_checked = true
-	if DisplayServer.get_name() == "headless":
+	if DisplayServer.get_name() == "headless" or OS.get_name() == "Windows":
 		return _sys_voices
 	_sys_voices = DisplayServer.tts_get_voices_for_language("en")
 	if _sys_voices.is_empty():
@@ -142,7 +146,7 @@ func interrupt() -> void:
 	# Stopping the player discards its generator buffer (clear_buffer() errors while the stream is active).
 	_player.stop()
 	_playback = null
-	if String(_current.get("engine", "")) == "system" and DisplayServer.get_name() != "headless":
+	if String(_current.get("engine", "")) == "system" and DisplayServer.get_name() != "headless" and OS.get_name() != "Windows":
 		DisplayServer.tts_stop()
 		_last_sys_speak_ms = Time.get_ticks_msec()
 	if not _current.is_empty():
@@ -175,6 +179,11 @@ func _start(it: Dictionary, eng: String) -> void:
 	_current["announced"] = false
 	_current["started_ms"] = Time.get_ticks_msec()
 	if eng == "system":
+		if OS.get_name() == "Windows":
+			line_dropped.emit(String(it["speaker"]), String(it["text"]))
+			_current = {}
+			_next()
+			return
 		var voices: PackedStringArray = _system_voices()
 		if voices.is_empty():
 			line_dropped.emit(String(it["speaker"]), String(it["text"]))
@@ -254,6 +263,12 @@ func _process(_delta: float) -> void:
 	if _current.is_empty():
 		return
 	if String(_current.get("engine", "")) == "system":
+		if OS.get_name() == "Windows":
+			var sp_win: String = String(_current["speaker"])
+			_current = {}
+			line_finished.emit(sp_win)
+			_next()
+			return
 		# Finished once the OS reports silence for a few frames (after a short start-up grace period).
 		if Time.get_ticks_msec() - int(_current.get("started_ms", 0)) < 400:
 			return

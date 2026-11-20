@@ -117,13 +117,12 @@ func _animate_mesh(mesh_node: Node3D) -> void:
 func _set_colliders_disabled_recursive(node: Node, disable_collision: bool) -> void:
 	if node is CollisionShape3D:
 		var cs: CollisionShape3D = node as CollisionShape3D
-		cs.disabled = disable_collision
 		cs.set_deferred("disabled", disable_collision)
 	elif node is CSGShape3D:
 		var csg: CSGShape3D = node as CSGShape3D
 		if not csg.has_meta("_orig_use_collision"):
 			csg.set_meta("_orig_use_collision", csg.use_collision)
 		if bool(csg.get_meta("_orig_use_collision")):
-			csg.use_collision = not disable_collision
+			csg.set_deferred("use_collision", not disable_collision)
 	for child in node.get_children():
 		_set_colliders_disabled_recursive(child, disable_collision)

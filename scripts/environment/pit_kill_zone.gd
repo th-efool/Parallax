@@ -83,4 +83,4 @@ func trigger_pit_death(actor: Node) -> bool:
 
 
 func _on_body_entered(body: Node3D) -> void:
-	trigger_pit_death(body)
+	call_deferred("trigger_pit_death", body)
