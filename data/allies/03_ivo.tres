@@ -24,7 +24,7 @@ color = Color(0.8, 0.55, 1, 1)
 script = ExtResource("2_skill")
 id = "mending_light"
 display_name = "Mending Light"
-description = "Heals an ally or the player for 35% of their max HP (range 14 m)."
+description = "Heals an ally or the player for 18% of their max HP (range 14 m)."
 aliases = Array[String](["heal", "mend", "mending light", "patch up", "fix up", "healing"])
 effect = "mending_light"
 target_kind = "ally"
@@ -33,7 +33,7 @@ cast_range = 14
 radius = 0
 power = 0.18
 duration = 0
-auto_use = ""
+auto_use = "never"
 voice_line = "Hold still, mending you."
 color = Color(0.6, 1, 0.65, 1)
 
