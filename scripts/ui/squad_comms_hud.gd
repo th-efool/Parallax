@@ -13,6 +13,11 @@ const ACTIONS: Dictionary = {
 	"push_to_talk": [KEY_V],
 	"toggle_command_log": [KEY_L],
 	"cinematic_mode": [KEY_F10],
+	"mark_enemy": [KEY_T],
+	"clear_marks": [KEY_X],
+}
+const MOUSE_ACTIONS: Dictionary = {
+	"mark_enemy": [MOUSE_BUTTON_MIDDLE],
 }
 const ROLE_GLYPH: Dictionary = {"vanguard": "◆", "skirmisher": "➶", "artillery": "✦"}
 
@@ -31,6 +36,7 @@ var _mic_level: float = 0.0
 var _cinematic: bool = false
 var _ptt_held_key: bool = false
 var _ptt_held_mouse: bool = false
+var _aim_candidate: EnemyAI = null
 
 
 func _ready() -> void:
@@ -55,6 +61,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	_ptt_held_key = false
+	_ptt_held_mouse = false
 	if _chat_open:
 		_chat_open = false
 		PlayerController.ui_input_locked = false
@@ -62,13 +70,23 @@ func _exit_tree() -> void:
 
 static func _ensure_actions() -> void:
 	for a in ACTIONS.keys():
-		if InputMap.has_action(a):
-			continue
-		InputMap.add_action(a)
-		for k in (ACTIONS[a] as Array):
-			var ev := InputEventKey.new()
-			ev.physical_keycode = int(k) as Key
-			InputMap.action_add_event(a, ev)
+		if not InputMap.has_action(a):
+			InputMap.add_action(a)
+			for k in (ACTIONS[a] as Array):
+				var ev := InputEventKey.new()
+				ev.physical_keycode = int(k) as Key
+				InputMap.action_add_event(a, ev)
+	for ma in MOUSE_ACTIONS.keys():
+		var created: bool = false
+		if not InputMap.has_action(ma):
+			InputMap.add_action(ma)
+			created = true
+		if created or InputMap.action_get_events(ma).size() <= ACTIONS.get(ma, []).size():
+			for b in (MOUSE_ACTIONS[ma] as Array):
+				var mb := InputEventMouseButton.new()
+				mb.button_index = int(b) as MouseButton
+				if not InputMap.action_has_event(ma, mb):
+					InputMap.action_add_event(ma, mb)
 
 
 # ------------------------------------------------------------------ widgets
@@ -94,7 +112,7 @@ func _build_chat_bar() -> void:
 	row.add_child(lbl)
 	_chat_edit = LineEdit.new()
 	_chat_edit.name = "ChatEdit"
-	_chat_edit.placeholder_text = "e.g.  Sera, kite the brute  ·  everyone massacre  ·  Brannoc guard Ivo  ·  jump 3 times"
+	_chat_edit.placeholder_text = "e.g.  attack marked  ·  M1!  ·  Sera kite the caster near M1  ·  divide and conquer"
 	_chat_edit.custom_minimum_size = Vector2(640, 40)
 	_chat_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chat_edit.add_theme_font_size_override("font_size", 20)
@@ -136,8 +154,9 @@ func _on_mic_gui_input(ev: InputEvent) -> void:
 func _input(event: InputEvent) -> void:
 	if comms == null:
 		return
-	if event.is_action_pressed("cinematic_mode") and not _chat_open:
-		set_cinematic(not _cinematic)
+	if _ptt_held_key and event.is_action_released("push_to_talk"):
+		_ptt_held_key = false
+		comms.end_voice()
 		get_viewport().set_input_as_handled()
 		return
 	if _chat_open:
@@ -147,6 +166,10 @@ func _input(event: InputEvent) -> void:
 		return
 	if _blocked_by_menu():
 		return
+	if event.is_action_pressed("cinematic_mode") and not event.is_echo():
+		set_cinematic(not _cinematic)
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("squad_chat") and not event.is_echo():
 		open_chat()
 		get_viewport().set_input_as_handled()
@@ -154,10 +177,14 @@ func _input(event: InputEvent) -> void:
 		_ptt_held_key = true
 		comms.begin_voice()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_released("push_to_talk") and _ptt_held_key:
-		_ptt_held_key = false
-		comms.end_voice()
+	elif event.is_action_pressed("mark_enemy") and not event.is_echo():
+		_handle_mark_enemy()
 		get_viewport().set_input_as_handled()
+		return
+	elif event.is_action_pressed("clear_marks") and not event.is_echo():
+		_handle_clear_marks()
+		get_viewport().set_input_as_handled()
+		return
 	elif event.is_action_pressed("toggle_command_log") and not event.is_echo():
 		_log_visible = not _log_visible
 		SquadAIConfig.show_command_log = _log_visible
@@ -165,12 +192,75 @@ func _input(event: InputEvent) -> void:
 		queue_redraw()
 
 
+func _intel() -> WorldIntel:
+	if AllySquadManager.instance != null and AllySquadManager.instance.intel != null:
+		return AllySquadManager.instance.intel
+	if is_inside_tree() and get_tree() != null:
+		return get_tree().get_first_node_in_group("world_intel") as WorldIntel
+	return null
+
+
+func _is_finisher_open() -> bool:
+	if not is_inside_tree() or get_tree() == null:
+		return false
+	var pl: Node = get_tree().get_first_node_in_group("player")
+	return pl != null and pl.has_method("is_finisher_window_open") and bool(pl.call("is_finisher_window_open"))
+
+
+func _handle_mark_enemy() -> void:
+	var intel_n: WorldIntel = _intel()
+	if intel_n == null:
+		return
+	var res: Dictionary = intel_n.mark_enemy_at_aim()
+	var act: String = String(res.get("action", "none"))
+	match act:
+		"marked":
+			if AudioManager.instance != null:
+				AudioManager.instance.play_sfx("ui_confirm", -4.0)
+			var m_num: int = int(res.get("mark_num", 1))
+			var nearby: int = int(res.get("nearby_count", 0))
+			var nm: String = String(res.get("name", "Enemy"))
+			var extra: String = "  ·  +%d nearby in %dm" % [nearby, int(intel_n.mark_region_radius)] if nearby > 0 else ""
+			_on_notify("Marked %s [M%d]%s" % [nm, m_num, extra], "info")
+		"unmarked":
+			if AudioManager.instance != null:
+				AudioManager.instance.play_sfx("ui_back", -4.0)
+			_on_notify("Unmarked %s" % String(res.get("name", "Enemy")), "info")
+		_:
+			_on_notify("No enemy in sights to mark", "info")
+	queue_redraw()
+
+
+func _handle_clear_marks() -> void:
+	var intel_n: WorldIntel = _intel()
+	if intel_n == null:
+		return
+	if not intel_n.has_marks() and not intel_n.has_mark_zones():
+		return
+	intel_n.clear_marks()
+	if AudioManager.instance != null:
+		AudioManager.instance.play_sfx("ui_back", -4.0)
+	_on_notify("Cleared all enemy marks", "info")
+	queue_redraw()
+
+
 func _blocked_by_menu() -> bool:
-	if get_tree().paused:
+	if not is_inside_tree() or get_tree() == null or get_tree().paused:
 		return true
-	for grp in ["title_screen", "pause_menu", "options_screen", "leaderboard_screen", "results_screen"]:
+	if not _cinematic and not is_visible_in_tree():
+		return true
+	for grp in ["title_screen", "pause_menu", "options_screen", "leaderboard_screen", "results_screen", "loading_screen"]:
 		for n in get_tree().get_nodes_in_group(grp):
 			if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
+				return true
+			if n is CanvasLayer and (n as CanvasLayer).visible:
+				return true
+	var mc: Node = get_tree().get_first_node_in_group("main_controller")
+	if mc != null and (mc.get("_loading") != null or not bool(mc.get("level_ready"))):
+		return true
+	if get_tree().root != null:
+		for ch in get_tree().root.get_children():
+			if ch is LoadingScreen and (ch as CanvasLayer).visible:
 				return true
 	return false
 
@@ -217,7 +307,7 @@ func set_cinematic(on: bool) -> void:
 	if hud != null:
 		hud.visible = not on
 	for e in get_tree().get_nodes_in_group("enemy"):
-		for nm in ["FloatingHPBar", "StateIcon", "IntelTag"]:
+		for nm in ["FloatingHPBar", "StateIcon", "IntelTag", "MarkPin", "MarkRegionPin"]:
 			var l: Node3D = (e as Node).get_node_or_null(nm) as Node3D
 			if l != null:
 				l.set_meta("cinematic_hidden", on)
@@ -225,6 +315,10 @@ func set_cinematic(on: bool) -> void:
 					l.visible = false
 				elif nm == "FloatingHPBar":
 					l.visible = true
+	if not on:
+		var intel_n: WorldIntel = _intel()
+		if intel_n != null:
+			intel_n.refresh()
 	for a in get_tree().get_nodes_in_group("squad_ally"):
 		for c in (a as Node).get_children():
 			if c is Label3D or (c is MeshInstance3D and (c as MeshInstance3D).mesh is TorusMesh):
@@ -286,6 +380,11 @@ func _process(delta: float) -> void:
 	if _chat_panel != null:
 		_chat_panel.size = Vector2(minf(900.0, s.x - 80.0), 0)
 		_chat_panel.position = Vector2((s.x - _chat_panel.size.x) * 0.5, s.y - 238.0)
+	var intel_n: WorldIntel = _intel()
+	if intel_n != null and not _chat_open and not _cinematic and not _blocked_by_menu() and not _is_finisher_open():
+		_aim_candidate = intel_n.peek_aim_candidate()
+	else:
+		_aim_candidate = null
 	if _mic_btn != null:
 		_mic_btn.position = Vector2(s.x - 108.0, s.y * 0.5 + 60.0)
 		_mic_btn.visible = SquadAIConfig.voice_allowed()
@@ -304,8 +403,44 @@ func _draw() -> void:
 	if _log_visible:
 		_draw_log(Vector2(s.x - 470.0, s.y * 0.30))
 	if not _chat_open and SquadAIConfig.chat_allowed() and not _roster.is_empty():
-		var hint: String = "ENTER orders" + ("  ·  V talk" if SquadAIConfig.voice_allowed() else "") + "  ·  L log"
+		var hint: String = "ENTER orders" + ("  ·  V talk" if SquadAIConfig.voice_allowed() else "") + "  ·  T/MMB mark  ·  X clear  ·  L log"
 		_text(UITheme.body_font(), Vector2(36.0, end_y + 12.0), hint, 13, Color(0.95, 0.9, 0.78, 0.6), 3)
+		_draw_marks_bar(Vector2(36.0, end_y + 30.0))
+	_draw_mark_reticle(s)
+
+
+func _draw_marks_bar(pos: Vector2) -> void:
+	var intel_n: WorldIntel = _intel()
+	if intel_n == null or not intel_n.has_marks():
+		return
+	var parts: PackedStringArray = []
+	for sm in intel_n.get_marked_summaries():
+		parts.append("M%d %s (%.0fm)" % [int(sm.get("num", 1)), String(sm.get("name", "Enemy")), float(sm.get("dist", 0.0))])
+	if parts.is_empty():
+		return
+	_text(UITheme.body_font(), pos, "MARKED:  " + "  ·  ".join(parts), 13, Color(1.0, 0.86, 0.42, 0.92), 3)
+
+
+func _draw_mark_reticle(s: Vector2) -> void:
+	if _aim_candidate == null or not is_instance_valid(_aim_candidate) or _aim_candidate.is_dead:
+		return
+	var intel_n: WorldIntel = _intel()
+	if intel_n == null:
+		return
+	var already: bool = intel_n.is_marked(_aim_candidate)
+	var col: Color = Color(1.0, 0.42, 0.32, 0.88) if already else Color(1.0, 0.86, 0.38, 0.85)
+	var c: Vector2 = s * 0.5
+	var r: float = 12.0
+	var corners: Array[Vector2] = [c + Vector2(0.0, -r), c + Vector2(r, 0.0), c + Vector2(0.0, r), c + Vector2(-r, 0.0)]
+	for i in range(4):
+		var a: Vector2 = corners[i]
+		var b: Vector2 = corners[(i + 1) % 4]
+		draw_line(a, a.lerp(b, 0.35), col, 1.8, true)
+		draw_line(b, b.lerp(a, 0.35), col, 1.8, true)
+	var lbl: String = "T / MMB  UNMARK" if already else "T / MMB  MARK"
+	var body: Font = UITheme.body_font()
+	var w: float = body.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	_text(body, Vector2(c.x - w * 0.5, c.y + r + 18.0), lbl, 13, col, 3)
 
 
 # ------------------------------------------------------------------ drawing

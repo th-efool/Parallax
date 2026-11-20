@@ -49,8 +49,26 @@ func _ready() -> void:
 	intel.name = "WorldIntel"
 	add_child(intel)
 	if spawn_allies:
-		call_deferred("_spawn_squad")
+		call_deferred("_maybe_initial_spawn")
 	call_deferred("_connect_director")
+
+
+func _maybe_initial_spawn() -> void:
+	if not spawn_allies or not allies.is_empty() or not is_inside_tree() or get_tree() == null:
+		return
+	var mc: Node = get_tree().get_first_node_in_group("main_controller")
+	if mc != null and not bool(mc.get("level_ready")):
+		return
+	_spawn_squad()
+
+
+func spawn_squad() -> void:
+	if not spawn_allies:
+		return
+	if allies.is_empty():
+		_spawn_squad()
+	else:
+		regroup(true)
 
 
 func _connect_director() -> void:
@@ -81,6 +99,9 @@ static func load_profiles() -> Array[AllyProfile]:
 
 
 func _spawn_squad() -> void:
+	if not allies.is_empty():
+		regroup(true)
+		return
 	_player = get_tree().get_first_node_in_group("player") as Node3D
 	var profiles: Array[AllyProfile] = load_profiles()
 	var idx: int = 0
@@ -214,6 +235,7 @@ func _start_rally(ward: Node3D) -> void:
 		if cur != null and not cur.done:
 			a.enqueue(cur, true)   # resumes once the ward is safe
 		a.assign(cmd)
+		cmd.args["rally"] = true   # survives any later re-assignment after preemption
 		cmd.data["rally"] = true   # assign() resets data for non-combo commands
 		helpers.append(a)
 	if helpers.is_empty():
@@ -226,6 +248,8 @@ func _start_rally(ward: Node3D) -> void:
 
 
 func _update_rally(ward: Node3D, delta: float) -> void:
+	if not _rally.has(ward):
+		return
 	var rec: Dictionary = _rally[ward] as Dictionary
 	var gone: bool = not is_instance_valid(ward) or (ward is SquadAlly and (ward as SquadAlly).is_downed) \
 		or (ward is PlayerController and (ward as PlayerController).current_state == PlayerController.State.DEAD)
@@ -240,8 +264,15 @@ func _update_rally(ward: Node3D, delta: float) -> void:
 	if not safe:
 		return
 	for a in (rec["allies"] as Array):
+		if not is_instance_valid(a) or not (a is SquadAlly):
+			continue
 		var ally: SquadAlly = a as SquadAlly
-		if is_instance_valid(ally) and ally.current != null and bool(ally.current.data.get("rally", false)):
+		for q in ally.queue.duplicate():
+			var qc: SquadCommand = q as SquadCommand
+			if qc != null and (bool(qc.data.get("rally", false)) or bool(qc.args.get("rally", false))):
+				qc.done = true
+				ally.queue.erase(qc)
+		if ally.current != null and (bool(ally.current.data.get("rally", false)) or bool(ally.current.args.get("rally", false))):
 			ally.finish_current("safe")
 	_rally.erase(ward)
 	if is_instance_valid(ward):
@@ -286,12 +317,18 @@ func regroup(full_heal: bool) -> void:
 	for a in allies:
 		if not is_instance_valid(a):
 			continue
-		var p: Vector3 = a.call("_formation_point", _player) as Vector3
+		var p: Vector3 = (a.call("_formation_point", _player) as Vector3) if _player != null else a.global_position
 		if full_heal:
 			a.reset_full(p)
 		else:
 			a.global_position = p
 	_combos.clear()
+	if full_heal:
+		_rally.clear()
+		_rally_cooldown.clear()
+		_rally_scan = 0.0
+		if intel != null:
+			intel.clear_marks()
 	_roster_dirty = true
 
 
@@ -440,13 +477,13 @@ func _active_enemies_near(pos: Vector3, radius: float) -> Array[EnemyAI]:
 		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree() or not e.is_hittable_now():
 			continue
 		var in_radius: bool = e.global_position.distance_to(pos) <= radius and absf(e.global_position.y - pos.y) < 5.0
-		var cam_vis: bool = radius >= 25.0 and intel != null and intel.is_camera_visible(e)
-		if in_radius or cam_vis:
+		var vis_or_marked: bool = radius >= 20.0 and intel != null and (intel.is_camera_visible(e) or intel.is_marked_or_in_region(e))
+		if in_radius or vis_or_marked:
 			out.append(e)
 	return out
 
 
-func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
+func resolve_enemy(selector: String, near: Vector3, asker: Node3D = null) -> EnemyAI:
 	var sel: String = selector.strip_edges().to_lower()
 	# "ally:Sera" / "Sera's target": whatever that ally is fighting.
 	if sel.begins_with("ally:") or sel.ends_with("'s target"):
@@ -458,9 +495,9 @@ func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 			if et != null and is_instance_valid(et) and not et.is_dead and et.is_active and et.is_hittable_now():
 				return et
 		sel = "nearest"
-	# Shared knowledge base: IDs ("E3"), types, looks, colours, weapons, sides, "near Sera", "hitting Ivo"...
+	# Shared knowledge base: marks ("M1", "marked"), IDs ("E3"), types, looks, colours, weapons, sides...
 	if intel != null:
-		return intel.resolve(sel)
+		return intel.resolve(sel, asker)
 	var cands: Array[EnemyAI] = _active_enemies_near(near, 25.0)
 	if cands.is_empty():
 		return null
@@ -469,7 +506,7 @@ func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 		for e in cands:
 			if _enemy_kind(e) == sel:
 				filtered.append(e)
-	elif not (sel in ["", "nearest", "strongest", "weakest", "any", "them", "it"]):
+	elif not (sel in ["", "nearest", "strongest", "weakest", "any", "them", "it", "marked_or_nearest"]):
 		for e in cands:
 			var dn: String = String(e.call("get_display_name")) if e.has_method("get_display_name") else String(e.name)
 			if dn.to_lower().contains(sel) or String(e.name).to_lower().contains(sel):
@@ -492,8 +529,8 @@ func resolve_enemy(selector: String, near: Vector3) -> EnemyAI:
 	return best
 
 
-## No-stacking auto-target: prefers enemies threatening the player / this ally and penalises enemies that
-## other allies already hold.
+## No-stacking auto-target: prefers enemies threatening the player / this ally (or marked packs in massacre)
+## and penalises enemies that other allies already hold.
 func pick_enemy_for(ally: SquadAlly, player: Node3D, radius: float, any: bool) -> EnemyAI:
 	var center: Vector3 = ally.global_position
 	var pool: Array[EnemyAI] = _active_enemies_near(center, radius)
@@ -505,16 +542,22 @@ func pick_enemy_for(ally: SquadAlly, player: Node3D, radius: float, any: bool) -
 	var bs: float = INF
 	for e in pool:
 		var t: Node3D = e.get_current_target()
-		if not any and not e.is_aggroed() and e.global_position.distance_to(center) > ally.profile.aggro_radius * 0.7:
+		var is_mark_target: bool = intel != null and intel.is_marked_or_in_region(e)
+		if not any and not is_mark_target and not e.is_aggroed() and e.global_position.distance_to(center) > ally.profile.aggro_radius * 0.7:
 			continue
 		var s: float = e.global_position.distance_to(center)
+		if intel != null:
+			if intel.is_marked(e):
+				s -= 200.0 if any else 3.0
+			elif intel.is_in_mark_region(e):
+				s -= 150.0 if any else 1.5
 		if t == player:
 			s -= 3.0
 		elif t == ally:
 			s -= 2.0
 		for o in allies:
 			if o != ally and is_instance_valid(o) and o._engage_target == e:
-				s += 4.0
+				s += 8.0 if (any and is_mark_target) else 4.0
 		if s < bs:
 			bs = s
 			best = e
@@ -689,6 +732,7 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 		"stop":
 			for a in addressed:
 				a.clear_queue()
+				a._abort_current_effects()
 				a.finish_current("cancelled")
 				a.current = null
 				a.say_event("ack", 0)
@@ -704,18 +748,24 @@ func issue(c: Dictionary, source: String = "chat") -> String:
 		"skill":
 			return _issue_skill(c, source)
 	# Role-based substitution: an addressed ally who is DOWN hands the order to a stand-in.
-	if verb != "revive" and verb != "massacre" and verb != "ceasefire":
+	if verb != "massacre" and verb != "ceasefire":
 		var named_explicitly: bool = (c.get("allies", []) is Array) and not (c.get("allies", []) as Array).is_empty() and not ((c.get("allies", []) as Array).has("all"))
 		if named_explicitly:
 			var rebuilt: Array[SquadAlly] = []
+			var exclude_sub: Array = addressed.duplicate()
+			if verb == "revive":
+				var r_tgt: SquadAlly = find_ally(String(c.get("target", "")))
+				if r_tgt != null and not exclude_sub.has(r_tgt):
+					exclude_sub.append(r_tgt)
 			for a0 in addressed:
 				if not a0.is_downed:
 					rebuilt.append(a0)
 					continue
-				var rp: Array = ROLE_FOR_VERB.get(verb, ["", ""]) as Array
-				var sub: SquadAlly = _pick_for(String(rp[1]), String(rp[0]), addressed, [])
+				var rp: Array = ["", "revive"] if verb == "revive" else (ROLE_FOR_VERB.get(verb, ["", ""]) as Array)
+				var sub: SquadAlly = _pick_for(String(rp[1]), String(rp[0]), exclude_sub, [])
 				if sub != null and not rebuilt.has(sub):
 					rebuilt.append(sub)
+					exclude_sub.append(sub)
 					sub.say("%s is down — I'll %s instead." % [a0.get_display_name(), verb.replace("_", " ")], "substitute", 2)
 					_log(source, sub.get_display_name(), "substitute for " + a0.get_display_name(), verb)
 				else:
@@ -814,18 +864,40 @@ func execute_strategy(id: String, target_sel: String, list: Array[SquadAlly], so
 	if living.is_empty():
 		return "no allies standing"
 	var near: Vector3 = _player.global_position if _player != null else Vector3.ZERO
-	var primary: EnemyAI = resolve_enemy(target_sel if not target_sel.is_empty() else "nearest", near)
+	var primary: EnemyAI = resolve_enemy(target_sel, near)
 	var primary_id: String = intel.id_of(primary) if primary != null and intel != null else "nearest"
 	var by_dist: Array[EnemyAI] = []
 	var by_hp: Array[EnemyAI] = []
 	if intel != null:
 		intel.refresh()
+		var mark_list: Array[EnemyAI] = []
+		var region_list: Array[EnemyAI] = []
+		var other_list: Array[EnemyAI] = []
 		for en in intel.get_entries():
-			var en_node: EnemyAI = en["node"] as EnemyAI
-			if en_node != null and not en_node.is_dead and en_node.is_active and en_node.is_hittable_now():
-				by_dist.append(en_node)
-		by_hp = by_dist.duplicate()
-		by_hp.sort_custom(func(x: EnemyAI, y: EnemyAI) -> bool: return float(x.health) / float(maxi(1, x.max_health)) < float(y.health) / float(maxi(1, y.max_health)))
+			var raw_node: Variant = en.get("node")
+			if not is_instance_valid(raw_node) or not (raw_node is EnemyAI):
+				continue
+			var en_node: EnemyAI = raw_node as EnemyAI
+			if en_node.is_dead or not en_node.is_active or not en_node.is_inside_tree() or not en_node.is_hittable_now():
+				continue
+			if bool(en.get("marked", false)):
+				mark_list.append(en_node)
+			elif bool(en.get("in_mark_region", false)):
+				region_list.append(en_node)
+			else:
+				other_list.append(en_node)
+		by_dist.append_array(mark_list)
+		by_dist.append_array(region_list)
+		by_dist.append_array(other_list)
+		var hp_cmp := func(x: EnemyAI, y: EnemyAI) -> bool: return float(x.health) / float(maxi(1, x.max_health)) < float(y.health) / float(maxi(1, y.max_health))
+		var pack_hp: Array[EnemyAI] = []
+		pack_hp.append_array(mark_list)
+		pack_hp.append_array(region_list)
+		pack_hp.sort_custom(hp_cmp)
+		var other_hp: Array[EnemyAI] = other_list.duplicate()
+		other_hp.sort_custom(hp_cmp)
+		by_hp.append_array(pack_hp)
+		by_hp.append_array(other_hp)
 	var vanguard: SquadAlly = null
 	for a in living:
 		if a.get_role() == "vanguard":
@@ -836,22 +908,30 @@ func execute_strategy(id: String, target_sel: String, list: Array[SquadAlly], so
 	var weakest: String = _weakest_friend_name()
 	var roles: Dictionary = strat["roles"]
 	var parts: PackedStringArray = []
+	var overridden: Array[SquadAlly] = []
 	var slot_i: int = 0
 	var n_slot: int = 0
 	for a0 in living:
+		if a0.current != null and not a0.current.done and a0.current.priority >= SquadCommand.Priority.PANIC:
+			continue
 		for st0 in (roles.get(a0.get_role(), roles.get("any", [])) as Array):
 			if str((st0 as Dictionary).get("args", {})).contains("$slot_angle"):
 				n_slot += 1
 				break
 	for i in range(living.size()):
 		var a: SquadAlly = living[i]
+		if a.current != null and not a.current.done and a.current.priority >= SquadCommand.Priority.PANIC:
+			parts.append("%s: %s (panic lock)" % [a.get_display_name(), a.current.verb])
+			continue
 		var steps: Array = (roles.get(a.get_role(), roles.get("any", [])) as Array)
 		if steps.is_empty():
 			continue
 		a.clear_queue()
-		if a.current != null and a.current.priority < SquadCommand.Priority.PANIC:
+		if a.current != null:
+			a._abort_current_effects()
 			a.finish_current("new strategy")
 			a.clear_queue()
+		overridden.append(a)
 		var first: bool = true
 		for st in steps:
 			var args: Dictionary = ((st as Dictionary).get("args", {}) as Dictionary).duplicate(true)
@@ -893,8 +973,11 @@ func execute_strategy(id: String, target_sel: String, list: Array[SquadAlly], so
 			else:
 				a.enqueue(cmd)
 		parts.append("%s: %s" % [a.get_display_name(), a.current.describe() if a.current != null else "-"])
-	var lead: SquadAlly = vanguard if not vanguard.is_downed else living[0]
-	lead.say("%s! %s" % [strat["name"], _strategy_callout(strat, living)], "strategy", 2)
+	if overridden.is_empty():
+		return "blocked by panic order"
+	_cancel_combos_for(overridden)
+	var lead: SquadAlly = vanguard if (not vanguard.is_downed and overridden.has(vanguard)) else overridden[0]
+	lead.say("%s! %s" % [strat["name"], _strategy_callout(strat, overridden)], "strategy", 2)
 	var txt: String = "%s on %s — %s" % [strat["name"], primary_id, "; ".join(parts)]
 	_log(source, "squad", "strategy " + String(strat["name"]), txt)
 	combo_progress.emit("strategy", txt)
@@ -915,31 +998,40 @@ func _strategy_callout(strat: Dictionary, living: Array[SquadAlly]) -> String:
 
 
 func _weakest_friend_name() -> String:
-	var best: String = "player"
+	var best: String = ""
 	var br: float = 2.0
 	if _player is PlayerController:
 		var p: PlayerController = _player as PlayerController
-		br = float(p.health) / float(maxi(1, p.max_health))
+		if p.current_state != PlayerController.State.DEAD:
+			br = float(p.health) / float(maxi(1, p.max_health))
+			best = "player"
 	for a in get_living():
 		if a.get_health_ratio() < br:
 			br = a.get_health_ratio()
 			best = a.get_display_name()
-	return best
+	return best if not best.is_empty() else "player"
 
 
 func _line_spot(i: int, n: int) -> Vector3:
-	if _player == null:
+	if _player == null or not is_instance_valid(_player):
 		return Vector3.ZERO
 	var c: Vector3 = Vector3.INF
 	if intel != null and not intel.get_entries().is_empty():
-		c = Vector3.ZERO
+		var sum_pos := Vector3.ZERO
 		var k: int = 0
 		for en in intel.get_entries():
 			if k >= 5:
 				break
-			c += (en["node"] as Node3D).global_position
+			var raw_n: Variant = en.get("node")
+			if not is_instance_valid(raw_n) or not (raw_n is Node3D):
+				continue
+			var en_n: Node3D = raw_n as Node3D
+			if not en_n.is_inside_tree():
+				continue
+			sum_pos += en_n.global_position
 			k += 1
-		c /= float(k)
+		if k > 0:
+			c = sum_pos / float(k)
 	var f: Vector3 = (c - _player.global_position) if c != Vector3.INF else (_player.call("get_facing_direction") as Vector3)
 	f.y = 0.0
 	f = f.normalized() if f.length_squared() > 0.01 else Vector3.FORWARD
@@ -1004,7 +1096,7 @@ func _maybe_complain(verb: String, c: Dictionary, list: Array[SquadAlly]) -> voi
 
 
 func _route(a: SquadAlly, cmd: SquadCommand) -> String:
-	if a.is_downed and cmd.verb != "revive":
+	if a.is_downed:
 		return "is down"
 	# A new stance supersedes any stance still waiting in the queue (no stale follow/hold/ceasefire pile-up).
 	if cmd.stance:
@@ -1177,7 +1269,7 @@ func _start_combo(kind: String, args: Dictionary, addressed: Array[SquadAlly], s
 	if living.is_empty():
 		return "no allies standing"
 	var near: Vector3 = _player.global_position if _player != null else Vector3.ZERO
-	if resolve_enemy(String(args.get("target", "nearest")), near) == null:
+	if resolve_enemy(String(args.get("target", "")), near) == null:
 		var l: SquadAlly = _leader()
 		if l != null:
 			l.say("Nothing to use that on.", "refuse", 1)
@@ -1284,7 +1376,8 @@ func combo_event(id: int, ally: SquadAlly, part: String, event: String, data: Di
 				kc2.data["clear"] = true
 			combo_progress.emit(kind, "%s channelling — kiter clearing out" % ally.get_display_name())
 		"released":
-			var kiter: SquadAlly = parts.get("kiter", null) as SquadAlly
+			var raw_kiter: Variant = parts.get("kiter", null)
+			var kiter: SquadAlly = (raw_kiter as SquadAlly) if (is_instance_valid(raw_kiter) and raw_kiter is SquadAlly) else null
 			var kc3: SquadCommand = rec.get("cmd_kiter", null) as SquadCommand
 			if kc3 != null:
 				kc3.data["released"] = true
@@ -1320,12 +1413,17 @@ func _tick_combos(delta: float) -> void:
 		var parts: Dictionary = rec["parts"]
 		var all_done: bool = true
 		for part in parts.keys():
-			var a: SquadAlly = parts[part] as SquadAlly
+			var raw_a: Variant = parts[part]
+			var a_valid: bool = is_instance_valid(raw_a) and raw_a is SquadAlly
 			var cmd: SquadCommand = rec.get("cmd_" + String(part), null) as SquadCommand
 			if cmd == null or cmd.done:
 				continue
 			all_done = false
-			if not is_instance_valid(a) or a.is_downed:
+			if not a_valid:
+				_substitute(int(id), String(part))
+				return
+			var a: SquadAlly = raw_a as SquadAlly
+			if a.is_downed:
 				_substitute(int(id), String(part))
 				return
 			# Self-preservation pauses the half; if it drags on, hand the half to someone healthier.
@@ -1344,7 +1442,15 @@ func _tick_combos(delta: float) -> void:
 			combo_progress.emit(String(rec["kind"]), "%s complete." % String(COMBO_NAMES.get(rec["kind"], rec["kind"])))
 			continue
 		_combo_coordinate(rec)
-		if float(rec["t"]) > 40.0:
+		var combo_timeout: float = 40.0
+		if intel != null and intel.has_marks():
+			combo_timeout = 70.0
+		else:
+			for part_v in parts.values():
+				if is_instance_valid(part_v) and part_v is Node3D and _player != null and (_player as Node3D).global_position.distance_to((part_v as Node3D).global_position) > 25.0:
+					combo_timeout = 70.0
+					break
+		if float(rec["t"]) > combo_timeout:
 			_abort_combo(int(id), "timed out")
 			return
 
@@ -1354,9 +1460,10 @@ func _combo_coordinate(rec: Dictionary) -> void:
 	var kind: String = String(rec["kind"])
 	var parts: Dictionary = rec["parts"]
 	if kind == "combo_kite_nuke" and parts.has("kiter") and parts.has("nuker"):
+		var raw_kiter: Variant = parts["kiter"]
 		var nk: SquadCommand = rec.get("cmd_nuker", null) as SquadCommand
-		if nk != null:
-			nk.data["watch"] = (parts["kiter"] as SquadAlly).global_position
+		if nk != null and is_instance_valid(raw_kiter) and raw_kiter is SquadAlly:
+			nk.data["watch"] = (raw_kiter as SquadAlly).global_position
 	elif kind == "combo_charge_finish" and parts.has("charger") and parts.has("finisher"):
 		var cc: SquadCommand = rec.get("cmd_charger", null) as SquadCommand
 		var fc: SquadCommand = rec.get("cmd_finisher", null) as SquadCommand
@@ -1366,10 +1473,15 @@ func _combo_coordinate(rec: Dictionary) -> void:
 		var tc: SquadCommand = rec.get("cmd_trapper", null) as SquadCommand
 		if tc != null and not tc.data.has("point"):
 			tc.data["point"] = rec.get("point", Vector3.ZERO)
+		var lc: SquadCommand = rec.get("cmd_lurer", null) as SquadCommand
+		if lc != null and float(rec["planted_t"]) >= 0.0 and not lc.data.has("point"):
+			lc.data["point"] = rec.get("point", Vector3.ZERO)
 		if float(rec["planted_t"]) >= 0.0 and tc != null and not tc.data.get("detonate", false):
-			var trapper: SquadAlly = parts["trapper"] as SquadAlly
-			var mp: Vector3 = trapper.get_mine_position()
-			var lurer: SquadAlly = parts.get("lurer", null) as SquadAlly
+			var raw_trapper: Variant = parts["trapper"]
+			var trapper: SquadAlly = (raw_trapper as SquadAlly) if (is_instance_valid(raw_trapper) and raw_trapper is SquadAlly) else null
+			var mp: Vector3 = trapper.get_mine_position() if trapper != null else Vector3.INF
+			var raw_lurer: Variant = parts.get("lurer", null)
+			var lurer: SquadAlly = (raw_lurer as SquadAlly) if (is_instance_valid(raw_lurer) and raw_lurer is SquadAlly) else null
 			var trapped: int = 0
 			if mp != Vector3.INF:
 				for e in _active_enemies_near(mp, 3.2):
@@ -1387,11 +1499,19 @@ func _combo_coordinate(rec: Dictionary) -> void:
 
 ## A combo participant went down: hand their half to a free ally, else collapse to a solo fallback.
 func _substitute(id: int, part: String) -> void:
+	if not _combos.has(id):
+		return
 	var rec: Dictionary = _combos[id]
 	var parts: Dictionary = rec["parts"]
-	var gone: SquadAlly = parts[part] as SquadAlly
+	var raw_gone: Variant = parts.get(part, null)
+	var gone_valid: bool = is_instance_valid(raw_gone) and raw_gone is SquadAlly
+	var gone: SquadAlly = (raw_gone as SquadAlly) if gone_valid else null
+	var gone_name: String = gone.get_display_name() if gone_valid else part.capitalize()
 	var kind: String = String(rec["kind"])
-	var used: Array = parts.values()
+	var used: Array = []
+	for uv in parts.values():
+		if is_instance_valid(uv):
+			used.append(uv)
 	var ability: String = "kite"
 	var role: String = "skirmisher"
 	for p in (COMBO_PARTS.get(kind, []) as Array):
@@ -1402,6 +1522,10 @@ func _substitute(id: int, part: String) -> void:
 	var old_cmd: SquadCommand = rec.get("cmd_" + part, null) as SquadCommand
 	if old_cmd != null:
 		old_cmd.done = true
+	if part == "trapper" or part == "solo_lure_detonate":
+		rec["planted_t"] = -1.0
+		if gone_valid:
+			gone.clear_mine()
 	if sub != null and not part.begins_with("solo"):
 		var cmd: SquadCommand = SquadCommand.make(kind, rec["args"] as Dictionary, String(rec["source"]))
 		cmd.combo_id = id
@@ -1409,20 +1533,30 @@ func _substitute(id: int, part: String) -> void:
 		parts[part] = sub
 		rec["cmd_" + part] = cmd
 		_route(sub, cmd)
-		if not gone.is_downed and gone.current != null and gone.current.combo_id == id:
+		if gone_valid and not gone.is_downed and gone.current != null and gone.current.combo_id == id:
 			gone.finish_current("substituted")
-		sub.say("%s is out — I'll take their part!" % gone.get_display_name(), "combo_go", 2)
-		combo_progress.emit(kind, "Substitution: %s -> %s (%s)" % [gone.get_display_name(), sub.get_display_name(), part])
+		sub.say("%s is out — I'll take their part!" % gone_name, "combo_go", 2)
+		combo_progress.emit(kind, "Substitution: %s -> %s (%s)" % [gone_name, sub.get_display_name(), part])
 		return
 	# Nobody free: survivor goes solo.
 	parts.erase(part)
 	rec.erase("cmd_" + part)
 	if parts.size() == 1:
 		var survivor_part: String = String(parts.keys()[0])
-		var survivor: SquadAlly = parts[survivor_part] as SquadAlly
+		var raw_surv: Variant = parts[survivor_part]
+		if not is_instance_valid(raw_surv) or not (raw_surv is SquadAlly):
+			_abort_combo(id, "no one left to run it")
+			return
+		var survivor: SquadAlly = raw_surv as SquadAlly
+		if survivor.is_downed:
+			_abort_combo(id, "no one left to run it")
+			return
 		var scmd: SquadCommand = rec.get("cmd_" + survivor_part, null) as SquadCommand
 		if scmd != null:
 			scmd.done = true
+		if kind == "combo_lure_detonate":
+			rec["planted_t"] = -1.0
+			survivor.clear_mine()
 		var solo := SquadCommand.make(kind, rec["args"] as Dictionary, String(rec["source"]))
 		solo.combo_id = id
 		solo.combo_part = "solo_" + kind.trim_prefix("combo_")
@@ -1433,9 +1567,9 @@ func _substitute(id: int, part: String) -> void:
 			survivor.assign(solo)
 		else:
 			_route(survivor, solo)
-		if not gone.is_downed and gone.current != null and gone.current.combo_id == id:
+		if gone_valid and not gone.is_downed and gone.current != null and gone.current.combo_id == id:
 			gone.finish_current("substituted")
-		survivor.say("%s is out. Doing this alone!" % gone.get_display_name(), "combo_go", 2)
+		survivor.say("%s is out. Doing this alone!" % gone_name, "combo_go", 2)
 		combo_progress.emit(kind, "Solo fallback: %s" % survivor.get_display_name())
 	else:
 		_abort_combo(id, "no one left to run it")
@@ -1446,15 +1580,20 @@ func _abort_combo(id: int, why: String) -> void:
 		return
 	var rec: Dictionary = _combos[id]
 	_combos.erase(id)
+	rec["planted_t"] = -1.0
 	for part in (rec["parts"] as Dictionary).keys():
-		var a: SquadAlly = rec["parts"][part] as SquadAlly
+		var raw_a: Variant = rec["parts"][part]
 		var cmd: SquadCommand = rec.get("cmd_" + String(part), null) as SquadCommand
-		if cmd == null or not is_instance_valid(a):
+		if cmd != null:
+			cmd.done = true
+		if not is_instance_valid(raw_a) or not (raw_a is SquadAlly):
 			continue
-		cmd.done = true
-		if a.current == cmd:
-			a.finish_current("combo aborted")
-		a.queue.erase(cmd)
+		var a: SquadAlly = raw_a as SquadAlly
+		a.clear_mine()
+		if cmd != null:
+			a.queue.erase(cmd)
+			if a.current == cmd:
+				a.finish_current("combo aborted")
 	combo_progress.emit(String(rec["kind"]), "%s aborted: %s" % [String(COMBO_NAMES.get(rec["kind"], rec["kind"])), why])
 
 

@@ -93,18 +93,21 @@ const POSITION_SPOTS: Array = [
 ]
 
 const TARGET_WORDS: Dictionary = {
+	"marked group": "marked_group", "marked area": "marked_area", "marked region": "marked_region",
+	"around the mark": "marked_region", "near the mark": "marked_region",
+	"marked": "marked", "tagged": "marked", "pinged": "marked",
 	"brute": "brute", "big one": "brute", "grave": "brute", "caster": "caster", "hexcaster": "caster",
 	"mage": "caster", "wizard": "caster", "stalker": "stalker", "shade": "stalker", "rogue": "stalker",
-	"phantom": "phantom", "ghost": "phantom", "twin": "phantom", "shield": "shield",
+	"phantom": "phantom", "ghost": "phantom", "twin": "phantom", "shielded guard": "shield", "shield": "shield",
 	"knight": "shield", "skeleton": "skeleton", "warden": "warden", "boss": "warden",
 	"strongest": "strongest", "toughest": "strongest", "weakest": "weakest", "wounded": "weakest",
-	"nearest": "nearest", "closest": "nearest", "that one": "nearest", "them": "nearest",
+	"nearest": "nearest", "closest": "nearest", "that one": "marked_or_nearest", "them": "nearest",
 }
 
 
 const DESCRIPTOR_WORDS: Array[String] = ["purple", "violet", "blue", "cyan", "green", "pale", "white", "bone", "gold", "golden",
-	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "orb", "greataxe",
-	"hooded", "armored", "armoured", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
+	"steel", "silver", "red", "black", "dark", "glowing", "axe", "sword", "swords", "blades", "shield", "shielded", "orb", "greataxe",
+	"hooded", "armored", "armoured", "archer", "big", "huge", "giant", "small", "left", "right", "behind", "near", "closest to",
 	"next to", "attacking", "hitting", "chasing", "targeting", "farthest", "furthest", "stunned", "fleeing", "farther", "further", "distant"]
 const PANIC_VERBS: Array[String] = ["ceasefire", "massacre", "scatter"]
 const TARGETED_VERBS: Array[String] = ["attack", "ranged", "kite", "sneak", "surround", "nuke", "taunt", "hit_and_run", "skill", "strategy",
@@ -176,7 +179,7 @@ static func parse(text: String, ally_names: Array, ctx: Dictionary = {}) -> Arra
 				mentioned.append(String(n2))
 		out.append(cmd)
 	if out.is_empty():
-		var who: Array = _addressed(t.replace(" , ", " "), ally_names)
+		var who: Array = _addressed(t.replace(" , ", " "), ally_names, ctx)
 		# Talking to someone without an order is conversation, not confusion.
 		if not who.is_empty() and not who.has("all"):
 			out.append({"verb": "chat", "allies": who, "topic": "generic", "utterance": raw})
@@ -196,8 +199,9 @@ static func _says_rest(t: String) -> bool:
 static func _has_instruction(t: String, ctx: Dictionary) -> bool:
 	var s: String = " " + t.replace(" , ", " ").strip_edges() + " "
 	for rule in RULES:
+		var rverb: String = String(rule[0])
 		for kw in (rule[1] as Array):
-			if s.contains(String(kw)):
+			if _find_rule_kw(s, rverb, String(kw)) >= 0:
 				return true
 	if not _match_skill(s, [], ctx).is_empty() or not SquadStrategies.match_text(s).is_empty():
 		return true
@@ -286,14 +290,15 @@ static func _is_name(w: String, ally_names: Array) -> bool:
 
 
 static func _parse_clause(t: String, ally_names: Array, carry_allies: Array, ctx: Dictionary = {}) -> Dictionary:
-	var allies: Array = _addressed(t, ally_names)
+	var allies: Array = _addressed(t, ally_names, ctx)
 	if allies.is_empty() and not carry_allies.is_empty():
 		allies = carry_allies
 	var verb: String = ""
 	for rule in RULES:
+		var rverb: String = String(rule[0])
 		for kw in (rule[1] as Array):
-			if t.contains(String(kw)):
-				verb = String(rule[0])
+			if _find_rule_kw(t, rverb, String(kw)) >= 0:
+				verb = rverb
 				break
 		if not verb.is_empty():
 			break
@@ -411,14 +416,55 @@ static func _has_descriptor(t: String) -> bool:
 	rx.compile("\\b(?:e|enemy)\\s*#?\\s*\\d+\\b")
 	if rx.search(t) != null:
 		return true
+	var rx_mark := RegEx.new()
+	rx_mark.compile("\\b(?:m|mark)\\s*#?\\s*[1-4]\\b")
+	if rx_mark.search(t) != null:
+		return true
+	for mw in ["marked", "tagged", "pinged", "the mark"]:
+		if t.contains(" " + mw + " "):
+			return true
 	for w in DESCRIPTOR_WORDS:
 		if t.contains(" " + w + " ") or t.contains(" " + w + "s "):
 			return true
 	return false
 
 
+## Word-bounded keyword search so "cast" never matches "caster"/"hexcaster" and "guard" never matches
+## enemy names like "shielded guard" or "the guard".
+static func _sanitize_rule_text(t: String) -> String:
+	var s: String = t if t.begins_with(" ") and t.ends_with(" ") else " " + t + " "
+	return s.replace(" shielded guard ", " shielded ").replace(" shield guard ", " shield ")
+
+
+static func _find_rule_kw(t: String, verb: String, kw: String) -> int:
+	var core: String = kw.strip_edges()
+	if core.is_empty():
+		return -1
+	var src: String = _sanitize_rule_text(t) if (verb == "bodyguard" and core == "guard") else (t if t.begins_with(" ") and t.ends_with(" ") else " " + t + " ")
+	if core.begins_with("'"):
+		return src.find(core + " ")
+	if verb == "bodyguard" and core == "guard":
+		var idx: int = src.find(" guard ")
+		while idx >= 0:
+			var prefix: String = src.left(idx + 1)
+			if not (prefix.ends_with(" the ") or prefix.ends_with(" a ") or prefix.ends_with(" that ") or prefix.ends_with(" this ")):
+				return idx
+			idx = src.find(" guard ", idx + 6)
+		return -1
+	var pos: int = src.find(" " + core + " ")
+	if pos >= 0:
+		return pos
+	if verb == "emote":
+		for suf in ["s ", "ed ", "ing "]:
+			var ep: int = src.find(" " + core + suf)
+			if ep >= 0:
+				return ep
+	return -1
+
+
 ## Skill owned by an addressed ally (preferred) or anyone: {"ally", "id"} or {}.
 static func _match_skill(t: String, allies: Array, ctx: Dictionary) -> Dictionary:
+	var pad: String = t if t.begins_with(" ") and t.ends_with(" ") else " " + t + " "
 	var best: Dictionary = {}
 	var best_len: int = 0
 	for s in (ctx.get("skills", []) as Array):
@@ -426,8 +472,8 @@ static func _match_skill(t: String, allies: Array, ctx: Dictionary) -> Dictionar
 		var phrases: Array = (sd.get("aliases", []) as Array).duplicate()
 		phrases.append(String(sd.get("name", "")).to_lower())
 		for p in phrases:
-			var ps: String = String(p)
-			if ps.length() < 3 or not t.contains(" " + ps + " ") and not t.contains(" " + ps):
+			var ps: String = String(p).strip_edges().to_lower()
+			if ps.length() < 3 or not pad.contains(" " + ps + " "):
 				continue
 			var l: int = ps.length() + (100 if allies.has(String(sd["ally"])) else 0)
 			if l > best_len:
@@ -490,6 +536,7 @@ static func _build_vocab(ally_names: Array, ctx: Dictionary) -> Dictionary:
 				for w in String(a).split(" ", false):
 					_vocab[w] = true
 		for w in ["everyone", "everybody", "please", "there", "their", "these", "those", "where", "about", "right", "behind", "nearest", "closest",
+				"marked", "mark", "tagged", "pinged", "group", "area", "region", "cluster",
 				"while", "whilst", "whereas", "meanwhile", "others", "other", "rest", "else", "after", "afterwards", "seconds", "times", "front", "rear", "around"]:
 			_vocab[w] = true
 		for k2 in EMOTE_MAP.keys():
@@ -530,23 +577,40 @@ static func _lev(a: String, b: String, limit: int) -> int:
 	return prev[b.length()]
 
 
-static func _addressed(t: String, ally_names: Array) -> Array:
+static func _addressed(t: String, ally_names: Array, ctx: Dictionary = {}) -> Array:
+	var pad: String = t if t.begins_with(" ") and t.ends_with(" ") else " " + t + " "
 	var out: Array = []
-	if t.contains("everyone") or t.contains("everybody") or t.contains(" all ") or t.contains("squad") or t.contains(" team") or t.contains("you guys") or t.contains("y'all"):
+	if pad.contains(" everyone ") or pad.contains(" everybody ") or pad.contains(" all ") or pad.contains(" squad ") or pad.contains(" team ") or pad.contains(" you guys ") or pad.contains(" y'all "):
 		return ["all"]
 	# Names addressed at the start of the clause (or "X and Y ...") count as the recipients; a name later in
-	# the sentence is usually an object ("guard Ivo"), handled by _named_other.
-	var first_verb_pos: int = t.length()
+	# the sentence is usually an object ("guard Ivo" / "ward Brannoc"), handled by _named_other.
+	var first_verb_pos: int = pad.length()
 	for rule in RULES:
+		var rverb: String = String(rule[0])
 		for kw in (rule[1] as Array):
-			var p: int = t.find(String(kw))
+			var p: int = _find_rule_kw(pad, rverb, String(kw))
 			if p >= 0 and p < first_verb_pos:
 				first_verb_pos = p
+	for s in (ctx.get("skills", []) as Array):
+		var sd: Dictionary = s as Dictionary
+		var phrases: Array = (sd.get("aliases", []) as Array).duplicate()
+		phrases.append(String(sd.get("name", "")).to_lower())
+		for ph in phrases:
+			var ps: String = String(ph).strip_edges().to_lower()
+			if ps.length() >= 3:
+				var sp: int = pad.find(" " + ps + " ")
+				if sp >= 0 and sp < first_verb_pos:
+					first_verb_pos = sp
+	for st in SquadStrategies.LIST:
+		for al in ((st as Dictionary).get("aliases", []) as Array):
+			var als: String = String(al).strip_edges().to_lower()
+			if not als.is_empty():
+				var ap: int = pad.find(" " + als + " ")
+				if ap >= 0 and ap < first_verb_pos:
+					first_verb_pos = ap
 	for n in ally_names:
 		var ln: String = String(n).to_lower()
-		var p2: int = t.find(" " + ln + " ")
-		if p2 < 0:
-			p2 = t.find(" " + ln)
+		var p2: int = pad.find(" " + ln + " ")
 		if p2 >= 0 and p2 < first_verb_pos:
 			out.append(String(n))
 	return out

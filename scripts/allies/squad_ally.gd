@@ -72,6 +72,8 @@ var _dash_timer: float = 0.0
 var _dash_hit_cb: Callable = Callable()
 var _dash_target: EnemyAI = null
 var _regen_acc: float = 0.0
+var _last_safe_pos: Vector3 = Vector3.ZERO
+var _has_safe_pos: bool = false
 # Skills & buffs.
 var _skill_cd: Dictionary = {}       # skill id -> seconds remaining
 var _skill_scan: float = 0.0
@@ -179,7 +181,10 @@ func apply_damage(amount: int, source: Node = null) -> bool:
 		dir = global_position - (source as Node3D).global_position
 		dir.y = 0.0
 	GoreFXScript.sparks(self, chest, dir.normalized() if dir.length_squared() > 0.001 else Vector3.UP, Color(1.0, 0.85, 0.5), 10)
-	GameFeelScript.play_sound(self, "hit_metal", chest, -8.0, 1.1)
+	if AudioManager.instance != null:
+		AudioManager.instance.play_at("hit_metal", chest, -8.0)
+	else:
+		GameFeelScript.play_sound(self, "clang", chest, -8.0, 1.1)
 	if health <= 0:
 		_go_down()
 		return true
@@ -382,6 +387,9 @@ func _sync_realm_mask() -> void:
 	var world: int = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY
 	if rm != null:
 		world = rm.get_realm_world_mask(rm.current_realm)
+	# A downed ally must never lose the floor beneath them when the player shifts realms (Q).
+	if is_downed:
+		world |= RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR
 	collision_mask = world | RealmManager.LAYER_PLAYER_BLOCKER
 
 
@@ -428,14 +436,17 @@ func say(text: String, event: String = "say", prio: int = 1) -> void:
 # ------------------------------------------------------------------ commands
 
 func assign(cmd: SquadCommand) -> void:
-	if current != null and not current.done:
+	if (current != null and not current.done) or not _action.is_empty() or _dash_timer > 0.0:
 		_abort_current_effects()
 	current = cmd
 	current.step = ""
 	current.timer = 0.0
 	# Combo halves keep handshake data the manager may already have posted while they were queued.
 	if cmd.combo_id == 0:
+		var keep_rally: bool = bool(current.data.get("rally", false)) or bool(current.args.get("rally", false))
 		current.data = {}
+		if keep_rally:
+			current.data["rally"] = true
 	_engage_target = null
 	command_started.emit(self, cmd)
 
@@ -476,9 +487,23 @@ func finish_current(result: String = "done") -> void:
 
 func _abort_current_effects() -> void:
 	_hide_cast_ring()
-	if _action == "channel" or _action == "revive" or _action == "dance" or _action == "emote":
+	if not _action.is_empty():
 		_action = ""
 		_action_timer = 0.0
+		_action_hit_at = -1.0
+		_action_cb = Callable()
+		_action_dur = 0.0
+	if _dash_timer > 0.0:
+		velocity.x = 0.0
+		velocity.z = 0.0
+	_dash_timer = 0.0
+	_dash_vel = Vector3.ZERO
+	_dash_hit_cb = Callable()
+	_dash_target = null
+	var vis: Node3D = get_node_or_null("VisualRoot") as Node3D
+	if vis != null:
+		vis.rotation.x = 0.0
+		vis.rotation.y = atan2(-facing_direction.x, -facing_direction.z) - rotation.y
 
 
 func _is_ceasefire() -> bool:
@@ -487,6 +512,17 @@ func _is_ceasefire() -> bool:
 
 func _is_massacre() -> bool:
 	return current != null and current.verb == "massacre"
+
+
+## Allies executing any non-passive command (anything other than follow / ceasefire) roam freely without
+## distance-teleportation back to the player.
+func has_free_leash() -> bool:
+	if current != null and not current.done and not (current.verb in ["follow", "ceasefire"]):
+		return true
+	for q in queue:
+		if q != null and not q.done and not (q.verb in ["follow", "ceasefire"]):
+			return true
+	return false
 
 
 # ------------------------------------------------------------------ main loop
@@ -498,6 +534,9 @@ func _physics_process(delta: float) -> void:
 	if is_downed:
 		_process_downed(delta)
 		return
+	if is_on_floor() and not _in_pit_kill_zone():
+		_last_safe_pos = global_position
+		_has_safe_pos = true
 	_regen(delta)
 	var player: Node3D = _player()
 	if player != null:
@@ -799,7 +838,7 @@ func _run_hold(delta: float, cmd: SquadCommand) -> void:
 	var spot: Vector3 = cmd.data["spot"]
 	var near: EnemyAI = _nearest_enemy(global_position, float(cmd.args.get("engage_r", 3.5)))
 	if near != null:
-		_fight(near, delta)
+		_fight(near, delta, true)
 		return
 	if global_position.distance_to(spot) > 0.8:
 		_move_to(spot, profile.move_speed, delta)
@@ -821,10 +860,11 @@ func _run_retreat_order(delta: float, player: Node3D, cmd: SquadCommand) -> void
 		_move_to(goal, profile.move_speed * 1.15, delta)
 	else:
 		cmd.data["arrived"] = true
-		_halt(delta)
 		var self_threat: EnemyAI = _nearest_enemy(global_position, 2.2)
 		if self_threat != null:
-			_fight(self_threat, delta)
+			_fight(self_threat, delta, true)
+		else:
+			_halt(delta)
 
 
 func _run_attack(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -834,7 +874,7 @@ func _run_attack(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 			finish_current("target down")
 			say_event("kill", 0)
 			return
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			say("No target in sight.", "refuse", 1)
 			finish_current("no target")
@@ -846,40 +886,72 @@ func _run_attack(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 
 func _run_taunt_cmd(delta: float, player: Node3D, cmd: SquadCommand) -> void:
-	# "Take aggro": pull every enemy currently on the player onto this ally (single-enemy taunts never
-	# touch the rest of a group).
+	# "Take aggro": prefer enemies currently on the player, falling back to idle/ally-targeting foes nearby.
 	if bool(cmd.args.get("area", false)) and player != null:
-		var on_player: Array[EnemyAI] = []
-		for en in _active_enemies(player.global_position, 10.0):
+		var targets: Array[EnemyAI] = []
+		var near_pool: Array[EnemyAI] = _active_enemies(player.global_position, 14.0)
+		for en in near_pool:
 			if en.get_current_target() == player:
-				on_player.append(en)
-		if on_player.is_empty():
-			say("Nothing's on you right now.", "refuse", 1)
-			finish_current("nothing on player")
+				targets.append(en)
+		if targets.is_empty():
+			targets = near_pool
+		if targets.is_empty():
+			targets = _active_enemies(global_position, 14.0)
+		if targets.is_empty():
+			var fallback: EnemyAI = _resolve_enemy(String(cmd.args.get("target", "")), player)
+			if fallback != null and _enemy_ok(fallback):
+				cmd.args["area"] = false
+				cmd.data["enemy"] = fallback
+			else:
+				say("Nothing around to taunt.", "refuse", 1)
+				finish_current("no target")
+				return
+		else:
+			var anchor: Vector3 = player.global_position if not near_pool.is_empty() else targets[0].global_position
+			var reach: float = 5.0 if not near_pool.is_empty() else 7.0
+			if global_position.distance_to(anchor) > reach:
+				if cmd.timer > _approach_timeout(10.0, anchor, cmd):
+					say("Can't reach them to take aggro.", "refuse", 1)
+					finish_current("out of range")
+					return
+				_move_to(anchor, profile.move_speed * 1.2, delta)
+				return
+			_taunt_cd = profile.taunt_cooldown
+			_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
+			_start_action("taunt", 0.55, -1.0, Callable())
+			say_event("taunt", 1)
+			for en in targets:
+				if _enemy_ok(en):
+					en.apply_taunt(self, -1.0, 4.0)
+			finish_current("took aggro x%d" % targets.size())
 			return
-		if global_position.distance_to(player.global_position) > 5.0:
-			_move_to(player.global_position, profile.move_speed * 1.2, delta)
-			return
-		_taunt_cd = profile.taunt_cooldown
-		_play(["Taunt", "Cheer", "Taunt_Longer"], 0.8, true)
-		_start_action("taunt", 0.55, -1.0, Callable())
-		say_event("taunt", 1)
-		for en in on_player:
-			en.apply_taunt(self, -1.0, 4.0)
-		finish_current("took aggro x%d" % on_player.size())
-		return
 	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
-	if e == null:
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
-		if e == null:
+	if e == null or not _enemy_ok(e):
+		if cmd.data.has("enemy"):
+			finish_current("target gone")
+			return
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
+		if e == null or not _enemy_ok(e):
 			say("Nothing to taunt.", "refuse", 1)
 			finish_current("no target")
 			return
 		cmd.data["enemy"] = e
 	if global_position.distance_to(e.global_position) > 7.0:
-		_move_to(e.global_position, profile.move_speed, delta)
+		if cmd.timer > _approach_timeout(12.0, e.global_position, cmd):
+			say("Can't get close enough to taunt.", "refuse", 1)
+			finish_current("out of range")
+			return
+		_move_to(e.global_position, profile.move_speed * 1.15, delta)
 		return
 	_do_taunt(e, false)
+	if String(cmd.args.get("lure", "")) == "player":
+		cmd.verb = "kite"
+		cmd.step = "sustain"
+		cmd.data["enemy"] = e
+		cmd.data["sustain_t"] = 0.0
+		cmd.data["center"] = e.global_position
+		cmd.data["ang"] = atan2(global_position.z - e.global_position.z, global_position.x - e.global_position.x)
+		return
 	finish_current("taunted")
 
 
@@ -953,7 +1025,7 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 	var e: EnemyAI = cmd.data.get("enemy", null) as EnemyAI
 	if e == null or not _enemy_ok(e):
 		var near_pos: Vector3 = global_position
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			var chasing: Array[EnemyAI] = _enemies_targeting_me()
 			e = chasing[0] if not chasing.is_empty() else null
@@ -976,7 +1048,7 @@ func _kite_logic(delta: float, player: Node3D, cmd: SquadCommand, standalone: bo
 	match cmd.step:
 		"approach":
 			cmd.data["approach_t"] = float(cmd.data.get("approach_t", 0.0)) + delta
-			if float(cmd.data["approach_t"]) > 9.0:
+			if float(cmd.data["approach_t"]) > _approach_timeout(9.0, e.global_position, cmd):
 				_kite_fallback(cmd, e, "Can't reach it — I'll fight from here.")
 				return
 			if global_position.distance_to(e.global_position) > 5.0:
@@ -1125,7 +1197,7 @@ func _back_off(e: EnemyAI, delta: float) -> void:
 
 func _run_nuke(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	if cmd.step.is_empty():
-		var e: EnemyAI = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		var e: EnemyAI = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			say("No target worth the mana.", "refuse", 1)
 			finish_current("no target")
@@ -1201,6 +1273,12 @@ func plant_mine(pos: Vector3) -> void:
 	GoreFXScript.flash_light(self, pos + Vector3.UP, Color(0.7, 0.45, 1.0), 3.0, 0.3, 5.0)
 
 
+func clear_mine() -> void:
+	if _mine != null and is_instance_valid(_mine):
+		_mine.queue_free()
+	_mine = null
+
+
 func get_mine_position() -> Vector3:
 	return _mine.global_position if _mine != null and is_instance_valid(_mine) else Vector3.INF
 
@@ -1209,8 +1287,7 @@ func detonate_mine() -> int:
 	if _mine == null or not is_instance_valid(_mine):
 		return 0
 	var at: Vector3 = _mine.global_position
-	_mine.queue_free()
-	_mine = null
+	clear_mine()
 	_play(["Spellcast_Shoot", "Spellcasting"], 0.4, true)
 	return _aoe_blast(at, 3.4, maxi(profile.nuke_damage, 40) + 10, "ally_detonate", Color(0.85, 0.45, 1.0))
 
@@ -1219,8 +1296,12 @@ func _aoe_blast(at: Vector3, radius: float, dmg: int, source: String, col: Color
 	GoreFXScript.shockwave_ring(self, at + Vector3.UP * 0.08, radius, col, 0.45, 0.4)
 	GoreFXScript.flash_light(self, at + Vector3.UP * 1.0, col, 8.0, 0.35, radius * 2.5)
 	GoreFXScript.dust_puff(self, at, radius * 0.6, 40, Color(col.r, col.g, col.b, 0.6), 3.0)
-	GameFeelScript.play_sound(self, "glass_shatter", at, 0.0, 0.8)
-	GameFeelScript.play_sound(self, "landing_slam", at, -3.0, 1.2)
+	if AudioManager.instance != null:
+		AudioManager.instance.play_at("glass_shatter", at, 0.0)
+		AudioManager.instance.play_at("landing_slam", at, -3.0)
+	else:
+		GameFeelScript.play_sound(self, "clang", at, -2.0, 1.4)
+		GameFeelScript.play_sound(self, "land_heavy", at, -3.0, 1.2)
 	GameFeelScript.add_trauma(self, 0.3, at)
 	var hits: int = 0
 	var dmg_mult: float = 1.3 if _is_massacre() else 1.0
@@ -1335,7 +1416,7 @@ func _run_charger(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		if cmd.step == "done":
 			finish_current("charged")
 			return
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			say("No one to charge.", "refuse", 1)
 			_post_combo(cmd, "failed", {})
@@ -1381,7 +1462,7 @@ func _run_finisher(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		say_event("ack", 1)
 	match cmd.step:
 		"waiting":
-			var watch: EnemyAI = e if e != null else _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+			var watch: EnemyAI = e if e != null else _resolve_enemy(String(cmd.args.get("target", "")), player)
 			if watch != null and _enemy_ok(watch):
 				var to_me: Vector3 = global_position - watch.global_position
 				to_me.y = 0.0
@@ -1462,6 +1543,9 @@ func _run_trapper(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 
 func _run_lurer(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if bool(cmd.data.get("done", false)):
+		finish_current("lured")
+		return
 	if not cmd.data.has("point"):
 		# Wait for the sigil.
 		cmd.step = "waiting"
@@ -1474,7 +1558,7 @@ func _run_lurer(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	var p: Vector3 = cmd.data["point"]
 	if cmd.step == "waiting" or cmd.step.is_empty():
 		cmd.step = "approach"
-	if cmd.step == "approach" or cmd.step == "provoke" or cmd.step == "confirm":
+	if cmd.step == "approach" or cmd.step == "provoke" or cmd.step == "confirm" or cmd.step == "fallback":
 		_kite_logic(delta, player, cmd, false)
 		if cmd.step == "sustain":
 			cmd.step = "luring"
@@ -1492,8 +1576,6 @@ func _run_lurer(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 			_halt(delta)
 			if e != null:
 				set_facing(e.global_position - global_position)
-		if bool(cmd.data.get("done", false)):
-			finish_current("lured")
 
 
 func _run_solo_kite_nuke(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -1691,7 +1773,10 @@ func _skill_ground_breaker(s: AllySkill) -> bool:
 		GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.05, s.radius, s.color, 0.4, 0.4)
 		GoreFXScript.ground_crack(self, global_position, facing_direction, s.radius * 1.2, Color(1.0, 0.6, 0.25))
 		GoreFXScript.dust_puff(self, global_position, s.radius * 0.6, 30)
-		GameFeelScript.play_sound(self, "landing_slam", global_position, 0.0, 0.9)
+		if AudioManager.instance != null:
+			AudioManager.instance.play_at("landing_slam", global_position, 0.0)
+		else:
+			GameFeelScript.play_sound(self, "land_heavy", global_position, 0.0, 0.9)
 		GameFeelScript.add_trauma(self, 0.3, global_position))
 	return true
 
@@ -1756,7 +1841,10 @@ func _skill_flurry(s: AllySkill, e: EnemyAI) -> bool:
 		get_tree().create_timer(0.15 + 0.2 * float(i), false, true).timeout.connect(func() -> void:
 			if is_instance_valid(self) and not is_downed and _enemy_ok(e) and global_position.distance_to(e.global_position) < s.cast_range + 1.0:
 				e.apply_damage(int(round(s.power * (1.0 + _dmg_buff))), false, "ally_melee", self)
-				GameFeelScript.play_sound(self, "enemy_hit", e.global_position + Vector3.UP, -8.0, 1.2))
+				if AudioManager.instance != null:
+					AudioManager.instance.play_at("enemy_hit", e.global_position + Vector3.UP, -8.0)
+				else:
+					GameFeelScript.play_sound(self, "slash_flesh", e.global_position + Vector3.UP, -8.0, 1.2))
 	return true
 
 
@@ -1773,7 +1861,7 @@ func _skill_mend(s: AllySkill, target: Node3D) -> bool:
 		a.health_changed.emit(a, a.health, a.max_health)
 	elif target is PlayerController:
 		var p: PlayerController = target as PlayerController
-		if p.health >= p.max_health:
+		if p.current_state == PlayerController.State.DEAD or p.health >= p.max_health:
 			return false
 		p.health = mini(p.max_health, p.health + int(round(float(p.max_health) * s.power)))
 		p.health_changed.emit(p.health, p.max_health)
@@ -1797,7 +1885,10 @@ func _skill_ward(s: AllySkill, target: Node3D) -> bool:
 			return false
 		(target as SquadAlly).add_ward(s.power, s.duration)
 	elif target is PlayerController:
-		(target as PlayerController).add_ally_ward(int(s.power), s.duration)
+		var pw: PlayerController = target as PlayerController
+		if pw.current_state == PlayerController.State.DEAD:
+			return false
+		pw.add_ally_ward(int(s.power), s.duration)
 	else:
 		return false
 	_play(["Spellcast_Raise", "Spellcasting"], 0.5, true)
@@ -1843,10 +1934,14 @@ func _chain_arc_hop(s: AllySkill, hits: Array[EnemyAI], mults: Array[float], i: 
 		_chain_arc_hop(s, hits, mults, i + 1, from)
 		return
 	_launch_bolt(from, e, s.color, 26.0, 0.09, func() -> void:
-		if not _enemy_ok(e):
+		if not is_instance_valid(self) or not is_inside_tree():
 			return
-		e.apply_damage(int(round(s.power * mults[i] * (1.0 + _dmg_buff))), false, "ally_skill", self)
-		if not e.knockdown_immune:
+		if not _enemy_ok(e):
+			var next_from: Vector3 = (e.global_position + Vector3.UP * 1.1) if (is_instance_valid(e) and e.is_inside_tree()) else from
+			_chain_arc_hop(s, hits, mults, i + 1, next_from)
+			return
+		var landed: bool = e.apply_damage(int(round(s.power * mults[i] * (1.0 + _dmg_buff))), false, "ally_skill", self)
+		if landed and not e.is_dead and not e.knockdown_immune:
 			e.enter_stunned(s.duration)
 		var at: Vector3 = e.global_position + Vector3.UP * 1.1
 		GoreFXScript.sparks(self, at, at - from, s.color, 16)
@@ -1902,16 +1997,18 @@ func _ranged_engage(e: EnemyAI, delta: float) -> void:
 		if away.length_squared() > 0.01 and _side_open(away.normalized()):
 			_move_dir(away.normalized(), profile.move_speed * 1.15, delta)
 			return
-		if _attack_cd <= 0.0 and global_position.distance_to(close.global_position) <= profile.attack_range + 0.3:
-			set_facing(close.global_position - global_position)
-			_melee(close)
-		else:
-			_halt(delta)
+		_halt(delta)
+		set_facing(close.global_position - global_position)
+		if _attack_cd <= 0.0:
+			if global_position.distance_to(close.global_position) <= profile.attack_range + 0.3:
+				_melee(close)
+			else:
+				_fire_bolt(close)
 		return
 	if d > RANGED_MAX:
 		_move_to(e.global_position - to_e.normalized() * (RANGED_MAX - 1.5), profile.move_speed, delta)
 		return
-	if d < RANGED_MIN and d > 0.01:
+	if d < RANGED_MIN and d > 0.01 and _side_open(-to_e.normalized()):
 		_move_dir(-to_e.normalized(), profile.move_speed, delta)
 		return
 	_halt(delta)
@@ -1933,7 +2030,7 @@ func _auto_skills(player: Node3D) -> bool:
 		return false
 	var defensive_only: bool = _is_ceasefire()
 	for s in profile.get_skills():
-		if not skill_ready(s) or s.auto_use == "never":
+		if not skill_ready(s) or s.auto_use.is_empty() or s.auto_use == "never":
 			continue
 		var tgt: Node3D = null
 		var go: bool = false
@@ -1978,7 +2075,7 @@ func _auto_skills(player: Node3D) -> bool:
 func _friends() -> Array[Node3D]:
 	var out: Array[Node3D] = []
 	var p: Node3D = _player()
-	if p != null:
+	if p != null and not (p is PlayerController and (p as PlayerController).current_state == PlayerController.State.DEAD):
 		out.append(p)
 	for a in get_tree().get_nodes_in_group("squad_ally"):
 		if a is SquadAlly and not (a as SquadAlly).is_downed:
@@ -2052,33 +2149,55 @@ func _run_skill(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		return
 	var tsel: String = String(cmd.args.get("target", ""))
 	var tgt: Node3D = cmd.data.get("target_node", null) as Node3D
+	var had_cached: bool = cmd.data.has("target_node")
+	if had_cached:
+		var cached_ok: bool = tgt != null and is_instance_valid(tgt) and tgt.is_inside_tree()
+		if cached_ok and s.target_kind == "enemy":
+			cached_ok = tgt is EnemyAI and _enemy_ok(tgt as EnemyAI)
+		elif cached_ok and s.target_kind == "ally":
+			if tgt is SquadAlly:
+				cached_ok = not (tgt as SquadAlly).is_downed
+			elif tgt is PlayerController:
+				cached_ok = (tgt as PlayerController).current_state != PlayerController.State.DEAD
+		if not cached_ok:
+			finish_current("target gone")
+			return
 	if tgt == null or not is_instance_valid(tgt):
 		match s.target_kind:
 			"enemy":
-				tgt = _resolve_enemy(tsel if not tsel.is_empty() else "nearest", player)
+				tgt = _resolve_enemy(tsel, player)
 				if tgt == null and _engage_target != null and _enemy_ok(_engage_target):
 					tgt = _engage_target
-				if tgt == null:
+				if tgt == null or not (tgt is EnemyAI and _enemy_ok(tgt as EnemyAI)):
 					say("No target for %s." % s.display_name, "refuse", 1)
 					finish_current("no target")
 					return
 			"ally":
 				if tsel.is_empty():
 					tgt = _lowest_friend(40.0, 1.01) if s.effect == "mending_light" else _most_pressed_friend(40.0, 0)
-					if tgt == null:
-						tgt = player
 				elif tsel in ["me", "player", "you"]:
 					tgt = player
 				elif manager != null and manager.has_method("find_ally"):
 					tgt = manager.call("find_ally", tsel) as Node3D
+				if tgt is PlayerController and (tgt as PlayerController).current_state == PlayerController.State.DEAD:
+					tgt = null
+				if tgt is SquadAlly and (tgt as SquadAlly).is_downed:
+					say("%s is down — needs revive." % (tgt as SquadAlly).get_display_name(), "refuse", 1)
+					finish_current("target down")
+					return
 				if tgt == null:
-					tgt = player
+					var living_f: Array[Node3D] = _friends()
+					tgt = living_f[0] if not living_f.is_empty() else null
+				if tgt == null:
+					say("No target for %s." % s.display_name, "refuse", 1)
+					finish_current("no target")
+					return
 		cmd.data["target_node"] = tgt
 	cmd.step = s.display_name
 	var need: float = s.cast_range if s.target_kind in ["enemy", "ally"] else 0.0
 	if tgt != null and need > 0.0 and tgt.global_position.distance_to(global_position) > need - 0.3:
 		_move_to(tgt.global_position, profile.move_speed * 1.2, delta)
-		if cmd.timer > 10.0:
+		if cmd.timer > _approach_timeout(10.0, tgt.global_position, cmd):
 			say("Can't get in range.", "refuse", 1)
 			finish_current("out of range")
 		return
@@ -2096,7 +2215,7 @@ func _run_surround(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		if cmd.data.has("enemy"):
 			finish_current("target down")
 			return
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			finish_current("no target")
 			return
@@ -2113,7 +2232,7 @@ func _run_surround(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	if not bool(cmd.data.get("in_slot", false)) and global_position.distance_to(slot) > 1.0:
 		cmd.step = "flanking"
 		_move_to(slot, profile.move_speed * 1.15, delta, false)
-		if cmd.timer > 6.0:
+		if cmd.timer > _approach_timeout(6.0, slot, cmd):
 			cmd.data["in_slot"] = true
 		return
 	cmd.data["in_slot"] = true
@@ -2267,13 +2386,20 @@ func _run_hit_and_run(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 			say_event("kill", 0)
 			finish_current("target down")
 			return
-		e = _resolve_enemy(String(cmd.args.get("target", "nearest")), player)
+		e = _resolve_enemy(String(cmd.args.get("target", "")), player)
 		if e == null:
 			say("No target for a raid.", "refuse", 1)
 			finish_current("no target")
 			return
 		cmd.data["enemy"] = e
 		cmd.step = "in"
+	if not bool(cmd.data.get("engaged", false)):
+		if global_position.distance_to(e.global_position) <= 8.0:
+			cmd.data["engaged"] = true
+		elif cmd.timer > _approach_timeout(16.0, e.global_position, cmd):
+			say("Can't reach target for a raid.", "refuse", 1)
+			finish_current("out of range")
+			return
 	match cmd.step:
 		"in":
 			if global_position.distance_to(e.global_position) > profile.attack_range:
@@ -2293,8 +2419,10 @@ func _run_hit_and_run(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				set_facing(e.global_position - global_position)
 				if float(cmd.data["out_t"]) > 2.2:
 					cmd.step = "in"
-	if cmd.timer > 16.0:
-		finish_current("raid over")
+	if bool(cmd.data.get("engaged", false)):
+		cmd.data["raid_t"] = float(cmd.data.get("raid_t", 0.0)) + delta
+		if float(cmd.data["raid_t"]) > 16.0:
+			finish_current("raid over")
 
 
 ## Hunt wildlife: ambient creatures have no health, so a "hunt" is an exuberant chase that scatters them.
@@ -2360,7 +2488,7 @@ func _run_destroy(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		say_event("destroy", 1, profile.line("ack"))
 	cmd.step = "smashing"
 	var goal: Vector3 = prop.global_position
-	if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() > 2.2:
+	if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() > 2.2 or absf(global_position.y - goal.y) > 2.0:
 		_move_to(goal, profile.move_speed, delta)
 		if cmd.timer > 12.0:
 			say("Can't get to it.", "refuse", 1)
@@ -2433,7 +2561,14 @@ func _run_revive(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 
 func _revive_target(who: SquadAlly, delta: float, cmd: SquadCommand) -> void:
+	if who == null or not is_instance_valid(who) or not who.is_downed:
+		finish_current("nobody down")
+		return
 	if global_position.distance_to(who.global_position) > 1.6:
+		if cmd.step != "channel" and cmd.timer > 10.0:
+			say("Can't reach %s." % who.get_display_name(), "refuse", 1)
+			finish_current("unreachable")
+			return
 		cmd.step = "moving"
 		_move_to(who.global_position, profile.move_speed * 1.2, delta)
 		return
@@ -2448,6 +2583,8 @@ func _revive_target(who: SquadAlly, delta: float, cmd: SquadCommand) -> void:
 			if current == cmd and cmd.verb == "revive":
 				finish_current("revived")
 		)
+	elif _action != "revive" and cmd.timer > 14.0:
+		finish_current("revive timed out")
 
 
 # ------------------------------------------------------------------ panic stances
@@ -2585,9 +2722,9 @@ func _run_position(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		"front":
 			off = f * 3.0 + r * lane * 1.5
 		"left":
-			off = r * (2.4 + absf(lane) * 1.3) - f * (lane * 0.6)
-		"right":
 			off = -r * (2.4 + absf(lane) * 1.3) - f * (lane * 0.6)
+		"right":
+			off = r * (2.4 + absf(lane) * 1.3) - f * (lane * 0.6)
 		"close":
 			off = r * (1.6 if slot_index % 2 == 0 else -1.6) - f * (0.3 + 0.9 * float(slot_index / 2))
 		"far":
@@ -2598,7 +2735,7 @@ func _run_position(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	cmd.step = String(cmd.describe())
 	var threat: EnemyAI = _nearest_enemy(global_position, 2.2)
 	if threat != null:
-		_fight(threat, delta)
+		_fight(threat, delta, true)
 		return
 	# Close enough counts as "in position" for a chain (squad-mates' personal space can keep us ~1 m off),
 	# and so does being pinned within 2.5 m for a second (blocked by someone standing in the spot).
@@ -2715,8 +2852,12 @@ func _run_ranged(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 				finish_current("target down")
 				return
 		var sel: String = String(cmd.args.get("target", ""))
-		e = _resolve_enemy(sel if not sel.is_empty() else "nearest", player)
-		if e == null or e.global_position.distance_to(global_position) > 28.0:
+		e = _resolve_enemy(sel, player)
+		var in_mark_scope: bool = not sel.is_empty() and sel != "nearest"
+		if not in_mark_scope and e != null and manager != null:
+			var intel_r: WorldIntel = manager.get("intel") as WorldIntel
+			in_mark_scope = intel_r != null and intel_r.is_marked_or_in_region(e)
+		if e == null or (not in_mark_scope and e.global_position.distance_to(global_position) > 28.0):
 			if not cmd.data.has("enemy"):
 				say("Nothing in range to shoot at.", "refuse", 1)
 			finish_current("no target" if not cmd.data.has("enemy") else "area clear")
@@ -2733,20 +2874,21 @@ func _run_ranged(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	var d: float = to_e.length()
 	var close: EnemyAI = _nearest_enemy(global_position, 2.6)
 	if close != null and close.get_current_target() == self:
-		# Something is on us: back-step away from it (melee if cornered).
+		# Something is on us: back-step away from it (fight in place if cornered).
 		var away: Vector3 = global_position - close.global_position
 		away.y = 0.0
-		if _side_open(away.normalized()):
+		if away.length_squared() > 0.01 and _side_open(away.normalized()):
 			cmd.step = "backing off"
 			_move_dir(away.normalized(), profile.move_speed * 1.15, delta)
 			return
-		_fight(close, delta)
+		cmd.step = "fighting cornered"
+		_fight(close, delta, true)
 		return
 	if d > RANGED_MAX:
 		cmd.step = "closing to range"
 		_move_to(e.global_position - to_e.normalized() * (RANGED_MAX - 1.5), profile.move_speed, delta)
 		return
-	if d < RANGED_MIN:
+	if d < RANGED_MIN and d > 0.01 and _side_open(-to_e.normalized()):
 		cmd.step = "opening range"
 		_move_dir(-to_e.normalized(), profile.move_speed, delta)
 		return
@@ -2865,8 +3007,16 @@ func _go_down() -> void:
 	is_downed = true
 	_retreating = false
 	_action = ""
+	_action_timer = 0.0
+	_action_hit_at = -1.0
+	_action_cb = Callable()
 	_dash_timer = 0.0
+	_dash_vel = Vector3.ZERO
+	_dash_hit_cb = Callable()
+	_dash_target = null
 	_hide_cast_ring()
+	clear_mine()
+	_sync_realm_mask()
 	velocity = Vector3.ZERO
 	_play(["Death_A", "Death_B"], -1.0, true)
 	say_event("downed", 3)
@@ -2879,6 +3029,7 @@ func revive(ratio: float = 0.45) -> void:
 	if not is_downed:
 		return
 	is_downed = false
+	_sync_realm_mask()
 	health = maxi(1, int(round(float(max_health) * clampf(ratio, 0.05, 1.0))))
 	_low_hp_warned = false
 	remove_from_group("interactable_switch")
@@ -2902,10 +3053,40 @@ func interact() -> bool:
 	return true
 
 
+func _in_pit_kill_zone() -> bool:
+	if not is_inside_tree() or get_tree() == null:
+		return false
+	for z in get_tree().get_nodes_in_group("pit_kill_zone"):
+		if z != null and z.has_method("is_point_inside_zone") and bool(z.call("is_point_inside_zone", global_position)):
+			return true
+	return false
+
+
 func _process_downed(delta: float) -> void:
 	velocity.x = 0.0
 	velocity.z = 0.0
 	_apply_gravity_and_move(delta)
+	var pl: Node3D = _player()
+	var pit_or_void: bool = _in_pit_kill_zone() or global_position.y < -20.0
+	var far_or_below: bool = false
+	if pl != null and is_instance_valid(pl):
+		if global_position.y < pl.global_position.y - 6.0 or global_position.distance_to(pl.global_position) > 35.0:
+			far_or_below = true
+	if pit_or_void or far_or_below:
+		if pl != null and is_instance_valid(pl):
+			if not (pl is PlayerController and (pl as PlayerController).is_currently_airborne()):
+				_blink_to(pl)
+			elif pit_or_void or global_position.y < pl.global_position.y - 6.0:
+				if _has_safe_pos:
+					global_position = _last_safe_pos + Vector3.UP * 0.05
+					_last_pos = global_position
+				velocity = Vector3.ZERO
+		elif _has_safe_pos:
+			global_position = _last_safe_pos + Vector3.UP * 0.05
+			_last_pos = global_position
+			velocity = Vector3.ZERO
+		else:
+			velocity.y = 0.0
 	_update_revive_prompt()
 
 
@@ -2924,34 +3105,52 @@ func _update_revive_prompt() -> void:
 ## Full restore (player respawn / new run).
 func reset_full(at: Vector3) -> void:
 	is_downed = false
+	_sync_realm_mask()
 	remove_from_group("interactable_switch")
 	health = max_health
 	_retreating = false
 	_action = ""
+	_action_timer = 0.0
+	_action_hit_at = -1.0
+	_action_cb = Callable()
 	_dash_timer = 0.0
+	_dash_vel = Vector3.ZERO
+	_dash_hit_cb = Callable()
+	_dash_target = null
 	_engage_target = null
 	_hide_cast_ring()
-	if _mine != null and is_instance_valid(_mine):
-		_mine.queue_free()
-	_mine = null
+	clear_mine()
 	current = null
 	queue.clear()
 	global_position = at
 	velocity = Vector3.ZERO
 	_last_pos = at
+	_last_safe_pos = at
+	_has_safe_pos = true
 	health_changed.emit(self, health, max_health)
 	_refresh_label()
 
 
 # ------------------------------------------------------------------ combat primitives
 
-func _fight(e: EnemyAI, delta: float) -> void:
+func _fight(e: EnemyAI, delta: float, hold_ground: bool = false) -> void:
 	_engage_target = e
 	_combat_quiet = 0.0
 	if _hazard_dodge(delta):
 		return
 	# Casters fight from range with visible bolts (no sword); berserk massacre still wades in.
 	if profile.role == "artillery" and not _is_massacre():
+		if hold_ground:
+			var to_t: Vector3 = e.global_position - global_position
+			to_t.y = 0.0
+			_halt(delta)
+			set_facing(to_t)
+			if _attack_cd <= 0.0:
+				if to_t.length() <= profile.attack_range + 0.3:
+					_melee(e)
+				else:
+					_fire_bolt(e)
+			return
 		_ranged_engage(e, delta)
 		return
 	# Distinct attack slot per ally around the enemy (no stacking on one spot).
@@ -3401,6 +3600,43 @@ func _point_walkable(p: Vector3) -> bool:
 	return space.intersect_ray(wall).is_empty()
 
 
+func _has_distant_order() -> bool:
+	return has_free_leash()
+
+
+func _distant_order_cam_visible() -> bool:
+	if current == null or manager == null:
+		return false
+	var intel_node: WorldIntel = manager.get("intel") as WorldIntel
+	if intel_node == null:
+		return false
+	var en: EnemyAI = current.data.get("enemy", null) as EnemyAI
+	return en != null and (intel_node.is_camera_visible(en) or intel_node.is_marked_or_in_region(en))
+
+
+func _approach_timeout(base_sec: float, target_pos: Vector3, cmd: SquadCommand = null) -> float:
+	if cmd != null and cmd.data.has("approach_limit"):
+		return float(cmd.data["approach_limit"])
+	var spd: float = maxf(profile.move_speed if profile != null else 5.0, 3.0)
+	var d: float = global_position.distance_to(target_pos)
+	var lim: float = clampf(maxf(base_sec, d / spd + 8.0), base_sec, 45.0)
+	if cmd != null:
+		cmd.data["approach_limit"] = lim
+	return lim
+
+
+func _unstick_nudge() -> void:
+	var fwd: Vector3 = facing_direction.normalized() if facing_direction.length_squared() > 0.001 else Vector3.FORWARD
+	var side := Vector3(-fwd.z, 0.0, fwd.x)
+	var sign_k: float = 1.0 if slot_index % 2 == 0 else -1.0
+	for cand in [side * sign_k, -side * sign_k, -fwd]:
+		var dir: Vector3 = cand as Vector3
+		if _side_open(dir):
+			velocity.x = dir.x * 3.5
+			velocity.z = dir.z * 3.5
+			return
+
+
 func _update_stuck(delta: float) -> void:
 	var moved: float = Vector2(global_position.x - _last_pos.x, global_position.z - _last_pos.z).length()
 	var wants: bool = Vector2(velocity.x, velocity.z).length() > 1.0
@@ -3412,35 +3648,78 @@ func _update_stuck(delta: float) -> void:
 	if _stuck_timer > 2.0:
 		_stuck_timer = 0.0
 		var p: Node3D = _player()
-		if p != null and global_position.distance_to(p.global_position) > 6.0:
+		if p == null:
+			return
+		if has_free_leash():
+			if _in_pit_kill_zone() or global_position.y < -20.0:
+				if _has_safe_pos:
+					global_position = _last_safe_pos + Vector3.UP * 0.05
+					velocity = Vector3.ZERO
+					_last_pos = global_position
+				else:
+					_blink_to(p)
+				return
+			_steer_dir = Vector3.ZERO
+			_steer_timer = 0.0
+			if is_on_floor():
+				velocity.y = 4.5
+			_unstick_nudge()
+		elif global_position.distance_to(p.global_position) > 6.0:
 			_blink_to(p)
 
 
-## Catch-up: allies are mirror echoes — when hopelessly far, fallen, or left behind a jump, they blink
-## to a free spot behind the player (with a spectral flash) instead of path-finding across chasms.
+## Catch-up: allies are mirror echoes — passive follow/ceasefire allies blink back to the player when left behind,
+## whereas allies under ANY active command (has_free_leash() == true) never distance-teleport and only rescue
+## back to their own last safe ground position on real pit/void falls.
 func _catch_up(player: Node3D) -> void:
-	var d: Vector3 = player.global_position - global_position
-	var far: float = 30.0 if (current != null and current.is_mission()) else 20.0
-	var needs_catchup: bool = (d.length() > far or (d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0) or global_position.y < player.global_position.y - 6.0)
-	if not needs_catchup:
+	var free_leash: bool = has_free_leash()
+	var in_pit: bool = _in_pit_kill_zone() or global_position.y < -20.0
+	if free_leash:
+		if not in_pit:
+			return
+		if _has_safe_pos:
+			global_position = _last_safe_pos + Vector3.UP * 0.05
+			velocity = Vector3.ZERO
+			_last_pos = global_position
+		else:
+			_blink_to(player)
 		return
-	var cam := get_viewport().get_camera_3d()
-	if cam and cam.is_position_in_frustum(global_position):
-		var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-		if space != null:
-			var q := PhysicsRayQueryParameters3D.create(cam.global_position, global_position + Vector3.UP * 0.9, 1)
-			var hit := space.intersect_ray(q)
-			if hit.is_empty() and d.length() < 40.0:
-				return
+	var d: Vector3 = player.global_position - global_position
+	var cam_exempt: bool = _distant_order_cam_visible()
+	var far: float = 150.0 if cam_exempt else FOLLOW_LEASH
+	var fallen_pit: bool = in_pit or global_position.y < player.global_position.y - 6.0
+	var vertical_trap: bool = d.y > 3.0 and Vector2(d.x, d.z).length() < 10.0
+	if not (d.length() > far or vertical_trap or fallen_pit):
+		return
+	if not fallen_pit:
+		var cam: Camera3D = get_viewport().get_camera_3d()
+		if cam != null and cam.is_position_in_frustum(global_position):
+			var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+			if space != null:
+				var los_mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
+				var excl: Array[RID] = [get_rid()]
+				if player is CollisionObject3D:
+					excl.append((player as CollisionObject3D).get_rid())
+				var q := PhysicsRayQueryParameters3D.create(cam.global_position, global_position + Vector3.UP * 0.9, los_mask, excl)
+				var hit: Dictionary = space.intersect_ray(q)
+				if hit.is_empty() and d.length() < (150.0 if cam_exempt else 40.0):
+					return
 	if player is PlayerController and (player as PlayerController).is_currently_airborne():
+		if fallen_pit and _has_safe_pos:
+			global_position = _last_safe_pos + Vector3.UP * 0.05
+			velocity = Vector3.ZERO
+			_last_pos = global_position
 		return
 	_blink_to(player)
 
 
 func _blink_to(player: Node3D) -> void:
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	if space == null:
+		return
 	var base: Vector3 = _formation_point(player)
-	var tries: Array[Vector3] = [base, player.global_position - (player.call("get_facing_direction") as Vector3) * 1.5, player.global_position]
+	var pf: Vector3 = (player.call("get_facing_direction") as Vector3) if player.has_method("get_facing_direction") else Vector3.FORWARD
+	var tries: Array[Vector3] = [base, player.global_position - pf * 1.5, player.global_position]
 	for t in tries:
 		var q := PhysicsRayQueryParameters3D.create(t + Vector3.UP * 1.5, t + Vector3.DOWN * 3.0, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
 		var hit: Dictionary = space.intersect_ray(q)
@@ -3539,7 +3818,7 @@ func _pick_auto_target(player: Node3D, radius: float = -1.0, any: bool = false) 
 
 func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
 	if manager != null and manager.has_method("resolve_enemy"):
-		return manager.call("resolve_enemy", selector, player.global_position if player != null else global_position) as EnemyAI
+		return manager.call("resolve_enemy", selector, player.global_position if player != null else global_position, self) as EnemyAI
 	return _nearest_enemy(global_position, 20.0)
 
 

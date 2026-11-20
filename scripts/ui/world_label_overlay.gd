@@ -15,7 +15,7 @@ const FADE_M: float = 4.0
 ##   offset: Vector2 extra screen offset (default 0,0), e.g. to stack several labels on one enemy
 ##   font: "body" | "display" | "flavor" (default "body")
 ##   max_dist: float metres from the camera beyond which the label is hidden (default 40)
-##   kind: "text" | "bar" — "bar" draws a health bar from meta "hp_ratio" (0..1) with the label text beside it
+##   kind: "text" | "bar" | "mark" | "mark_nearby"
 static func adopt(l: Label3D, opts: Dictionary = {}) -> void:
 	if l == null:
 		return
@@ -70,7 +70,8 @@ func _draw() -> void:
 		var p: Vector2 = cam.unproject_position(wp) * k + (l.get_meta("wl_offset", Vector2.ZERO) as Vector2)
 		if p.x < -200.0 or p.y < -200.0 or p.x > s.x + 200.0 or p.y > s.y + 200.0:
 			continue
-		var fade: float = clampf((max_d - dist) / FADE_M, 0.0, 1.0)
+		var fade_span: float = 20.0 if max_d > 80.0 else FADE_M
+		var fade: float = clampf((max_d - dist) / fade_span, 0.0, 1.0)
 		items.append([dist, l, p, fade])
 	# Far labels first so near ones draw on top.
 	items.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) > float(b[0]))
@@ -94,13 +95,55 @@ func _draw_label(l: Label3D, p: Vector2, fade: float) -> void:
 	col.a *= fade
 	var ocol: Color = l.outline_modulate
 	ocol.a = 0.85 * col.a
-	if String(l.get_meta("wl_kind", "text")) == "bar":
+	var kind: String = String(l.get_meta("wl_kind", "text"))
+	if kind == "bar":
 		var ratio: float = clampf(float(l.get_meta("hp_ratio", 1.0)), 0.0, 1.0)
 		var r := Rect2(p.x - 48.0, p.y - 4.0, 96.0, 8.0)
 		draw_rect(r.grow(1.0), Color(0, 0, 0, 0.75 * col.a))
 		draw_rect(Rect2(r.position, Vector2(r.size.x * ratio, r.size.y)), Color(col.r, col.g, col.b, col.a))
 		if not l.text.is_empty():
 			_line(font, Vector2(r.end.x + 6.0, p.y + float(px) * 0.38), l.text, px, Color(1, 1, 1, 0.9 * col.a), ocol, false)
+		return
+	if kind == "mark":
+		var pulse: float = 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.0055)
+		var rr: float = 9.0 + pulse * 2.5
+		var ring := PackedVector2Array([
+			Vector2(p.x, p.y - rr),
+			Vector2(p.x + rr, p.y),
+			Vector2(p.x, p.y + rr),
+			Vector2(p.x - rr, p.y),
+			Vector2(p.x, p.y - rr),
+		])
+		draw_polyline(ring, Color(0.0, 0.0, 0.0, 0.78 * col.a), 4.2, true)
+		draw_polyline(ring, col, 2.0, true)
+		var core := PackedVector2Array([
+			Vector2(p.x, p.y - 4.2),
+			Vector2(p.x + 4.2, p.y),
+			Vector2(p.x, p.y + 4.2),
+			Vector2(p.x - 4.2, p.y),
+		])
+		draw_colored_polygon(core, col)
+		var chev := PackedVector2Array([
+			Vector2(p.x - 6.0, p.y + rr + 3.0),
+			Vector2(p.x, p.y + rr + 8.5),
+			Vector2(p.x + 6.0, p.y + rr + 3.0),
+		])
+		draw_polyline(chev, Color(0.0, 0.0, 0.0, 0.8 * col.a), 4.0, true)
+		draw_polyline(chev, col, 2.0, true)
+		if not l.text.is_empty():
+			_line(font, Vector2(p.x, p.y - rr - 6.0), l.text, px, col, ocol, true)
+		return
+	if kind == "mark_nearby":
+		var dr: float = 6.2
+		var pip := PackedVector2Array([
+			Vector2(p.x, p.y - dr),
+			Vector2(p.x + dr, p.y),
+			Vector2(p.x, p.y + dr),
+			Vector2(p.x - dr, p.y),
+			Vector2(p.x, p.y - dr),
+		])
+		draw_polyline(pip, Color(0.0, 0.0, 0.0, 0.7 * col.a), 3.4, true)
+		draw_polyline(pip, col, 1.6, true)
 		return
 	var lines: PackedStringArray = l.text.split("\n")
 	var lh: float = float(px) * 1.15

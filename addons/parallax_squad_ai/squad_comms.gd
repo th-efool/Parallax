@@ -181,7 +181,7 @@ static func tools() -> Array:
 			"parameters": {"type": "object", "properties": {
 				"allies": {"type": "array", "items": {"type": "string"}, "description": "Ally names from the roster, or [\"all\"]."},
 				"action": {"type": "string", "enum": ["follow", "hold", "wait", "position", "rearguard", "ranged", "sneak_attack", "attack", "retreat", "taunt", "take_aggro", "peel", "hit_and_run", "bodyguard", "kite", "nuke", "revive", "split", "hunt", "destroy", "interact", "overwatch", "jump", "dance", "emote", "circle", "face", "status", "stop", "auto_engage_on", "auto_engage_off"]},
-				"target": {"type": "string", "description": "Enemy: an ID from BATTLEFIELD (e.g. \"E3\") — always prefer IDs; or nearest/strongest/weakest; or 'ally:<Name>' = whatever that ally is fighting. bodyguard: an ally name, 'player' or 'objective'. revive: an ally name. interact: 'chest' or blank. ranged: optional enemy (blank = keep shooting the nearest until clear)."},
+				"target": {"type": "string", "description": "Enemy: a player mark ('M1'..'M4', 'marked', or 'marked group' for enemies inside a mark's 18 m radius — leave blank to default to M1 when marked), OR a BATTLEFIELD ID ('E3'), nearest/strongest/weakest, or 'ally:<Name>'. bodyguard: ally name/'player'/'objective'. revive: ally name. interact: 'chest'/blank. ranged: optional enemy (blank = keep shooting marked/nearest until clear)."},
 				"spot": {"type": "string", "enum": ["behind", "front", "left", "right", "close", "far"], "description": "position: where to stand relative to the player (far = keep your distance / get away)."},
 				"seconds": {"type": "integer", "description": "wait/hold: how long (1-30 s) before the next step of a chain."},
 				"lure_to_player": {"type": "boolean", "description": "kite only: bait the enemy back to the player/squad and circle there so the others can hit it."},
@@ -201,7 +201,7 @@ static func tools() -> Array:
 			"description": "Run a squad strategy from STRATEGIES. The game assigns every living ally a part by role.",
 			"parameters": {"type": "object", "properties": {
 				"strategy": {"type": "string", "enum": SquadStrategies.ids()},
-				"target": {"type": "string", "description": "Primary enemy ID (optional)."},
+				"target": {"type": "string", "description": "Primary mark/enemy ID such as 'M1', 'marked', or 'E3' (optional; defaults to M1 if marked)."},
 				"allies": {"type": "array", "items": {"type": "string"}, "description": "Optional subset of allies."}
 			}, "required": ["strategy"]}}},
 		{"type": "function", "function": {
@@ -232,6 +232,7 @@ static func tools() -> Array:
 func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var roster: String = _manager.get_roster_text() if _manager != null else ""
 	var skills: String = _manager.get_skills_text() if _manager != null else ""
+	var marks: String = _manager.intel.describe_marks_text() if _manager != null and _manager.intel != null else "- none"
 	var field: String = _manager.intel.describe_text() if _manager != null and _manager.intel != null else "unknown"
 	var personas: PackedStringArray = []
 	if _manager != null:
@@ -249,13 +250,14 @@ func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var focus: String = ("The player is mainly talking to %s.\n" % focus_ally.get_display_name()) if focus_ally != null else ""
 	return "You are the SQUAD DIRECTOR of PARALLAX, a dark-fantasy mirror-realm arena game. You command the player's squad of mirror-bound 'Echoes' and voice them.\n" \
 		+ "The player talks to you in completely natural language — any phrasing, slang, typos, half-sentences, voice transcripts. Work out what they mean; never require keywords. Ambiguous orders: choose the most sensible tactical reading.\n" \
-		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told. (11) Every `say` line must describe ONLY what that ally was ordered to do in THIS response (or answer the player's question) — never announce a plan, target or skill you did not issue as a tool call, never narrate other allies, no lore or filler. Default to ONE speaker; use two only when the player addressed several allies.\n" \
+		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#) or player mark (M1..M4): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally, around/near M#) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1 short line per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told. (11) Every `say` line must describe ONLY what that ally was ordered to do in THIS response (or answer the player's question) — never announce a plan, target or skill you did not issue as a tool call, never narrate other allies, no lore or filler. Default to ONE speaker; use two only when the player addressed several allies. (12) Enemy Marks: [MARKED M#] targets can be far away; all enemies within 18m of a mark appear tagged [NEAR M#]. Allies under any active order have a free leash and run across the arena without teleporting back. When a player mentions 'the marked one'/'M#'/'that one' without specifying another enemy, pass 'M#' or leave target blank (automatically prefers M1).\n" \
 		+ focus \
 		+ "PERSONALITIES (flavour only):\n%s\n" % "\n".join(personas) \
 		+ "ROSTER (live):\n%s\n" % roster \
 		+ "SKILLS:\n%s\n" % skills \
 		+ "STRATEGIES:\n%s\n" % SquadStrategies.describe_all() \
-		+ "BATTLEFIELD (live, nearest first; bearing is relative to the player's facing):\n%s\n" % field \
+		+ "MARKED TARGETS:\n%s\n" % marks \
+		+ "BATTLEFIELD (live, marked & mark-region first, then nearest; bearing is relative to the player's facing):\n%s\n" % field \
 		+ "PLAYER: %s\n" % player_s \
 		+ "RECENT EVENTS:\n%s" % ("\n".join(memory) if not memory.is_empty() else "- none")
 
@@ -430,7 +432,7 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 				cmd["area"] = true
 			return cmd
 		"start_combo":
-			return {"verb": "combo_" + String(args.get("combo", "")), "allies": allies, "target": String(args.get("target", "nearest"))}
+			return {"verb": "combo_" + String(args.get("combo", "")), "allies": allies, "target": String(args.get("target", ""))}
 		"panic_order":
 			return {"verb": String(args.get("order", "")), "allies": allies if not (allies as Array).is_empty() else ["all"]}
 		"use_skill":
