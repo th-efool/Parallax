@@ -28,6 +28,7 @@ var _members: Array[Node] = []
 var _tokens: Dictionary = {}        # enemy instance_id -> grant time (sec)
 var _token_target: Dictionary = {}  # enemy instance_id -> target instance_id
 var _waiting_since: Dictionary = {} # enemy instance_id -> first request time
+var _last_wait_touch: Dictionary = {} # enemy instance_id -> most recent request time
 var _enemy_target: Dictionary = {}  # enemy instance_id -> target instance_id
 var _last_attack_start: Dictionary = {} # target instance_id -> sec
 var _peak_engaged: int = 0
@@ -71,19 +72,27 @@ func register(e: Node) -> void:
 		_members.append(e)
 
 
+func _physics_process(_delta: float) -> void:
+	if _peak_engaged > 0 and get_engaged(null).is_empty():
+		_peak_engaged = 0
+
+
 func unregister(e: Node) -> void:
 	_members.erase(e)
 	release_token(e)
 	if e != null:
 		_enemy_target.erase(e.get_instance_id())
+	refresh_engaged_peak()
 
 
 func reset() -> void:
 	_tokens.clear()
 	_token_target.clear()
 	_waiting_since.clear()
+	_last_wait_touch.clear()
 	_enemy_target.clear()
 	_last_attack_start.clear()
+	_peak_engaged = 0
 
 
 func get_members() -> Array[Node]:
@@ -103,23 +112,34 @@ func _prune() -> void:
 			_tokens.erase(id)
 			_token_target.erase(id)
 			_waiting_since.erase(id)
+			_last_wait_touch.erase(id)
 		elif obj is EnemyBase and ((obj as EnemyBase).is_dead or not (obj as EnemyBase).is_active):
 			_tokens.erase(id)
 			_token_target.erase(id)
 			_waiting_since.erase(id)
+			_last_wait_touch.erase(id)
 		elif obj is EnemyAI:
 			var ai: EnemyAI = obj as EnemyAI
 			if ai.current_state != EnemyAI.State.CHASE and ai.current_state != EnemyAI.State.WINDUP and ai.current_state != EnemyAI.State.ATTACK:
 				_tokens.erase(id)
 				_token_target.erase(id)
 				_waiting_since.erase(id)
+				_last_wait_touch.erase(id)
 
 	for wid in _waiting_since.keys():
 		var wobj: Object = instance_from_id(int(wid))
-		if wobj == null or not is_instance_valid(wobj):
+		if wobj == null or not is_instance_valid(wobj) or not (wobj is EnemyAI):
 			_waiting_since.erase(wid)
-		elif wobj is EnemyBase and ((wobj as EnemyBase).is_dead or not (wobj as EnemyBase).is_active):
-			_waiting_since.erase(wid)
+			_last_wait_touch.erase(wid)
+		else:
+			var wai: EnemyAI = wobj as EnemyAI
+			var inactive_waiter: bool = wai.is_dead or not wai.is_active or wai.current_state != EnemyAI.State.CHASE
+			var touch_stale: bool = now - float(_last_wait_touch.get(wid, now)) > 0.35
+			if inactive_waiter or touch_stale:
+				_waiting_since.erase(wid)
+				_last_wait_touch.erase(wid)
+
+	refresh_engaged_peak()
 
 
 # ------------------------------------------------------------------ per-target bookkeeping
@@ -131,6 +151,7 @@ func set_enemy_target(e: Node, target: Node) -> void:
 		_enemy_target.erase(e.get_instance_id())
 	else:
 		_enemy_target[e.get_instance_id()] = target.get_instance_id()
+	refresh_engaged_peak()
 
 
 ## Live enemies currently hunting `target` (optionally excluding one).
@@ -185,9 +206,11 @@ func has_token(e: Node) -> bool:
 func release_token(e: Node) -> void:
 	if e == null:
 		return
-	_tokens.erase(e.get_instance_id())
-	_token_target.erase(e.get_instance_id())
-	_waiting_since.erase(e.get_instance_id())
+	var id: int = e.get_instance_id()
+	_tokens.erase(id)
+	_token_target.erase(id)
+	_waiting_since.erase(id)
+	_last_wait_touch.erase(id)
 
 
 func _tokens_on(target_id: int) -> int:
@@ -200,6 +223,9 @@ func _tokens_on(target_id: int) -> int:
 
 ## Called every frame by an enemy that is in range and ready to swing. Returns true when it may commit.
 func request_attack_token(e: EnemyAI, target: Node3D) -> bool:
+	if e == null or not e.can_attack_now():
+		release_token(e)
+		return false
 	_prune()
 	var id: int = e.get_instance_id()
 	if _tokens.has(id):
@@ -210,6 +236,7 @@ func request_attack_token(e: EnemyAI, target: Node3D) -> bool:
 	var now: float = _now()
 	if not _waiting_since.has(id):
 		_waiting_since[id] = now
+	_last_wait_touch[id] = now
 	# Taunted enemies are locked on and never wait for a token.
 	if e.is_taunted():
 		_grant(id, tid, now)
@@ -229,11 +256,13 @@ func request_attack_token(e: EnemyAI, target: Node3D) -> bool:
 		var o: Object = instance_from_id(int(other_id))
 		if o == null or not is_instance_valid(o) or not (o is EnemyAI):
 			_waiting_since.erase(other_id)
+			_last_wait_touch.erase(other_id)
 			continue
 		var oe: EnemyAI = o as EnemyAI
-		var stale: bool = now - float(_waiting_since[other_id]) > 2.5
+		var stale: bool = oe.current_state != EnemyAI.State.CHASE or now - float(_last_wait_touch.get(other_id, 0.0)) > 0.35
 		if oe.is_dead or not oe.is_active or stale:
 			_waiting_since.erase(other_id)
+			_last_wait_touch.erase(other_id)
 			continue
 		if int(_enemy_target.get(int(other_id), 0)) != tid:
 			continue
@@ -247,6 +276,7 @@ func _grant(id: int, tid: int, now: float) -> void:
 	_tokens[id] = now
 	_token_target[id] = tid
 	_waiting_since.erase(id)
+	_last_wait_touch.erase(id)
 	_last_attack_start[tid] = now
 
 
@@ -339,11 +369,20 @@ func broadcast_noise(at: Vector3, radius: float) -> void:
 			e.hear_noise(at)
 
 
+func refresh_engaged_peak() -> void:
+	var count: int = get_engaged(null).size()
+	if count == 0:
+		_peak_engaged = 0
+	else:
+		_peak_engaged = maxi(_peak_engaged, count)
+
+
 func is_last_standing(e: EnemyAI, target: Node3D) -> bool:
 	var engaged: Array[EnemyAI] = get_engaged(null)
-	_peak_engaged = maxi(_peak_engaged, engaged.size())
 	if engaged.is_empty():
 		_peak_engaged = 0
+		return false
+	_peak_engaged = maxi(_peak_engaged, engaged.size())
 	return _peak_engaged >= 2 and engaged.size() == 1 and engaged[0] == e and target != null
 
 

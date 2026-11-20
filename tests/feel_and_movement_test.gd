@@ -232,6 +232,17 @@ func _run() -> void:
 	victims.sort_custom(func(a: Node, b: Node) -> bool: return (a as Node3D).global_position.distance_to(_player.global_position) < (b as Node3D).global_position.distance_to(_player.global_position))
 	var victim: EnemyBase = victims[0] as EnemyBase if not victims.is_empty() else null
 	if victim != null:
+		for a in _mgr.get_living():
+			a.auto_engage = false
+			a.clear_queue()
+			a._abort_current_effects()
+			a.finish_current("test")
+		for n in level.get_tree().get_nodes_in_group("enemy"):
+			if n is EnemyBase and n != victim:
+				(n as EnemyBase).set_section_enabled(false)
+		_player.add_ally_ward(99999, 8.0)
+		_player._abort_attack()
+		_player._set_state(PlayerController.State.LOCOMOTION, 0.0)
 		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
 		_player.set_facing_direction(Vector3(0, 0, 1))
 		_player._finisher_cooldown_end_ms = 0
@@ -247,6 +258,8 @@ func _run() -> void:
 		_check("q_in_window_is_mirror_break", not _attacks.is_empty() and String(_attacks[0][0]) == "fin_mirror_break" and realm_before == realm_after, "%s realm %d->%d" % [str(_attacks), realm_before, realm_after])
 		await create_timer(1.6).timeout
 		victim.health = int(victim.max_health * 0.3)
+		_player._abort_attack()
+		_player._set_state(PlayerController.State.LOCOMOTION, 0.0)
 		_player.global_position = victim.global_position - Vector3(0, 0, 1.8)
 		_player.set_facing_direction(Vector3(0, 0, 1))
 		_player._finisher_cooldown_end_ms = 0

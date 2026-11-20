@@ -60,12 +60,13 @@ var current_move: BossMove = BossMove.CLEAVE
 var is_chest_rune_exposed: bool = false
 var _transition_timer: float = 0.0
 var _move_counter: int = 0
-var _lunge_dir: Vector3 = Vector3.BACK
 
 
 func _ready() -> void:
 	_health_scaled = true
+	_damage_scaled = true
 	super._ready()
+	select_next_move(BossMove.CLEAVE)
 
 func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
@@ -110,6 +111,9 @@ func step_ai(delta: float) -> void:
 		velocity = Vector3.ZERO
 
 	if current_phase == Phase.PHASE_2_TRANSITION:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		_transition_timer = maxf(0.0, _transition_timer - delta)
 		if _transition_timer <= 0.0:
 			complete_phase2_transition_now()
@@ -130,22 +134,14 @@ func select_next_move(move: BossMove) -> void:
 		attack_range = lunge_range
 
 
-func start_windup(custom_windup: float = -1.0) -> void:
-	if current_phase == Phase.PHASE_2_TRANSITION:
-		return
-
-	if _move_counter % 2 == 0:
-		select_next_move(BossMove.CLEAVE)
-	else:
-		select_next_move(BossMove.LUNGE)
+func _queue_next_move() -> void:
 	_move_counter += 1
+	select_next_move(BossMove.CLEAVE if _move_counter % 2 == 0 else BossMove.LUNGE)
 
-	var p: Node3D = _resolve_target_player()
-	if p != null:
-		var dir: Vector3 = p.global_position - global_position
-		dir.y = 0.0
-		if dir.length_squared() > 0.001:
-			_lunge_dir = dir.normalized()
+
+func start_windup(custom_windup: float = -1.0) -> void:
+	if current_phase == Phase.PHASE_2_TRANSITION or is_dead or not is_active:
+		return
 
 	var w_dur: float = phase1_windup_duration if current_phase == Phase.PHASE_1_SPLIT else phase2_windup_duration
 	if custom_windup >= 0.0:
@@ -177,9 +173,25 @@ func is_vulnerable_to_full_damage() -> bool:
 func _begin_attack_strike() -> void:
 	super._begin_attack_strike()
 	if current_move == BossMove.LUNGE:
-		velocity = _lunge_dir * lunge_speed
+		var lunge_vel: Vector3 = get_facing_direction() * lunge_speed
+		velocity.x = lunge_vel.x
+		velocity.z = lunge_vel.z
 	else:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+
+
+func _clear_chest_rune_exposure() -> void:
+	if is_chest_rune_exposed:
+		is_chest_rune_exposed = false
+		_update_rune_glow()
+		chest_rune_exposed_changed.emit(false, 0.0)
+
+
+func _transition_to(next_state: State, duration: float) -> void:
+	if next_state != State.RECOVER:
+		_clear_chest_rune_exposure()
+	super._transition_to(next_state, duration)
 
 
 func _enter_recover(custom_recover: float = -1.0) -> void:
@@ -187,7 +199,9 @@ func _enter_recover(custom_recover: float = -1.0) -> void:
 		var hb: Hitbox3D = get_attack_hitbox()
 		if hb != null:
 			hb.end_swing()
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_queue_next_move()
 		start_windup(phase2_chain_windup) # _move_counter alternation guarantees the follow-up is a Lunge
 		return
 	var r_dur: float = phase1_recovery_window if current_phase == Phase.PHASE_1_SPLIT else phase2_recovery_window
@@ -198,13 +212,11 @@ func _enter_recover(custom_recover: float = -1.0) -> void:
 		is_chest_rune_exposed = true
 		_update_rune_glow()
 		chest_rune_exposed_changed.emit(true, r_dur)
+	_queue_next_move()
 
 
 func _on_recover_finished() -> void:
-	if is_chest_rune_exposed:
-		is_chest_rune_exposed = false
-		_update_rune_glow()
-		chest_rune_exposed_changed.emit(false, 0.0)
+	_clear_chest_rune_exposure()
 
 
 func on_realm_changed(_active_realm: int) -> void:
@@ -298,7 +310,7 @@ func _phase2_threshold() -> int:
 
 
 func _should_stagger_on_hit(is_heavy: bool, _source_type: String) -> bool:
-	return is_heavy and is_vulnerable_to_full_damage()
+	return is_heavy and is_vulnerable_to_full_damage() and current_state != State.STAGGER
 
 
 func _on_damage_taken(_final_damage: int, _is_heavy: bool, _source_type: String) -> void:
@@ -308,18 +320,17 @@ func _on_damage_taken(_final_damage: int, _is_heavy: bool, _source_type: String)
 
 
 func _trigger_phase2_transition() -> void:
-	current_phase = Phase.PHASE_2_TRANSITION
-	_transition_timer = phase2_transition_duration
-	velocity = Vector3.ZERO
-
+	_clear_telegraph_flash()
+	_release_token()
 	var hb: Hitbox3D = get_attack_hitbox()
 	if hb != null:
 		hb.end_swing()
 
-	if is_chest_rune_exposed:
-		is_chest_rune_exposed = false
-		_update_rune_glow()
-		chest_rune_exposed_changed.emit(false, 0.0)
+	current_phase = Phase.PHASE_2_TRANSITION
+	_transition_timer = phase2_transition_duration
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_transition_to(State.STAGGER, phase2_transition_duration)
 
 	if not mirror_plane_prop_path.is_empty():
 		var plane: BreakableProp = get_node_or_null(mirror_plane_prop_path) as BreakableProp
@@ -337,10 +348,10 @@ func _on_enemy_reset() -> void:
 	var was_phase1: bool = (current_phase == Phase.PHASE_1_SPLIT)
 	var was_exposed: bool = is_chest_rune_exposed
 	current_phase = Phase.PHASE_1_SPLIT
-	current_move = BossMove.CLEAVE
-	is_chest_rune_exposed = false
 	_transition_timer = 0.0
 	_move_counter = 0
+	select_next_move(BossMove.CLEAVE)
+	is_chest_rune_exposed = false
 	windup_duration = phase1_windup_duration
 	recover_duration = phase1_recovery_window
 
@@ -363,9 +374,7 @@ func _on_enemy_reset() -> void:
 
 func _die(source_type: String) -> void:
 	print("[Warden] defeated by '%s' (phase %d, last attacker %s)" % [source_type, int(current_phase), str(_last_attacker)])
-	if is_chest_rune_exposed:
-		is_chest_rune_exposed = false
-		chest_rune_exposed_changed.emit(false, 0.0)
+	_clear_chest_rune_exposure()
 	_update_rune_glow()
 	super._die(source_type)
 	if auto_finalize_run_on_death:

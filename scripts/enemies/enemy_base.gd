@@ -48,6 +48,7 @@ var last_hit_source: String = ""
 var last_hit_heavy: bool = false
 var _flash_mat: StandardMaterial3D = null
 var _flash_serial: int = 0
+var _flash_previous: Dictionary = {}
 var _wound_fx: CPUParticles3D = null
 var is_active: bool = true
 var is_section_enabled: bool = true
@@ -109,6 +110,16 @@ func evaluate_for_realm(active_realm: int, realms_merged: bool = false) -> void:
 		is_realm_enabled = (active_realm == 0)
 	elif realm_affinity == RealmReactive.Affinity.MIRROR_ONLY:
 		is_realm_enabled = (active_realm == 1)
+
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null and (not realms_merged or rm.is_merged):
+		rm.update_actor_collision_mask(self, active_realm as RealmManager.Realm)
+	else:
+		var cleared_mask: int = collision_mask & ~(RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR)
+		var world_mask: int = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR
+		if not realms_merged:
+			world_mask = RealmManager.LAYER_WORLD_SHARED | (RealmManager.LAYER_WORLD_MIRROR if active_realm == 1 else RealmManager.LAYER_WORLD_REALITY)
+		collision_mask = cleared_mask | world_mask
 
 	_refresh_active_state()
 	on_realm_changed(active_realm)
@@ -192,6 +203,8 @@ func reset_enemy() -> void:
 	global_transform = _spawn_transform
 	velocity = Vector3.ZERO
 	_last_attacker = null
+	_flash_serial += 1
+	_flash_previous.clear()
 	var fwd: Vector3 = -_spawn_transform.basis.z
 	fwd.y = 0.0
 	facing_direction = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
@@ -298,7 +311,12 @@ func _play_hit_feedback(final_damage: int, is_heavy: bool, source_type: String, 
 	_update_wound_fx()
 
 
-## Additive white overlay for a few frames (restores whatever overlay was there).
+## Virtual: subclasses (e.g. EnemyAI telegraph overlay) reject stale overlays whose effect already ended.
+func _is_overlay_still_valid(mat: Material) -> bool:
+	return mat != null
+
+
+## Additive white overlay for a few frames (restores whatever overlay was there if still valid).
 func _hit_flash(color: Color, duration: float) -> void:
 	var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
 	if vis == null:
@@ -311,10 +329,9 @@ func _hit_flash(color: Color, duration: float) -> void:
 	_flash_mat.albedo_color = color
 	var meshes: Array[MeshInstance3D] = []
 	_collect_mesh_instances(vis, meshes)
-	var previous: Dictionary = {}
 	for mi in meshes:
 		if mi.material_overlay != _flash_mat:
-			previous[mi] = mi.material_overlay
+			_flash_previous[mi] = mi.material_overlay
 		mi.material_overlay = _flash_mat
 	_flash_serial += 1
 	var serial: int = _flash_serial
@@ -323,7 +340,11 @@ func _hit_flash(color: Color, duration: float) -> void:
 			return
 		for mi2 in meshes:
 			if is_instance_valid(mi2) and mi2.material_overlay == _flash_mat:
-				mi2.material_overlay = previous.get(mi2, null) as Material
+				var restore: Material = _flash_previous.get(mi2, null) as Material
+				if restore != null and not _is_overlay_still_valid(restore):
+					restore = null
+				mi2.material_overlay = restore
+		_flash_previous.clear()
 	)
 
 

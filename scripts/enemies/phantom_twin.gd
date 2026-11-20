@@ -11,7 +11,6 @@ extends EnemyAI
 ## Opacity loss in Reality (GeometryInstance3D.transparency on every mesh).
 @export var reality_ghost_transparency: float = 0.6
 
-var _lunge_direction: Vector3 = Vector3.FORWARD
 var _shimmer_cd: int = 0
 
 
@@ -56,6 +55,10 @@ func is_hittable_now() -> bool:
 	return _mirror_now()
 
 
+func can_attack_now() -> bool:
+	return _mirror_now()
+
+
 ## Hitbox3D veto: in Reality the phantom's strikes pass through everyone.
 func can_damage_target(_target: Node) -> bool:
 	return _mirror_now()
@@ -78,6 +81,16 @@ func _phase_shimmer() -> void:
 
 func on_realm_changed(_active_realm: int) -> void:
 	_apply_ghost_look()
+	if not _mirror_now():
+		_release_token()
+		if current_state == State.WINDUP or current_state == State.ATTACK:
+			_clear_telegraph_flash()
+			var hb: Hitbox3D = get_attack_hitbox()
+			if hb != null:
+				hb.end_swing()
+			velocity.x = 0.0
+			velocity.z = 0.0
+			_transition_to(State.CHASE, 0.0)
 
 
 func _apply_ghost_look() -> void:
@@ -96,17 +109,11 @@ func start_windup(custom_windup: float = -1.0) -> void:
 		# A Mirror creature can't touch anyone in Reality: give the attack token back and keep stalking.
 		_release_token()
 		return
-	var p: Node3D = _resolve_target_player()
-	if p != null:
-		var dir: Vector3 = p.global_position - global_position
-		dir.y = 0.0
-		if dir.length_squared() > 0.001:
-			_lunge_direction = dir.normalized()
-	else:
-		_lunge_direction = -global_transform.basis.z.normalized()
 	super.start_windup(custom_windup)
 
 
 func _begin_attack_strike() -> void:
 	super._begin_attack_strike()
-	velocity = _lunge_direction * lunge_speed
+	var lunge_vel: Vector3 = get_facing_direction() * lunge_speed
+	velocity.x = lunge_vel.x
+	velocity.z = lunge_vel.z

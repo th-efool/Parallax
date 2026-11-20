@@ -104,7 +104,7 @@ const FIXATION_BREAK_DIST: float = 60.0
 @export var flee_health_ratio: float = 0.0
 @export var flee_duration: float = 3.0
 @export var patrol_radius: float = 0.0
-@export var show_state_icon: bool = true
+@export var show_state_icon: bool = false
 
 @export_group("Mirror Insight")
 ## Damage taken while the player sees this enemy through the Mirror (its cracks are exposed).
@@ -140,6 +140,7 @@ var _telegraph_mat: StandardMaterial3D = null
 var _telegraph_light: OmniLight3D = null
 var _telegraph_tween: Tween = null
 var _telegraph_meshes: Array[MeshInstance3D] = []
+var _telegraph_active: bool = false
 
 # Threat / aggro bookkeeping.
 var _threat: Dictionary = {}          # target instance_id -> float
@@ -150,6 +151,8 @@ var _home: Vector3 = Vector3.ZERO
 var _alert_pos: Vector3 = Vector3.ZERO
 var _reaggro_block: float = 0.0
 var _has_fled: bool = false
+var _damage_scaled: bool = false
+var _revived_this_hit: bool = false
 var _turn_to_id: int = 0
 var _patrol_goal: Vector3 = Vector3.ZERO
 var _patrol_timer: float = 0.0
@@ -158,7 +161,9 @@ var _state_icon: Label3D = null
 
 func _ready() -> void:
 	super._ready()
-	attack_damage = int(float(attack_damage) * DAMAGE_SCALE)
+	if not _damage_scaled:
+		_damage_scaled = true
+		attack_damage = int(float(attack_damage) * DAMAGE_SCALE)
 	_rng.randomize()
 	_home = global_position
 	_patrol_goal = _home
@@ -316,6 +321,10 @@ func is_stunned() -> bool:
 	return current_state == State.STUNNED
 
 
+func can_attack_now() -> bool:
+	return true
+
+
 func is_aggroed() -> bool:
 	return current_state != State.IDLE and current_state != State.ALERT and current_state != State.RETURNING and current_state != State.DEAD
 
@@ -365,8 +374,10 @@ func apply_taunt(source: Node3D, bonus: float = -1.0, lock_sec: float = -1.0) ->
 	var lock: float = default_taunt_lock if lock_sec < 0.0 else lock_sec
 	add_threat(source, b)
 	var sid: int = source.get_instance_id()
-	# A nudge never overrides an existing fixation on someone else.
-	if _fixated and _taunt_lock_id != sid and lock < 3.0:
+	# Short splash nudges (< 3 s) never break or downgrade an existing fixation (same or other taunter).
+	if is_fixated() and lock < 3.0:
+		if _taunt_lock_id == sid:
+			_fixation_far_t = 0.0
 		return
 	_taunt_lock_id = sid
 	_taunt_lock_timer = lock
@@ -459,7 +470,8 @@ func start_windup(custom_windup: float = -1.0) -> void:
 	var dur: float = windup_duration if custom_windup < 0.0 else custom_windup
 	if _enraged:
 		dur *= 0.8
-	velocity = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
 	_transition_to(State.WINDUP, dur)
 	_begin_telegraph_flash(dur)
 	attack_telegraphed.emit(attack_name, dur)
@@ -474,7 +486,8 @@ func enter_stagger(custom_duration: float = -1.0) -> void:
 		hb.end_swing()
 	_release_token()
 	var dur: float = stagger_duration if custom_duration < 0.0 else custom_duration
-	velocity = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
 	_transition_to(State.STAGGER, dur)
 	staggered.emit(dur)
 
@@ -488,7 +501,10 @@ func enter_stunned(custom_duration: float = -1.0) -> void:
 		hb.end_swing()
 	_release_token()
 	var dur: float = stun_duration if custom_duration < 0.0 else custom_duration
-	velocity = Vector3.ZERO
+	if current_state == State.STUNNED:
+		dur = maxf(_state_timer, dur)
+	velocity.x = 0.0
+	velocity.z = 0.0
 	_transition_to(State.STUNNED, dur)
 	knocked_down.emit(dur)
 	staggered.emit(dur)
@@ -523,7 +539,9 @@ func hear_noise(at: Vector3) -> void:
 func consider_evade(player: Node3D, is_heavy: bool, windup: float) -> void:
 	if is_dead or not is_active or _evade_cooldown > 0.0 or evade_skill <= 0.0:
 		return
-	if current_state != State.CHASE and current_state != State.RECOVER and current_state != State.IDLE:
+	if current_state != State.CHASE and current_state != State.RECOVER:
+		return
+	if player == null or not is_instance_valid(player) or not _is_valid_target(player) or get_current_target() == null:
 		return
 	if _squad != null and _squad.has_token(self) and current_state == State.CHASE:
 		return
@@ -538,6 +556,7 @@ func consider_evade(player: Node3D, is_heavy: bool, windup: float) -> void:
 	away = away.normalized() if away.length_squared() > 0.001 else -get_facing_direction()
 	var side: Vector3 = Vector3(-away.z, 0.0, away.x) * (1.0 if _rng.randf() < 0.5 else -1.0)
 	_evade_dir = (away * 0.55 + side * 0.85).normalized()
+	_taunt_timer = 0.0
 	_evade_timer = 0.32
 	_evade_cooldown = _rng.randf_range(2.2, 3.4)
 	set_facing_direction(player.global_position - global_position)
@@ -547,6 +566,8 @@ func consider_evade(player: Node3D, is_heavy: bool, windup: float) -> void:
 		_evade_clip = "Dodge_Right" if _evade_dir.dot(r) > 0.0 else "Dodge_Left"
 	else:
 		_evade_clip = "Dodge_Backward"
+	if current_state == State.RECOVER:
+		_on_recover_finished()
 	if current_state != State.CHASE:
 		_transition_to(State.CHASE, 0.0)
 	evaded.emit(_evade_dir)
@@ -565,12 +586,22 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 		amt *= stunned_damage_mult
 	if backstab:
 		amt *= backstab_damage_mult
+	_revived_this_hit = false
 	var was_idle: bool = not is_aggroed()
 	var ok: bool = super.apply_damage(int(round(amt)), is_heavy, source_type, attacker)
 	if not ok or is_dead:
 		return ok
 	if attacker is Node3D:
 		add_threat(attacker, amt * damage_threat_mult * (backstab_threat_mult if backstab else 1.0))
+	if was_idle and attacker is Node3D and _is_valid_target(attacker as Node3D):
+		_set_target(attacker as Node3D)
+		_reaggro_block = 0.0
+		if _squad != null:
+			_squad.alert(self, attacker as Node3D)
+	if _revived_this_hit:
+		_revived_this_hit = false
+		_turn_to_id = 0
+		return ok
 	if source_type in KNOCKDOWN_SOURCES and not knockdown_immune:
 		enter_stunned()
 	elif backstab:
@@ -578,11 +609,7 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 	if _should_flee():
 		_start_flee()
 	elif was_idle and attacker is Node3D and _is_valid_target(attacker as Node3D) and current_state != State.STUNNED and current_state != State.STAGGER:
-		_set_target(attacker as Node3D)
-		_reaggro_block = 0.0
 		_transition_to(State.CHASE, 0.0)
-		if _squad != null:
-			_squad.alert(self, attacker as Node3D)
 	return ok
 
 
@@ -598,13 +625,20 @@ func _is_backstab(attacker: Node, source_type: String) -> bool:
 	return get_facing_direction().dot(to_a.normalized()) < -0.35
 
 
+func _should_stagger_on_hit(is_heavy: bool, source_type: String) -> bool:
+	if current_state == State.STUNNED:
+		return false
+	if source_type in KNOCKDOWN_SOURCES and not knockdown_immune:
+		return false
+	return super._should_stagger_on_hit(is_heavy, source_type)
+
+
 func _on_backstabbed(attacker: Node) -> void:
 	backstabbed.emit(attacker)
+	if not backstab_staggers or current_state == State.ATTACK:
+		return
 	_turn_to_id = attacker.get_instance_id() if attacker != null else 0
-	if backstab_staggers and current_state != State.ATTACK:
-		enter_stagger(backstab_stagger)
-	elif attacker is Node3D:
-		set_facing_direction((attacker as Node3D).global_position - global_position)
+	enter_stagger(backstab_stagger)
 
 
 # ------------------------------------------------------------------ threat table
@@ -756,7 +790,9 @@ func _aggro_on(seen: Node3D, roar: bool) -> void:
 
 func _patrol(delta: float) -> void:
 	if patrol_radius <= 0.05:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		return
 	_patrol_timer -= delta
 	var to_goal: Vector3 = _patrol_goal - global_position
@@ -766,7 +802,9 @@ func _patrol(delta: float) -> void:
 			_patrol_timer = _rng.randf_range(3.0, 6.0)
 			var ang: float = _rng.randf() * TAU
 			_patrol_goal = _home + Vector3(cos(ang), 0.0, sin(ang)) * _rng.randf_range(0.5, patrol_radius)
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		return
 	_steer_toward(to_goal.normalized() * move_speed * 0.42, delta, true)
 
@@ -783,7 +821,9 @@ func _process_alert(delta: float) -> void:
 		_steer_toward(to_p.normalized() * move_speed * 0.75, delta, true)
 		set_facing_direction(to_p)
 	else:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		# Look around.
 		set_facing_direction(get_facing_direction().rotated(Vector3.UP, sin(_state_elapsed * 2.2) * 2.4 * delta))
 	if _state_timer <= 0.0:
@@ -813,16 +853,12 @@ func _process_chase(delta: float, target: Node3D) -> void:
 
 	if _taunt_timer > 0.0:
 		set_facing_direction(dir_to_p)
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		return
 
-	if _evade_timer > 0.0:
-		_evade_timer -= delta
-		var k: float = clampf(_evade_timer / 0.32, 0.0, 1.0)
-		velocity = _evade_dir * lerpf(2.0, 8.5, k)
-		set_facing_direction(dir_to_p)
-		if is_inside_tree():
-			move_and_slide()
+	if _process_evade_step(delta, dir_to_p):
 		return
 
 	if _squad != null:
@@ -834,10 +870,13 @@ func _process_chase(delta: float, target: Node3D) -> void:
 	if health < max_health * 0.3:
 		ring_r += 1.2
 
-	# Only request a token when within striking/commitment reach; otherwise approach without starving ring mates.
-	var can_request_token: bool = dist <= ring_r + 0.5
+	# Only request a token when attack-capable and within striking/commitment reach.
+	var can_attack: bool = can_attack_now()
+	var can_request_token: bool = can_attack and dist <= ring_r + 0.5
 	var has_token: bool = false
-	if _squad == null:
+	if not can_attack:
+		_release_token()
+	elif _squad == null:
 		has_token = true
 	elif can_request_token:
 		has_token = _squad.request_attack_token(self, target)
@@ -864,12 +903,11 @@ func _process_chase(delta: float, target: Node3D) -> void:
 	if _squad != null:
 		desired += _squad.get_separation(self) * speed * 1.4
 	set_facing_direction(dir_to_p)
-	var dv: Vector3 = Vector3(desired.x, 0.0, desired.z)
+	var dv: Vector3 = _clamp_edges(Vector3(desired.x, 0.0, desired.z))
 	var cur: Vector3 = Vector3(velocity.x, 0.0, velocity.z).move_toward(dv, 22.0 * delta)
 	velocity.x = cur.x
 	velocity.z = cur.z
-	if is_inside_tree():
-		move_and_slide()
+	_apply_gravity_and_slide(delta)
 
 
 ## Current target lost: switch to the next one on the table, else investigate where it was last seen.
@@ -898,7 +936,9 @@ func _process_returning(delta: float) -> void:
 	var to_h: Vector3 = _home - global_position
 	to_h.y = 0.0
 	if to_h.length() < 0.6:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
 		_patrol_goal = _home
 		_transition_to(State.IDLE, 0.0)
 		return
@@ -916,7 +956,8 @@ func _process_returning(delta: float) -> void:
 
 
 func _should_flee() -> bool:
-	return flee_health_ratio > 0.0 and not _has_fled and not is_dead and float(health) / float(maxi(1, max_health)) <= flee_health_ratio \
+	return flee_health_ratio > 0.0 and not _has_fled and not is_dead and not is_taunted() \
+		and float(health) / float(maxi(1, max_health)) <= flee_health_ratio \
 		and current_state != State.STUNNED
 
 
@@ -954,6 +995,9 @@ func _process_fleeing(delta: float, target: Node3D) -> void:
 
 func _process_windup(delta: float, target: Node3D) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_apply_gravity_and_slide(delta)
 	# Track the target through the first half of the wind-up, then commit (dodgeable).
 	if target != null and _state_elapsed < _state_duration * 0.55:
 		var to_p: Vector3 = target.global_position - global_position
@@ -974,15 +1018,16 @@ func _begin_attack_strike() -> void:
 		hb.affects_player = true
 		hb.affects_enemies = false
 		hb.begin_swing(attack_damage, false, "enemy_" + attack_name)
-	# Step into the swing so strikes carry weight (subclasses with real lunges override velocity).
-	velocity = get_facing_direction() * attack_lunge_speed
+	# Step into the swing so strikes carry weight (subclasses with real lunges override horizontal velocity).
+	var lunge_vel: Vector3 = get_facing_direction() * attack_lunge_speed
+	velocity.x = lunge_vel.x
+	velocity.z = lunge_vel.z
 	attack_started.emit(attack_name, attack_damage)
 
 
 func _process_attack(delta: float, _target: Node3D) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
-	if is_inside_tree() and velocity.length_squared() > 0.001:
-		move_and_slide()
+	_apply_gravity_and_slide(delta)
 	if _state_timer <= 0.0:
 		_enter_recover()
 
@@ -991,7 +1036,8 @@ func _enter_recover(custom_recover: float = -1.0) -> void:
 	var hb: Hitbox3D = get_attack_hitbox()
 	if hb != null:
 		hb.end_swing()
-	velocity = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
 	_release_token()
 	var dur: float = recover_duration if custom_recover < 0.0 else custom_recover
 	if _enraged:
@@ -1002,6 +1048,9 @@ func _enter_recover(custom_recover: float = -1.0) -> void:
 
 func _process_recover(delta: float, _target: Node3D) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_apply_gravity_and_slide(delta)
 	if _state_timer <= 0.0:
 		_on_recover_finished()
 		_transition_to(State.CHASE, 0.0)
@@ -1009,6 +1058,9 @@ func _process_recover(delta: float, _target: Node3D) -> void:
 
 func _process_stagger(delta: float) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_apply_gravity_and_slide(delta)
 	if _state_timer <= 0.0:
 		_finish_turn_around()
 		_transition_to(State.CHASE, 0.0)
@@ -1016,18 +1068,22 @@ func _process_stagger(delta: float) -> void:
 
 func _process_stunned(delta: float) -> void:
 	_state_timer = maxf(0.0, _state_timer - delta)
-	velocity = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_apply_gravity_and_slide(delta)
 	if _state_timer <= 0.0:
 		_finish_turn_around()
 		_transition_to(State.CHASE, 0.0)
 
 
-## Backstab reaction: whip around to face whoever stabbed us (and make them the target).
+## Backstab reaction: whip around to face whoever stabbed us (unless pinned on another taunter).
 func _finish_turn_around() -> void:
 	if _turn_to_id == 0:
 		return
 	var o: Object = instance_from_id(_turn_to_id)
 	_turn_to_id = 0
+	if is_taunted() and o != get_taunter():
+		return
 	if o is Node3D and is_instance_valid(o) and _is_valid_target(o as Node3D):
 		set_facing_direction((o as Node3D).global_position - global_position)
 		_set_target(o as Node3D)
@@ -1039,26 +1095,60 @@ func _on_recover_finished() -> void:
 
 
 func _on_stagger_triggered() -> void:
+	if current_state == State.STUNNED:
+		return
 	enter_stagger()
+
+
+func _clamp_edges(dv: Vector3) -> Vector3:
+	if dv.length_squared() <= 0.01 or _has_floor_ahead(dv.normalized()):
+		return dv
+	var side := Vector3(-dv.z, 0.0, dv.x)
+	if _has_floor_ahead(side.normalized()):
+		return side
+	if _has_floor_ahead(-side.normalized()):
+		return -side
+	return Vector3.ZERO
+
+
+func _process_evade_step(delta: float, dir_to_p: Vector3) -> bool:
+	if _evade_timer <= 0.0:
+		return false
+	_evade_timer = maxf(0.0, _evade_timer - delta)
+	var k: float = clampf(_evade_timer / 0.32, 0.0, 1.0)
+	var evade_vel: Vector3 = _evade_dir * lerpf(2.0, 8.5, k)
+	if evade_vel.length_squared() > 0.01 and not _has_floor_ahead(evade_vel.normalized()):
+		evade_vel = Vector3.ZERO
+	velocity.x = evade_vel.x
+	velocity.z = evade_vel.z
+	set_facing_direction(dir_to_p)
+	_apply_gravity_and_slide(delta)
+	return true
+
+
+func _apply_gravity_and_slide(delta: float) -> void:
+	if not is_inside_tree():
+		return
+	if not is_on_floor():
+		velocity.y = maxf(velocity.y - 20.0 * delta, -20.0)
+	elif velocity.y < 0.0:
+		velocity.y = 0.0
+	move_and_slide()
 
 
 ## Steering helper with an edge probe so wandering / fleeing never walks off a ledge.
 func _steer_toward(desired: Vector3, delta: float, probe_edges: bool) -> void:
 	var dv: Vector3 = Vector3(desired.x, 0.0, desired.z)
-	if probe_edges and dv.length_squared() > 0.01 and not _has_floor_ahead(dv.normalized()):
-		var side := Vector3(-dv.z, 0.0, dv.x)
-		dv = side if _has_floor_ahead(side.normalized()) else Vector3.ZERO
+	if probe_edges:
+		dv = _clamp_edges(dv)
 	if _squad != null:
 		dv += _squad.get_separation(self) * move_speed
+		if probe_edges:
+			dv = _clamp_edges(dv)
 	var cur: Vector3 = Vector3(velocity.x, 0.0, velocity.z).move_toward(dv, 18.0 * delta)
 	velocity.x = cur.x
 	velocity.z = cur.z
-	if not is_on_floor():
-		velocity.y = maxf(velocity.y - 20.0 * delta, -20.0)
-	else:
-		velocity.y = 0.0
-	if is_inside_tree():
-		move_and_slide()
+	_apply_gravity_and_slide(delta)
 
 
 func _has_floor_ahead(dir: Vector3, dist: float = 0.9) -> bool:
@@ -1104,13 +1194,12 @@ func _on_hit_reaction(final_damage: int, is_heavy: bool, source_type: String, st
 		# Broke free of the stun-lock: brace, then punish the button-masher.
 		_flinch_chain = 0
 		_poise_timer = poise_duration
-		if _rng.randf() < counter_attack_chance:
+		if can_attack_now() and _rng.randf() < counter_attack_chance:
 			var p: Node3D = _resolve_target_player()
 			if p != null and global_position.distance_to(p.global_position) <= attack_range + 0.9:
 				var got_token: bool = true
 				if _squad != null:
-					_squad.release_token(self)
-					got_token = _squad.request_attack_token(self, p)
+					got_token = _squad.has_token(self) or _squad.request_attack_token(self, p)
 				if got_token:
 					start_windup(windup_duration * 0.65)
 		return
@@ -1165,7 +1254,11 @@ func _update_hit_lean(delta: float) -> void:
 
 ## Tiny readable glyph over the head: ? investigating, ! aggro, ** stunned, ~ fleeing, <- returning, lock when taunted.
 func _update_state_icon() -> void:
-	if not show_state_icon or not is_inside_tree():
+	if not show_state_icon:
+		if _state_icon != null and is_instance_valid(_state_icon):
+			_state_icon.visible = false
+		return
+	if not is_inside_tree():
 		return
 	if _state_icon == null or not is_instance_valid(_state_icon):
 		_state_icon = Label3D.new()
@@ -1224,6 +1317,7 @@ func _on_enemy_reset() -> void:
 	_evade_timer = 0.0
 	_enraged = false
 	_has_fled = false
+	_revived_this_hit = false
 	_turn_to_id = 0
 	_reaggro_block = 0.0
 	_patrol_goal = _home
@@ -1244,11 +1338,21 @@ func _release_token() -> void:
 		_squad.release_token(self)
 
 
+func _refresh_active_state() -> void:
+	super._refresh_active_state()
+	if not is_active and _squad != null and is_instance_valid(_squad):
+		_squad.refresh_engaged_peak()
+
+
 func _transition_to(next_state: State, duration: float) -> void:
+	if next_state != State.CHASE:
+		_evade_timer = 0.0
 	current_state = next_state
 	_state_timer = duration
 	_state_duration = duration
 	_state_elapsed = 0.0
+	if not is_aggroed() and _squad != null and is_instance_valid(_squad):
+		_squad.refresh_engaged_peak()
 	state_changed.emit(current_state)
 
 
@@ -1274,6 +1378,7 @@ func _begin_telegraph_flash(windup_sec: float) -> void:
 		_telegraph_mat.cull_mode = BaseMaterial3D.CULL_BACK
 	_telegraph_mat.albedo_color = Color(telegraph_color.r, telegraph_color.g, telegraph_color.b, 0.0)
 
+	_telegraph_active = true
 	_telegraph_meshes.clear()
 	_collect_meshes(vis_root, _telegraph_meshes)
 	for mi in _telegraph_meshes:
@@ -1315,7 +1420,14 @@ func _release_telegraph_flash() -> void:
 	_telegraph_tween.chain().tween_callback(_clear_telegraph_flash)
 
 
+func _is_overlay_still_valid(mat: Material) -> bool:
+	if mat == _telegraph_mat:
+		return _telegraph_active
+	return mat != null
+
+
 func _clear_telegraph_flash() -> void:
+	_telegraph_active = false
 	if _telegraph_tween != null and _telegraph_tween.is_valid():
 		_telegraph_tween.kill()
 	_telegraph_tween = null

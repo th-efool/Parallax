@@ -40,7 +40,7 @@ func _init() -> void:
 
 
 func is_shield_raised() -> bool:
-	if is_dead or current_state == State.STAGGER:
+	if is_dead or current_state == State.STAGGER or current_state == State.STUNNED:
 		return false
 	if RealmManager.instance != null:
 		if RealmManager.instance.is_merged or RealmManager.instance.current_realm == RealmManager.Realm.MIRROR:
@@ -90,8 +90,12 @@ func _spawn_deflect_sparks(is_heavy: bool) -> void:
 
 
 func _should_stagger_on_hit(is_heavy: bool, source_type: String) -> bool:
+	if current_state == State.STUNNED:
+		return false
+	if source_type in KNOCKDOWN_SOURCES and not knockdown_immune:
+		return false
 	if source_type == "environmental":
 		return true
 	if is_shield_raised() and is_attacker_in_front(_last_attacker):
 		return false
-	return is_heavy
+	return super._should_stagger_on_hit(is_heavy, source_type)

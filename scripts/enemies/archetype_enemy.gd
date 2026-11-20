@@ -45,7 +45,7 @@ func apply_archetype() -> void:
 	attack_active_duration = a.attack_active_duration
 	recover_duration = a.recover_duration
 	stagger_duration = a.stagger_duration
-	attack_damage = int(float(a.attack_damage) * DAMAGE_SCALE)
+	attack_damage = int(float(a.attack_damage) * DAMAGE_SCALE) if _damage_scaled else a.attack_damage
 	attack_name = a.attack_name
 	attack_lunge_speed = a.attack_lunge_speed
 	evade_skill = a.evade_skill
@@ -168,11 +168,20 @@ func _process_chase(delta: float, target: Node3D) -> void:
 	var dir: Vector3 = to_p / dist if dist > 0.001 else get_facing_direction()
 	set_facing_direction(dir)
 	if _taunt_timer > 0.0:
-		velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
+		return
+	if _process_evade_step(delta, dir):
 		return
 	var pref: float = archetype.preferred_range
-	var has_token: bool = _squad == null or _squad.request_attack_token(self, target)
-	if has_token and dist <= attack_range and dist >= pref * 0.45:
+	var in_fire_band: bool = dist <= attack_range and dist >= pref * 0.45
+	var has_token: bool = false
+	if in_fire_band:
+		has_token = _squad == null or _squad.request_attack_token(self, target)
+	else:
+		_release_token()
+	if has_token:
 		start_windup()
 		return
 	var desired := Vector3.ZERO
@@ -188,31 +197,73 @@ func _process_chase(delta: float, target: Node3D) -> void:
 
 
 func start_windup(custom_windup: float = -1.0) -> void:
+	if is_dead or not is_active:
+		return
 	var t: Node3D = _resolve_target_player()
 	if get_kind() == "melee" and archetype != null and archetype.blink_cooldown > 0.0 and _blink_cd <= 0.0 and t != null:
 		_try_blink_behind(t)
 	super.start_windup(custom_windup)
-	if get_kind() == "slam":
-		_show_slam_ring(windup_duration if custom_windup < 0.0 else custom_windup)
+	if get_kind() == "slam" and current_state == State.WINDUP:
+		_show_slam_ring(_state_duration)
 
 
-## Shade step: reappear behind the target (floor-checked), so the stab lands as a backstab.
+func _process_windup(delta: float, target: Node3D) -> void:
+	super._process_windup(delta, target)
+	_update_slam_ring_transform()
+
+
+## Shade step: reappear behind the target (wall/gate/blocker & floor-checked), so the stab lands as a backstab.
 func _try_blink_behind(t: Node3D) -> void:
+	if not is_inside_tree() or get_world_3d() == null:
+		return
 	var f: Vector3 = Vector3.FORWARD
 	if t.has_method("get_facing_direction"):
 		f = t.call("get_facing_direction")
-	var spot: Vector3 = t.global_position - f.normalized() * 1.3
-	if not is_inside_tree():
-		return
+	var flat_f := Vector3(f.x, 0.0, f.z)
+	if flat_f.length_squared() < 0.0001:
+		flat_f = Vector3.FORWARD
+	var back_dir: Vector3 = -flat_f.normalized()
+	var spot: Vector3 = t.global_position + back_dir * 1.3
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(spot + Vector3.UP * 1.0, spot + Vector3.DOWN * 1.6, collision_mask & (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR), [get_rid()])
+	if space == null:
+		return
+	var floor_mask: int = collision_mask & (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR)
+	var wall_mask: int = floor_mask | RealmManager.LAYER_PLAYER_BLOCKER
+	var excl: Array[RID] = [get_rid()]
+	if t is CollisionObject3D:
+		excl.append((t as CollisionObject3D).get_rid())
+	var los_q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 0.9, t.global_position + Vector3.UP * 0.9, wall_mask, excl)
+	if not space.intersect_ray(los_q).is_empty():
+		return
+	var probe_from: Vector3 = t.global_position + Vector3.UP * 0.9
+	var probe_to: Vector3 = spot + Vector3.UP * 0.9
+	var wall_q := PhysicsRayQueryParameters3D.create(probe_from, probe_to, wall_mask, excl)
+	var wall_hit: Dictionary = space.intersect_ray(wall_q)
+	if not wall_hit.is_empty():
+		var hit_pos: Vector3 = wall_hit["position"] as Vector3
+		var clear_dist: float = Vector2(hit_pos.x - t.global_position.x, hit_pos.z - t.global_position.z).length() - 0.55
+		if clear_dist < 0.55:
+			return
+		spot = t.global_position + back_dir * clear_dist
+	var q := PhysicsRayQueryParameters3D.create(spot + Vector3.UP * 1.0, spot + Vector3.DOWN * 1.6, floor_mask, [get_rid()])
 	var hit: Dictionary = space.intersect_ray(q)
 	if hit.is_empty():
+		return
+	var dest: Vector3 = hit["position"] as Vector3
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.38
+	cap.height = 1.6
+	var sq := PhysicsShapeQueryParameters3D.new()
+	sq.shape = cap
+	sq.transform = Transform3D(Basis.IDENTITY, dest + Vector3.UP * 0.95)
+	sq.collision_mask = wall_mask
+	sq.exclude = excl
+	if not space.intersect_shape(sq, 1).is_empty():
 		return
 	var col: Color = archetype.bolt_color
 	GoreFXScript.flash_light(self, global_position + Vector3.UP, col, 3.0, 0.25, 4.0)
 	GoreFXScript.dust_puff(self, global_position, 0.5, 12, Color(col.r, col.g, col.b, 0.5), 1.5)
-	global_position = (hit["position"] as Vector3)
+	global_position = dest
 	GoreFXScript.dust_puff(self, global_position, 0.5, 12, Color(col.r, col.g, col.b, 0.5), 1.5)
 	GameFeelScript.play_sound(self, "mirror_whisper", global_position, -4.0, 1.4)
 	_blink_cd = archetype.blink_cooldown
@@ -304,15 +355,25 @@ func _show_slam_ring(dur: float) -> void:
 		_ring_mesh.material_override = _ring_mat
 		_ring_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_ring_mesh)
-	_ring_mesh.position = get_facing_direction() * 0.8 + Vector3.UP * 0.06
 	_ring_mesh.scale = Vector3(archetype.aoe_radius * 0.3, 0.25, archetype.aoe_radius * 0.3)
 	_ring_mesh.visible = true
+	_update_slam_ring_transform()
 	_ring_mat.albedo_color = Color(1.0, 0.25, 0.1, 0.25)
 	if _ring_tween != null and _ring_tween.is_valid():
 		_ring_tween.kill()
 	_ring_tween = create_tween().set_parallel(true)
 	_ring_tween.tween_property(_ring_mesh, "scale", Vector3(archetype.aoe_radius, 0.25, archetype.aoe_radius), maxf(0.05, dur * 0.8))
 	_ring_tween.tween_property(_ring_mat, "albedo_color:a", 0.95, maxf(0.05, dur))
+
+
+func _update_slam_ring_transform() -> void:
+	if _ring_mesh == null or not is_instance_valid(_ring_mesh) or not _ring_mesh.visible:
+		return
+	var target_world: Vector3 = global_position + get_facing_direction() * 0.8 + Vector3.UP * 0.06
+	if is_inside_tree():
+		_ring_mesh.global_position = target_world
+	else:
+		_ring_mesh.position = to_local(target_world)
 
 
 func _hide_slam_ring() -> void:
