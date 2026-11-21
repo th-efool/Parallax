@@ -124,6 +124,30 @@ func request_shift() -> bool:
 	return true
 
 
+## Stepping through the Warden arena's Central Mirror Plane (MirrorGate): an instant shift that ignores and does not
+## start the Q cooldown. Still refused while locked/merged/paused or when the destination realm is unsafe.
+func pass_through_mirror() -> bool:
+	if shift_locked or is_merged:
+		return false
+	var target: Realm = Realm.MIRROR if current_realm == Realm.REALITY else Realm.REALITY
+	var saved_cooldown: float = cooldown_timer
+	cooldown_timer = 0.0
+	var safety: Dictionary = _check_shift_safety(target)
+	if not bool(safety.get("safe", false)):
+		cooldown_timer = saved_cooldown
+		return false
+	current_realm = target
+	# The crossing neither starts nor clears a pending Q cooldown.
+	cooldown_timer = saved_cooldown
+	shift_cooldown_updated.emit(cooldown_timer, shift_cooldown_duration)
+	var p: CharacterBody3D = _resolve_player()
+	if p != null:
+		update_actor_collision_mask(p, current_realm)
+	_sync_all_realm_nodes()
+	realm_changed.emit(current_realm)
+	return true
+
+
 func force_realm(target: Realm, lock_shift: bool = false) -> void:
 	is_merged = false
 	shift_locked = lock_shift

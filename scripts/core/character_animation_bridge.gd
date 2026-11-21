@@ -508,19 +508,32 @@ func _apply_spectral_material_recursive(node: Node) -> void:
 		_apply_spectral_material_recursive(child)
 
 
+## Hostile rigs keep their KayKit texture; they only get a slightly weathered, cooler tint so they read as
+## enemies next to the (warm, saturated) squad. Never a flat material_override: that erased the texture and
+## made every Skeleton Guard a solid red silhouette.
+const HOSTILE_TINT := Color(0.84, 0.82, 0.80, 1.0)
+const HOSTILE_KNIGHT_TINT := Color(0.56, 0.56, 0.64, 1.0)
+
+
 func _apply_hostile_appearance(root: Node3D) -> void:
-	var actor_name: String = _actor.name
-	if actor_name.contains("WardenBoss") or actor_name.contains("ShieldedGuard") or actor_name.contains("SkeletonGuard"):
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.1, 0.1, 0.1)
-		mat.emission_enabled = true
-		mat.emission = Color(0.5, 0.0, 0.0)
-		mat.emission_energy_multiplier = 2.0
-		_apply_material_recursive(root, mat)
+	# Spectral rigs (Phantom Twins) are fully covered by the spectral material_override instead.
+	if _actor is EnemyBase and not apply_spectral_shader and not (_actor is PhantomTwin):
+		# Hostile Knights (Shielded Guard) share the player's / Ivo's rig: blackened steel keeps them apart.
+		var is_knight: bool = root.find_child("Knight_Body", true, false) != null
+		_tint_surfaces_recursive(root, HOSTILE_KNIGHT_TINT if is_knight else HOSTILE_TINT)
 
 
-func _apply_material_recursive(node: Node, mat: Material) -> void:
+func _tint_surfaces_recursive(node: Node, tint: Color) -> void:
 	if node is MeshInstance3D:
-		node.material_override = mat
+		var mi: MeshInstance3D = node as MeshInstance3D
+		if mi.mesh != null and mi.material_override == null:
+			for s in range(mi.mesh.get_surface_count()):
+				var src: Material = mi.get_surface_override_material(s)
+				if src == null:
+					src = mi.mesh.surface_get_material(s)
+				if src is StandardMaterial3D:
+					var m: StandardMaterial3D = (src as StandardMaterial3D).duplicate() as StandardMaterial3D
+					m.albedo_color = m.albedo_color * tint
+					mi.set_surface_override_material(s, m)
 	for child in node.get_children():
-		_apply_material_recursive(child, mat)
+		_tint_surfaces_recursive(child, tint)

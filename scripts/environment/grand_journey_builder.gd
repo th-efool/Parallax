@@ -531,6 +531,36 @@ func _enlarge_enemy(e: EnemyBase, k: float) -> void:
 		(e as EnemyAI).attack_range *= lerpf(1.0, k, 0.7)
 
 
+var _thrall_serial: int = 0
+
+
+## WardenBoss.summon_factory: a bone thrall (KayKit Skeleton_Minion) at a world position in the Execution Arena.
+## "skeleton" = Reality-only SkeletonGuard, "phantom" = Mirror-only PhantomTwin. Weaker than section enemies
+## (WardenBoss.summon_thrall_health), no encounter id (never holds a gate), freed by the Warden on reset/death.
+func _spawn_warden_thrall(kind: String, global_pos: Vector3, face_toward: Vector3) -> EnemyBase:
+	var holder: Node3D = get_node_or_null("Stage05_ExecutionArena/Enemies") as Node3D
+	if holder == null or not holder.is_inside_tree():
+		return null
+	var warden: WardenBoss = holder.get_node_or_null("TheWarden") as WardenBoss
+	_thrall_serial += 1
+	var e: EnemyBase = PhantomTwin.new() if kind == "phantom" else SkeletonGuard.new()
+	e.set_meta("model_path_override", "res://assets/models/characters/Skeleton_Minion.glb")
+	e.set_meta("model_scale_override", 0.95)
+	var col := Color(0.25, 0.78, 1.0, 0.85) if kind == "phantom" else Color(0.82, 0.76, 0.65)
+	_configure_enemy_actor(e, "WardenThrall_%d" % _thrall_serial, "warden_thrall_%d" % _thrall_serial, holder.to_local(global_pos), col)
+	e.section_id = EncounterDirector.Section.EXECUTION_ARENA
+	e.encounter_id = ""
+	e.max_health = warden.summon_thrall_health if warden != null else 52
+	e.health = e.max_health
+	if e is EnemyAI:
+		(e as EnemyAI).max_chase_distance = 40.0
+	var d: Vector3 = face_toward - global_pos
+	if Vector2(d.x, d.z).length() > 0.01:
+		e.rotation.y = atan2(-d.x, -d.z)
+	holder.add_child(e)
+	return e
+
+
 func _roamer_group(root: Node3D) -> Node3D:
 	var g: Node3D = root.get_node_or_null("Roamers") as Node3D
 	if g == null:
@@ -1915,6 +1945,14 @@ func _build_stage_05_arena() -> Node3D:
 	mirror_plane.add_child(intact_vis)
 	mirror_plane.shatter_extent = Vector3(0.12, 5.5, 22.0)
 	mirror_plane.shatter_center_offset = Vector3(0.0, 2.75, 0.0)
+	# Phase 1 purpose: walking through the glass swaps realm instantly (no Q cooldown); thralls step out of it.
+	var gate := MirrorGate.new()
+	gate.name = "MirrorGate"
+	var gate_cs := CollisionShape3D.new()
+	gate_cs.shape = _box_shape(Vector3(0.5, 5.0, 21.6))
+	gate_cs.position = Vector3(0.0, 2.5, 0.0)
+	gate.add_child(gate_cs)
+	mirror_plane.add_child(gate)
 	root.add_child(mirror_plane)
 
 	var exit_gate := _make_gate("Gate05_ArenaExit", Vector3(0.0, y, c.z + 13.5), 4, "the_warden", false)
@@ -1946,7 +1984,10 @@ func _build_stage_05_arena() -> Node3D:
 		enemies.name = "Enemies"
 		var warden := WardenBoss.new()
 		_configure_enemy_actor(warden, "TheWarden", "boss_the_warden", Vector3(0.0, y, c.z - 1.0), Color(0.32, 0.14, 0.14), Vector3(1.15, 2.3, 1.15))
+		# Bone colossus: ~3.6 m tall (model x1.42, whole actor x1.3 incl. capsule, hurtbox, reach, HP-bar height).
+		_enlarge_enemy(warden, 1.3)
 		warden.mirror_plane_prop_path = NodePath("../../CentralMirrorPlane")
+		warden.summon_factory = _spawn_warden_thrall
 		warden.health_changed.connect(_on_warden_health_changed)
 		enemies.add_child(warden)
 		root.add_child(enemies)

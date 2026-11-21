@@ -21,11 +21,14 @@ signal boss_phase_changed(new_phase: int)
 signal chest_rune_exposed_changed(is_exposed: bool, window_duration: float)
 signal mirror_plane_shattered()
 signal boss_defeated()
+signal thralls_summoned(count: int)
+
+const WardenLookScript := preload("res://scripts/enemies/warden_look.gd")
 
 @export_group("Warden Tuning")
 @export var cleave_damage: int = 28
 @export var lunge_damage: int = 35
-@export var cleave_range: float = 2.8
+@export var cleave_range: float = 3.3
 @export var lunge_range: float = 5.0
 @export var lunge_speed: float = 11.0
 @export var phase1_windup_duration: float = 0.90
@@ -45,6 +48,21 @@ signal boss_defeated()
 @export var mirror_plane_prop_path: NodePath
 @export var auto_finalize_run_on_death: bool = true
 
+@export_group("Summons")
+## Every `summon_interval` seconds of the fight the Warden stops, casts (chest rune exposed in Phase 1) and raises
+## `summon_min..summon_max` bone thralls. Phase 1: they step out of the Central Mirror Plane — skeletons (fight in
+## either realm) on its west face, phantoms (fight only in the Mirror) on its east face. Phase 2 (plane shattered):
+## they rise from the sand anywhere.
+@export var summon_enabled: bool = true
+@export var summon_interval: float = 20.0
+@export var summon_min: int = 3
+@export var summon_max: int = 7
+## Hard cap on living thralls so an ignored wave can't snowball into an unwinnable arena.
+@export var summon_max_alive: int = 10
+@export var summon_cast_duration: float = 1.4
+## Base HP before EnemyBase.HEALTH_SCALE (52 -> 130): thralls die to a short combo.
+@export var summon_thrall_health: int = 52
+
 @export_group("Chest Rune Glow")
 @export var rune_glow_color: Color = Color(0.22, 0.55, 1.0, 1.0)
 @export var rune_glow_offset: Vector3 = Vector3(0.0, 1.55, -0.42)
@@ -61,12 +79,25 @@ var is_chest_rune_exposed: bool = false
 var _transition_timer: float = 0.0
 var _move_counter: int = 0
 
+## Set by the level builder: func(kind: String, global_pos: Vector3, face_toward: Vector3) -> EnemyBase.
+var summon_factory: Callable = Callable()
+var _summon_timer: float = 0.0
+var _summon_cast_timer: float = 0.0
+var _summons: Array[EnemyBase] = []
+var _pending_summons: Array = []   # [kind, global_pos]
+var _sigils: Array[Node3D] = []
+
 
 func _ready() -> void:
 	_health_scaled = true
 	_damage_scaled = true
 	super._ready()
 	select_next_move(BossMove.CLEAVE)
+	_summon_timer = summon_interval
+	var model: Node3D = get_node_or_null(NodePath(String(visual_root_path) + "/ModelRoot")) as Node3D
+	if model != null and not model.has_meta("warden_dressed"):
+		model.set_meta("warden_dressed", true)
+		WardenLookScript.dress(model)
 
 func _init() -> void:
 	realm_affinity = RealmReactive.Affinity.BOTH_STATEFUL
@@ -119,7 +150,220 @@ func step_ai(delta: float) -> void:
 			complete_phase2_transition_now()
 		return
 
+	if _summon_cast_timer > 0.0:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_apply_gravity_and_slide(delta)
+		_summon_cast_timer = maxf(0.0, _summon_cast_timer - delta)
+		if _summon_cast_timer <= 0.0:
+			_finish_summon()
+		return
+
+	_tick_summons(delta)
 	super.step_ai(delta)
+
+
+# --- Summons ---------------------------------------------------------------------------------------------
+
+func _fight_engaged() -> bool:
+	var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+	return ed != null and ed.current_encounter_id == encounter_id and get_current_target() != null
+
+
+func get_alive_summon_count() -> int:
+	var n: int = 0
+	for s in _summons:
+		if is_instance_valid(s) and not s.is_dead:
+			n += 1
+	return n
+
+
+func _tick_summons(delta: float) -> void:
+	if not summon_enabled or summon_factory.is_null() or not _fight_engaged():
+		return
+	_summon_timer -= delta
+	if _summon_timer > 0.0:
+		return
+	# Wait for a neutral moment: never cut into a wind-up, strike or recovery.
+	if current_state != State.CHASE and current_state != State.IDLE:
+		return
+	begin_summon()
+
+
+## Starts the summon cast now (also used by tests). Returns the number of thralls that will appear.
+func begin_summon() -> int:
+	_summon_timer = summon_interval
+	var live: Array[EnemyBase] = []
+	for s in _summons:
+		if is_instance_valid(s):
+			live.append(s)
+	_summons = live
+	var room: int = summon_max_alive - get_alive_summon_count()
+	var n: int = mini(randi_range(summon_min, summon_max), room)
+	if n <= 0:
+		return 0
+	_pending_summons = _pick_summon_points(n)
+	_summon_cast_timer = summon_cast_duration
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_clear_telegraph_flash()
+	var target: Node3D = get_current_target()
+	if target != null:
+		set_facing_direction(target.global_position - global_position)
+	var bridge: CharacterAnimationBridge = get_node_or_null("CharacterAnimationBridge") as CharacterAnimationBridge
+	if bridge != null:
+		bridge.play_candidates(["Spellcast_Summon", "Spellcast_Raise", "Taunt"], summon_cast_duration, true, false)
+	if AudioManager.instance != null:
+		AudioManager.instance.play_sfx("enemy/warden_roar", -2.0)
+	for entry in _pending_summons:
+		_sigils.append(_spawn_sigil(entry[1] as Vector3, String(entry[0]) == "phantom"))
+	# Phase 1: the cast is an opening — the chest rune is exposed exactly like a recovery window.
+	if current_phase == Phase.PHASE_1_SPLIT:
+		is_chest_rune_exposed = true
+		_update_rune_glow()
+		chest_rune_exposed_changed.emit(true, summon_cast_duration)
+	return n
+
+
+func _finish_summon() -> void:
+	_summon_cast_timer = 0.0
+	_clear_chest_rune_exposure()
+	var count: int = 0
+	if not is_dead and summon_factory.is_valid():
+		var face: Vector3 = global_position
+		for entry in _pending_summons:
+			var e: EnemyBase = summon_factory.call(String(entry[0]), entry[1] as Vector3, face) as EnemyBase
+			if e != null:
+				_register_summon(e)
+				count += 1
+	_pending_summons.clear()
+	_clear_sigils()
+	if count > 0:
+		thralls_summoned.emit(count)
+
+
+func _pick_summon_points(n: int) -> Array:
+	var plane: BreakableProp = get_node_or_null(mirror_plane_prop_path) as BreakableProp if not mirror_plane_prop_path.is_empty() else null
+	var centre: Vector3 = plane.global_position if plane != null else get_home_position()
+	var ax: Vector3 = plane.global_transform.basis.x.normalized() if plane != null else Vector3.RIGHT
+	var az: Vector3 = plane.global_transform.basis.z.normalized() if plane != null else Vector3.BACK
+	var from_plane: bool = current_phase == Phase.PHASE_1_SPLIT and plane != null and plane.current_state == BreakableProp.PropState.INTACT
+	var target: Node3D = get_current_target()
+	var out: Array = []
+	for i in range(n):
+		var best: Array = []
+		for attempt in range(10):
+			var kind: String
+			var p: Vector3
+			if from_plane:
+				var side: float = -1.0 if i % 2 == 0 else 1.0
+				p = centre + ax * side * randf_range(1.3, 2.3) + az * randf_range(-8.5, 8.5)
+				kind = "skeleton" if side < 0.0 else "phantom"
+			else:
+				var a: float = randf() * TAU
+				var r: float = randf_range(5.5, 11.0)
+				p = centre + ax * cos(a) * r + az * sin(a) * r
+				kind = "skeleton" if randf() < 0.6 else "phantom"
+			best = [kind, p]
+			var ok: bool = Vector2(p.x - global_position.x, p.z - global_position.z).length() > 2.5
+			if ok and target != null:
+				ok = Vector2(p.x - target.global_position.x, p.z - target.global_position.z).length() > 3.0
+			for prev in out:
+				var q: Vector3 = prev[1] as Vector3
+				if Vector2(p.x - q.x, p.z - q.z).length() < 1.6:
+					ok = false
+			if ok:
+				break
+		out.append(best)
+	return out
+
+
+func _register_summon(e: EnemyBase) -> void:
+	_summons.append(e)
+	e.set_meta("warden_thrall", true)
+	e.died.connect(func(_enemy, _ctx) -> void:
+		if is_instance_valid(e) and e.is_inside_tree():
+			get_tree().create_timer(2.5).timeout.connect(func() -> void:
+				if is_instance_valid(e):
+					e.queue_free()))
+	e.tree_exiting.connect(func() -> void:
+		var ed: EncounterDirector = EncounterDirector.instance as EncounterDirector
+		if ed != null:
+			ed.unregister_section_enemy(e.section_id as EncounterDirector.Section, e))
+	if e is EnemyAI:
+		(e as EnemyAI).receive_alert(get_current_target(), self, true)
+	# Rise: scale the visual up from the floor with a dust puff.
+	var vr: Node3D = e.get_node_or_null(e.visual_root_path) as Node3D
+	if vr != null:
+		var final_scale: Vector3 = vr.scale
+		vr.scale = final_scale * 0.15
+		var tw: Tween = vr.create_tween()
+		tw.tween_property(vr, "scale", final_scale, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var bridge: CharacterAnimationBridge = e.get_node_or_null("CharacterAnimationBridge") as CharacterAnimationBridge
+	if bridge != null:
+		bridge.play_candidates(["Spawn_Ground_Skeletons", "Skeletons_Awaken_Standing", "Spawn_Ground"], 0.9, true, false)
+	GameFeel.play_sound(self, "thud", e.global_position, -4.0, 0.8)
+
+
+func _spawn_sigil(at: Vector3, mirror: bool) -> Node3D:
+	var host: Node = get_parent() if get_parent() != null else self
+	var root := Node3D.new()
+	root.name = "ThrallSigil"
+	host.add_child(root)
+	root.global_position = at + Vector3(0, 0.04, 0)
+	var col: Color = Color(0.25, 0.72, 1.0) if mirror else Color(1.0, 0.62, 0.25)
+	var ring := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = 0.55
+	tor.outer_radius = 0.75
+	tor.rings = 32
+	tor.ring_segments = 6
+	ring.mesh = tor
+	ring.scale = Vector3(1.0, 0.08, 1.0)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(col.r, col.g, col.b, 0.9)
+	ring.material_override = m
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(ring)
+	var light := OmniLight3D.new()
+	light.light_color = col
+	light.light_energy = 0.0
+	light.omni_range = 2.4
+	light.position = Vector3(0, 0.4, 0)
+	root.add_child(light)
+	root.scale = Vector3.ONE * 0.2
+	var tw: Tween = root.create_tween().set_parallel(true)
+	tw.tween_property(root, "scale", Vector3.ONE, summon_cast_duration * 0.8).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(light, "light_energy", 2.2, summon_cast_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(ring, "rotation:y", TAU, summon_cast_duration)
+	return root
+
+
+func _clear_sigils() -> void:
+	for s in _sigils:
+		if is_instance_valid(s):
+			s.queue_free()
+	_sigils.clear()
+
+
+## Removes every thrall (player death / section reset). `crumble` plays their death (no score) instead.
+func _dismiss_summons(crumble: bool) -> void:
+	_summon_cast_timer = 0.0
+	_pending_summons.clear()
+	_clear_sigils()
+	for s in _summons:
+		if not is_instance_valid(s):
+			continue
+		if crumble and not s.is_dead and s.is_inside_tree():
+			s.award_standard_kill_score = false
+			s._die("warden_bond")
+		else:
+			s.queue_free()
+	if not crumble:
+		_summons.clear()
 
 
 func select_next_move(move: BossMove) -> void:
@@ -189,6 +433,11 @@ func _clear_chest_rune_exposure() -> void:
 
 
 func _transition_to(next_state: State, duration: float) -> void:
+	# A stagger (heavy hit on the exposed rune) cuts the summon cast short: the thralls arrive early.
+	# Deferred: staggers arrive from a sword hitbox's area_entered (physics flush); adding thrall bodies there is illegal.
+	if _summon_cast_timer > 0.0 and next_state == State.STAGGER:
+		_summon_cast_timer = 0.0
+		_finish_summon.call_deferred()
 	if next_state != State.RECOVER:
 		_clear_chest_rune_exposure()
 	super._transition_to(next_state, duration)
@@ -347,6 +596,8 @@ func _trigger_phase2_transition() -> void:
 func _on_enemy_reset() -> void:
 	var was_phase1: bool = (current_phase == Phase.PHASE_1_SPLIT)
 	var was_exposed: bool = is_chest_rune_exposed
+	_dismiss_summons(false)
+	_summon_timer = summon_interval
 	current_phase = Phase.PHASE_1_SPLIT
 	_transition_timer = 0.0
 	_move_counter = 0
@@ -376,6 +627,8 @@ func _die(source_type: String) -> void:
 	print("[Warden] defeated by '%s' (phase %d, last attacker %s)" % [source_type, int(current_phase), str(_last_attacker)])
 	_clear_chest_rune_exposure()
 	_update_rune_glow()
+	# His thralls crumble with him (no score for them).
+	_dismiss_summons(true)
 	super._die(source_type)
 	if auto_finalize_run_on_death:
 		var run_state: Node = _get_run_state()

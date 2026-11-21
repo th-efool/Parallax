@@ -790,10 +790,15 @@ func _configure_enemy_actor(
 		model_path = "res://assets/models/characters/Knight.glb"
 		model_scale = Vector3(1.06, 1.06, 1.06)
 	elif enemy is WardenBoss:
-		model_path = "res://assets/models/characters/Barbarian.glb"
+		# Bone colossus: KayKit Skeleton_Minion rig, dressed by WardenLook (horns, axe, embers, glowing eyes).
+		model_path = "res://assets/models/characters/Skeleton_Minion.glb"
 		model_scale = Vector3(1.42, 1.42, 1.42)
 	elif node_name.ends_with("_2") and not (enemy is PhantomTwin):
 		model_path = "res://assets/models/characters/Skeleton_Rogue.glb"
+	# Per-instance override (e.g. the Warden's summoned thralls use Skeleton_Minion).
+	if enemy.has_meta("model_path_override"):
+		model_path = String(enemy.get_meta("model_path_override"))
+		model_scale = Vector3.ONE * float(enemy.get_meta("model_scale_override", 1.0))
 
 	var model_added: bool = false
 	if ResourceLoader.exists(model_path):
@@ -825,7 +830,8 @@ func _configure_enemy_actor(
 	anim_bridge.model_root_path = NodePath("../VisualRoot/ModelRoot")
 	anim_bridge.apply_spectral_shader = (enemy is PhantomTwin)
 	# Archetype rigs get their loadout from data (ArchetypeEnemy._dress_model), not the default trim.
-	anim_bridge.apply_default_loadout = archetype == null
+	# The Warden is dressed by WardenLook instead (no default axe + shield, no generic hostile tint).
+	anim_bridge.apply_default_loadout = archetype == null and not (enemy is WardenBoss)
 	enemy.add_child(anim_bridge)
 
 	_attach_enemy_hp_bar(enemy, body_size.y + 0.55)

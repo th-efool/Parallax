@@ -86,6 +86,12 @@ func register_section_enemy(section_id: Section, enemy: Node) -> void:
 	_update_section_enemy_activation()
 
 
+## Runtime-spawned enemies (Warden thralls) drop out of the activation list when they are freed.
+func unregister_section_enemy(section_id: Section, enemy: Node) -> void:
+	if _section_enemies.has(section_id):
+		(_section_enemies[section_id] as Array).erase(enemy)
+
+
 func advance_to_section(next_section: Section, new_checkpoint_xform: Transform3D = Transform3D.IDENTITY, save_checkpoint: bool = true) -> void:
 	if current_section != next_section:
 		completed_sections[current_section] = true

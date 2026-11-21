@@ -116,10 +116,22 @@ func _attach_hand_orb(model: Node3D) -> void:
 	var skel: Skeleton3D = model.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D if not model.find_children("*", "Skeleton3D", true, false).is_empty() else null
 	if skel == null or skel.find_bone("handslot.r") < 0:
 		return
-	var att := BoneAttachment3D.new()
-	att.name = "HexOrb"
-	att.bone_name = "handslot.r"
-	skel.add_child(att)
+	var att: Node3D = null
+	# Casters carrying a staff (Hexcaster = KayKit Skeleton_Mage + Skeleton_Staff) wear the orb on the staff head.
+	var staff: MeshInstance3D = model.find_child("Skeleton_Staff", true, false) as MeshInstance3D
+	if staff != null and staff.mesh != null:
+		var bb: AABB = staff.mesh.get_aabb()
+		var tip := Node3D.new()
+		tip.name = "HexOrb"
+		tip.position = Vector3(bb.get_center().x, bb.end.y + 0.06, bb.get_center().z)
+		staff.add_child(tip)
+		att = tip
+	else:
+		var bone_att := BoneAttachment3D.new()
+		bone_att.name = "HexOrb"
+		bone_att.bone_name = "handslot.r"
+		skel.add_child(bone_att)
+		att = bone_att
 	var orb := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.11

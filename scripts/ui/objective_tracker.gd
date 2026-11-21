@@ -142,7 +142,7 @@ func _compute(player: Node3D) -> Dictionary:
 		if pz < 139.0:
 			return {"title": "Cross the Processional to the Colosseum", "hint": "Over the bridges and past both bastions. The Warden waits at the top.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 10, 140.5)))}
 		if warden.current_phase == WardenBoss.Phase.PHASE_1_SPLIT:
-			return {"title": "Defeat The Warden", "hint": "Dodge his strike, then press Q during his recovery and hit the glowing chest rune.", "target": warden.global_position}
+			return {"title": "Defeat The Warden", "hint": "Hit his glowing chest rune in the Mirror after a strike or while he summons. Step through the mirror wall to shift instantly.", "target": warden.global_position}
 		return {"title": "Finish The Warden", "hint": "The realms have merged — no more shifting. Hit him with everything.", "target": warden.global_position}
 	return {"title": "Walk into the light", "hint": "Leave through the north gate to the summit.", "target": JourneyLayout.to_world(Vector3(0, 10, 194))}
 
