@@ -63,6 +63,14 @@ func _alive_in(path: String) -> Array[EnemyBase]:
 	return out
 
 
+## " — Wave 2/3" while a room's WaveDirector is running, "" otherwise.
+func _wave_tag(path: String) -> String:
+	var wd: WaveDirector = _n(path) as WaveDirector
+	if wd == null or wd.get_display_wave() == 0:
+		return ""
+	return " — Wave %d/%d" % [wd.get_display_wave(), wd.get_total()]
+
+
 func _refresh() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -108,8 +116,14 @@ func _compute(player: Node3D) -> Dictionary:
 	if gate2 != null and not bool(gate2.get("is_open")):
 		if pz < 24.0:
 			return {"title": "Cross the Sunlit Bridges to the Hall of Echoes", "hint": "Through the gate and over the bridges, past both bastions, to the hall.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 4, 26)))}
+		var hall_fighting: Array[EnemyBase] = []
+		for he in hall_left:
+			if not he.is_wave_held:
+				hall_fighting.append(he)
+		if not hall_fighting.is_empty():
+			hall_left = hall_fighting
 		if not hall_left.is_empty():
-			return {"title": "Clear the Hall of Echoes — %d left" % hall_left.size(),
+			return {"title": "Clear the Hall of Echoes%s — %d left" % [_wave_tag("Stage02_HallOfEchoes/HallWaves"), hall_left.size()],
 				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) any column: it falls away from you and crushes everything in its path.",
 				"target": _nearest(hall_left, player).global_position}
 	if pz < 64.0 and py < 5.5:
@@ -129,7 +143,7 @@ func _compute(player: Node3D) -> Dictionary:
 	if puz != null and not bool(puz.get("is_solved")) and pz <= 101.5:
 		if pz < 87.0:
 			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": JourneyLayout.to_world(Vector3(0, 6, 90))}
-		return {"title": "Drop the Mirror weight onto the plate",
+		return {"title": "Drop the Mirror weight onto the plate" + _wave_tag("Stage04_MechanismChamber/ChamberWaves"),
 			"hint": "In the Mirror, jump off the raised dais and press F in mid-air above the hanging weight to slam it down.",
 			"target": puz.global_position}
 	var gate5: Node = _n("Stage05_ExecutionArena/Gate05_ArenaExit")

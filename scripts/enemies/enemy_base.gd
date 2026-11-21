@@ -54,6 +54,8 @@ var is_active: bool = true
 var is_section_enabled: bool = true
 var is_realm_enabled: bool = true
 var is_dead: bool = false
+## Held back by a WaveDirector until its wave starts: hidden, inert, untargetable.
+var is_wave_held: bool = false
 var facing_direction: Vector3 = Vector3.FORWARD
 var _last_attacker: Node = null
 var _spawn_transform: Transform3D = Transform3D.IDENTITY
@@ -481,7 +483,7 @@ func _die(source_type: String) -> void:
 
 
 func _refresh_active_state() -> void:
-	var should_be_active: bool = is_section_enabled and is_realm_enabled and not is_dead
+	var should_be_active: bool = is_section_enabled and is_realm_enabled and not is_dead and not is_wave_held
 	is_active = should_be_active
 
 	visible = should_be_active
@@ -519,6 +521,11 @@ func _on_manager_realm_changed(new_realm: int) -> void:
 
 func _on_manager_realms_merged() -> void:
 	evaluate_for_realm(0, true)
+
+
+func set_wave_held(held: bool) -> void:
+	is_wave_held = held
+	_refresh_active_state()
 
 
 func _on_section_reset_requested(reset_sec_id: int) -> void:

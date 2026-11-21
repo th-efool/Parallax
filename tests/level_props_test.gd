@@ -63,6 +63,19 @@ func _run() -> void:
 	col.complete_break_now()
 	_check("knock_falls_away_from_striker", col.fall_zone_offset.x > 4.0, str(col.fall_zone_offset))
 	_check("knock_crushes_in_fall_line", victim.health < hp0 or victim.is_dead, "%d -> %d" % [hp0, victim.health])
+	# Waves: hall 3 waves; later waves held until the current one is down.
+	var hw: WaveDirector = s2.get_node_or_null("HallWaves") as WaveDirector
+	_check("hall_waves_3", hw != null and hw.get_total() == 3)
+	var w2: EnemyBase = s2.get_node("Enemies/SkeletonGuard_4") as EnemyBase
+	_check("wave2_held_at_start", w2.is_wave_held and not w2.visible)
+	for p in hw.waves[0]:
+		var e1: EnemyBase = hw.get_node(p) as EnemyBase
+		e1.is_active = true
+		e1.apply_damage(999999, true, "environmental")
+	await create_timer(3.0).timeout
+	_check("wave2_released_after_wave1", not w2.is_wave_held and hw.get_display_wave() == 2, "wave=%d" % hw.get_display_wave())
+	var cw: WaveDirector = lv.get_node_or_null("Stage04_MechanismChamber/ChamberWaves") as WaveDirector
+	_check("chamber_waves_3", cw != null and cw.get_total() == 3)
 	_check("gallery_extra_enemies", s3.get_node_or_null("Roamers/GallerySkeleton_A") != null and s3.get_node_or_null("Roamers/GallerySkeleton_B") != null)
 	var fails: int = _results.filter(func(r: String) -> bool: return r.begins_with("FAIL")).size()
 	print("[props] SUMMARY %d checks, %d failed" % [_results.size(), fails])

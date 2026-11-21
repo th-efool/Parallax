@@ -928,6 +928,24 @@ func _style_switch(sw: Node3D) -> void:
 	tw.tween_property(rune, "rotation:y", TAU, 6.0).as_relative()
 
 
+func _add_waves(root: Node3D, n: String, section: int, waves_spec: Array) -> void:
+	## WaveDirector over enemies already under `root` (paths relative to root). Missing enemies are skipped.
+	if not spawn_enemies:
+		return
+	var wd := WaveDirector.new()
+	wd.name = n
+	wd.section_id = section
+	var waves: Array = []
+	for w in waves_spec:
+		var paths: Array = []
+		for p in w:
+			if root.get_node_or_null(String(p)) != null:
+				paths.append(NodePath("../" + String(p)))
+		waves.append(paths)
+	wd.waves = waves
+	root.add_child(wd)
+
+
 func _make_knockable(prop: BreakableProp, column_h: float) -> void:
 	## Topples away from the striker and crushes everything along its length (enemies take a killing blow at the
 	## 2.5x enemy health; the player only if they stand in the fall line).
@@ -1191,6 +1209,12 @@ func _build_stage_02_hall() -> Node3D:
 	_add_roamer(hrg, "brute", "HallBrute", c + Vector3(0, 0, 24), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 	_add_roamer(hrg, "hexcaster", "HallHexcaster_W", c + Vector3(-24, 0, 0), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 	_add_roamer(hrg, "hexcaster", "HallHexcaster_E", c + Vector3(24, 0, 4), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	# Three waves of four: the hall fills up in stages instead of all at once.
+	_add_waves(root, "HallWaves", EncounterDirector.Section.HALL_COMBAT, [
+		["Enemies/SkeletonGuard_1", "Enemies/SkeletonGuard_2", "Enemies/SkeletonGuard_3", "Roamers/HallHexcaster_W"],
+		["Enemies/SkeletonGuard_4", "Enemies/SkeletonGuard_5", "Enemies/PhantomTwin_1", "Roamers/HallHexcaster_E"],
+		["Enemies/SkeletonGuard_6", "Enemies/PhantomTwin_2", "Enemies/PhantomTwin_3", "Roamers/HallBrute"],
+	])
 
 	for p in [Vector3(-(h - 1.8), y, zs + 1.8), Vector3(h - 1.8, y, zs + 1.8), Vector3(-(h - 1.8), y, zn - 1.8), Vector3(h - 1.8, y, zn - 1.8),
 			Vector3(-(h - 1.8), y, c.z), Vector3(h - 1.8, y, c.z)]:
@@ -1754,6 +1778,11 @@ func _build_stage_04_mechanism() -> Node3D:
 	_add_roamer(rg, "brute", "TowerBrute", Vector3(0.0, y, cz + 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "hexcaster", "TowerHexcaster", Vector3(-14.0, y, cz + 2.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "stalker", "TowerStalker", Vector3(14.0, y, cz + 3.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_waves(root, "ChamberWaves", EncounterDirector.Section.MECHANISM_CHAMBER, [
+		["Roamers/TowerSkeleton_A", "Roamers/TowerSkeleton_B", "Roamers/TowerPhantom"],
+		["Roamers/TowerSkeleton_C", "Roamers/TowerSkeleton_D", "Roamers/TowerHexcaster"],
+		["Roamers/TowerBrute", "Roamers/TowerStalker"],
+	])
 	return root
 
 
