@@ -39,7 +39,7 @@ const BRIDGE_WIDTH: float = 6.0
 ##   [position, 0.0, edge_z, edge_half_width]    - first / last node: a floor edge at z = edge_z whose opening
 ##                                                 (|x| <= edge_half_width) is closed by join rails out to the bridge
 const ROUTES: Array = [
-	["R1_PilgrimCauseway", [[Vector3(0, 0, -131), 0.0, -131.0, 6.0], [Vector3(34, 0, -97), 8.0], [Vector3(-34, 0, -49), 8.0], [Vector3(0, 0, -15), 0.0, -15.0, 7.0]]],
+	["R1_PilgrimCauseway", [[Vector3(0, 0, -131), 0.0, -131.0, 6.0], [Vector3(34, 0, -97), 8.0], [Vector3(-34, 0, -49), 8.0], [Vector3(0, 0, -27), 6.0], [Vector3(0, 0, -15), 0.0, -15.0, 7.0]]],
 	["R2_SunlitBridges", [[Vector3(0, 0, 8), 0.0, 8.0, 2.2], [Vector3(16, 1.1, 24), 8.0], [Vector3(-16, 2.9, 40), 8.0], [Vector3(0, 4, 56), 0.0, 55.5, 2.0]]],
 	["R3_WindsweptRampart", [[Vector3(0, 4, 116), 0.0, 116.5, 2.0], [Vector3(16, 4.55, 132), 8.0], [Vector3(-16, 5.45, 148), 8.0], [Vector3(0, 6, 164), 0.0, 164.0, 3.95]]],
 	["R5_Processional", [[Vector3(0, 6, 228), 0.0, 229.2, 2.0], [Vector3(16, 7.1, 244), 8.0], [Vector3(-16, 8.9, 260), 8.0], [Vector3(0, 10, 276), 0.0, 276.0, 9.0]]],

@@ -11,11 +11,21 @@ const WALL_MASK: int = 4 | 128       # World_Shared | Player_Blocker
 
 
 func _initialize() -> void:
+	create_timer(120.0, true, false, true).timeout.connect(func() -> void: print("[layout] WATCHDOG TIMEOUT"); quit(2))
 	SquadAIConfig.force_offline()
 	_main = (load("res://scenes/main/main.tscn") as PackedScene).instantiate()
 	root.add_child(_main)
 	current_scene = _main
 	_run()
+
+
+func _line_at_z_x(a: Vector3, b: Vector3, lateral: float, z: float) -> float:
+	var d := Vector3(b.x - a.x, 0.0, b.z - a.z)
+	var u: Vector3 = d.normalized()
+	var n := Vector3(u.z, 0.0, -u.x)
+	var base: Vector3 = a + n * lateral
+	var t: float = (z - base.z) / maxf(0.0001, d.z)
+	return base.x + d.x * t
 
 
 func _check(n: String, ok: bool, d: String = "") -> void:
@@ -145,6 +155,72 @@ func _run() -> void:
 				if hit3.is_empty():
 					gaps += 1
 			_check("bastion_ring_%s_%d" % [rname, i], gaps == 0, "%d open directions" % gaps)
+		# Junction floor & rail closure at both floor-edge endpoints.
+		var j_floor_holes: int = 0
+		var j_rail_gaps: int = 0
+		for ep in [[nodes[0], nodes[1], true], [nodes[nodes.size() - 1], nodes[nodes.size() - 2], false]]:
+			var nd_e: Array = ep[0]
+			var nd_o: Array = ep[1]
+			var is_start: bool = bool(ep[2])
+			if float(nd_e[1]) > 0.0:
+				continue
+			var a_leg: Vector3 = nd_e[0] if is_start else nd_o[0]
+			var b_leg: Vector3 = nd_o[0] if is_start else nd_e[0]
+			var ra_leg: float = float(nd_e[1]) if is_start else float(nd_o[1])
+			var rb_leg: float = float(nd_o[1]) if is_start else float(nd_e[1])
+			var u_leg: Vector3 = Vector3(b_leg.x - a_leg.x, 0.0, b_leg.z - a_leg.z).normalized()
+			var p_a: Vector3 = a_leg + u_leg * (ra_leg - 0.4) if ra_leg > 0.0 else a_leg
+			var p_b: Vector3 = b_leg - u_leg * (rb_leg - 0.4) if rb_leg > 0.0 else b_leg
+			p_a.y = a_leg.y
+			p_b.y = b_leg.y
+			var ab2 := Vector2(p_b.x - p_a.x, p_b.z - p_a.z)
+			var ez: float = float(nd_e[2])
+			var j_hw: float = float(nd_e[3])
+			var ey: float = (nd_e[0] as Vector3).y
+			var xl: float = _line_at_z_x(a_leg, b_leg, -off, ez)
+			var xr: float = _line_at_z_x(a_leg, b_leg, off, ez)
+			var lo: float = minf(xl, xr)
+			var hi: float = maxf(xl, xr)
+			for z_probe in [ez - 0.4, ez, ez + 0.4]:
+				var xb0: float = _line_at_z_x(a_leg, b_leg, -(JourneyLayout.BRIDGE_WIDTH * 0.5 - 0.5), z_probe)
+				var xb1: float = _line_at_z_x(a_leg, b_leg, JourneyLayout.BRIDGE_WIDTH * 0.5 - 0.5, z_probe)
+				var x_start: float = minf(xb0, xb1)
+				var x_end: float = maxf(xb0, xb1)
+				var is_plat_side: bool = (is_start and z_probe <= ez + 0.05) or (not is_start and z_probe >= ez - 0.05)
+				if is_plat_side:
+					x_start = maxf(x_start, -j_hw + 0.25)
+					x_end = minf(x_end, j_hw - 0.25)
+				var x_pts: Array[float] = []
+				var x_cur: float = x_start
+				while x_cur <= x_end + 0.001:
+					x_pts.append(x_cur)
+					x_cur += 0.8
+				if x_pts.is_empty() or absf(x_pts[x_pts.size() - 1] - x_end) > 0.01:
+					x_pts.append(x_end)
+				for px in x_pts:
+					var t_along: float = clampf(Vector2(px - p_a.x, z_probe - p_a.z).dot(ab2) / maxf(0.0001, ab2.length_squared()), 0.0, 1.0)
+					var exp_y: float = lerpf(p_a.y, p_b.y, t_along)
+					var hit_f: Dictionary = space.intersect_ray(PhysicsRayQueryParameters3D.create(
+						Vector3(px, exp_y + 0.5, z_probe), Vector3(px, exp_y - 1.2, z_probe), FLOOR_MASK))
+					if hit_f.is_empty() or (hit_f["position"] as Vector3).y > exp_y + 0.25:
+						j_floor_holes += 1
+						print("[layout]   junction floor hole ", rname, " at ", Vector3(px, exp_y, z_probe), " hit=", hit_f)
+			if lo > -j_hw + 0.5 or lo < -j_hw - 0.75:
+				var x_rw: float = (-j_hw + lo) * 0.5 if lo > -j_hw + 0.5 else (-j_hw - 0.25 + lo) * 0.5
+				var hit_rw: Dictionary = space.intersect_ray(PhysicsRayQueryParameters3D.create(
+					Vector3(x_rw, ey + 1.0, ez - 1.5), Vector3(x_rw, ey + 1.0, ez + 1.5), WALL_MASK))
+				if hit_rw.is_empty():
+					j_rail_gaps += 1
+					print("[layout]   missing west join rail ", rname, " at x=", x_rw, " z=", ez)
+			if hi < j_hw - 0.5 or hi > j_hw + 0.75:
+				var x_re: float = (hi + j_hw) * 0.5 if hi < j_hw - 0.5 else (j_hw + 0.25 + hi) * 0.5
+				var hit_re: Dictionary = space.intersect_ray(PhysicsRayQueryParameters3D.create(
+					Vector3(x_re, ey + 1.0, ez - 1.5), Vector3(x_re, ey + 1.0, ez + 1.5), WALL_MASK))
+				if hit_re.is_empty():
+					j_rail_gaps += 1
+					print("[layout]   missing east join rail ", rname, " at x=", x_re, " z=", ez)
+		_check("route_junction_floor_" + rname, j_floor_holes == 0, "%d junction floor holes" % j_floor_holes)
+		_check("route_junction_rails_" + rname, j_rail_gaps == 0, "%d junction rail gaps" % j_rail_gaps)
 
 	# --- 3x hall and chamber ---
 	var s2: Node3D = lv.get_node("Stage02_HallOfEchoes") as Node3D

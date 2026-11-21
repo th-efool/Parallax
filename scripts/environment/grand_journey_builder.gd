@@ -1442,10 +1442,10 @@ func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array,
 	var b_deck: Vector3 = b - u * (rb - 0.4) if rb > 0.0 else b
 	if ra <= 0.0:
 		var apron_a := _ramp(root, lname + "_ApronA", a - u * (w * 0.5 * tan_th + 0.6), a, w, _m_path())
-		apron_a.collision_layer = 0
+		apron_a.position.y -= 0.02
 	if rb <= 0.0:
 		var apron_b := _ramp(root, lname + "_ApronB", b, b + u * (w * 0.5 * tan_th + 0.6), w, _m_path())
-		apron_b.collision_layer = 0
+		apron_b.position.y -= 0.02
 	_ramp(root, lname, a_deck, b_deck, w, _m_path())
 	# Side parapets: from the bastion ring (or the floor edge line) to the next ring / edge.
 	for s in [-1.0, 1.0]:
@@ -1477,8 +1477,12 @@ func _build_bridge_leg(root: Node3D, g: Array[Node3D], lname: String, na: Array,
 		var join_hw: float = hw + 0.25
 		if lo < -join_hw:
 			_parapet(root, lname + "_JoinW", Vector3(-join_hw, ey, ez), Vector3(lo, ey, ez), _m_wall())
+		elif lo > -hw + 0.05:
+			_parapet(root, lname + "_JoinW", Vector3(-hw, ey, ez), Vector3(lo, ey, ez), _m_wall())
 		if hi > join_hw:
 			_parapet(root, lname + "_JoinE", Vector3(join_hw, ey, ez), Vector3(hi, ey, ez), _m_wall())
+		elif hi < hw - 0.05:
+			_parapet(root, lname + "_JoinE", Vector3(hi, ey, ez), Vector3(hw, ey, ez), _m_wall())
 	# Masonry piers under long spans (visual only; the kill plane still catches falls).
 	var piers: int = int(flat.length() / 16.0)
 	for k in range(piers):
