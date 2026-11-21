@@ -125,7 +125,7 @@ func _apply_time_scale() -> void:
 			_owns_time_scale = false
 		return
 	# A paused tree (menus) must not be held in slow motion when it resumes.
-	if get_tree() != null and get_tree().paused:
+	if is_inside_tree() and get_tree().paused:
 		_effects.clear()
 		Engine.time_scale = 1.0
 		_owns_time_scale = false

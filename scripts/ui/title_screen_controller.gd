@@ -15,6 +15,8 @@ signal quit_requested()
 const TITLE_TEXT: String = "PARALLAX"
 const TAGLINE_TEXT: String = "Same arena. Different rules."
 const OPENING_QUOTE_TEXT: String = "They built a mirror to preserve champions. It learned to preserve their deaths."
+const SEAM_REALITY: float = 0.68
+const SEAM_MIRROR: float = 0.06
 
 @export var quote_duration: float = 4.5
 @export var show_quote_on_start: bool = true
@@ -46,6 +48,8 @@ func _ready() -> void:
 		_build_default_ui()
 	_bind_buttons()
 	_sync_ui_nodes()
+	if not visibility_changed.is_connected(_on_visibility_changed):
+		visibility_changed.connect(_on_visibility_changed)
 
 
 func _process(delta: float) -> void:
@@ -154,93 +158,129 @@ func _complete_start_sequence() -> void:
 
 func _build_default_ui() -> void:
 	UITheme.apply(self)
+	# Procedural backdrop: ruined colosseum at dusk, split by the mirror seam, reflected in still water.
 	var bg := ColorRect.new()
 	bg.name = "TitleBackground"
-	bg.color = Color(MenuStyle.DIMMER_RGB.r, MenuStyle.DIMMER_RGB.g, MenuStyle.DIMMER_RGB.b, 0.93)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	MenuStyle.enforce_full_rect(bg)
+	var bg_mat := ShaderMaterial.new()
+	bg_mat.shader = load("res://assets/shaders/ui/ui_title_backdrop.gdshader") as Shader
+	bg_mat.set_shader_parameter("seam", SEAM_REALITY)
+	bg.material = bg_mat
 	add_child(bg)
-	_crack_rect = MenuStyle.add_mirror_crack(self, 0.62, 0.30)
+	_crack_rect = bg
 
 	var margin := MarginContainer.new()
 	margin.name = "TitleMargin"
 	MenuStyle.enforce_full_rect(margin)
-	margin.add_theme_constant_override("margin_left", 96)
-	margin.add_theme_constant_override("margin_right", 48)
-	margin.add_theme_constant_override("margin_top", 48)
-	margin.add_theme_constant_override("margin_bottom", 36)
+	margin.add_theme_constant_override("margin_left", 112)
+	margin.add_theme_constant_override("margin_right", 64)
+	margin.add_theme_constant_override("margin_top", 64)
+	margin.add_theme_constant_override("margin_bottom", 96)
 	add_child(margin)
 
 	var column := VBoxContainer.new()
 	column.name = "TitleVBox"
-	column.custom_minimum_size = Vector2(420, 0)
+	column.custom_minimum_size = Vector2(560, 0)
 	column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 10)
+	column.add_theme_constant_override("separation", 0)
 	margin.add_child(column)
+
+	var sub_lbl := Label.new()
+	sub_lbl.name = "SubtitleLabel"
+	sub_lbl.text = "A MIRROR-REALM COMBAT GAME"
+	sub_lbl.add_theme_font_override("font", UITheme.spaced(UITheme.body_font(), 6))
+	sub_lbl.add_theme_font_size_override("font_size", 17)
+	sub_lbl.add_theme_color_override("font_color", Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.95))
+	sub_lbl.add_theme_constant_override("outline_size", 0)
+	column.add_child(sub_lbl)
 
 	var t_lbl := Label.new()
 	t_lbl.name = "TitleLabel"
 	t_lbl.text = TITLE_TEXT
-	MenuStyle.style_title(t_lbl, 92, Color(1.0, 0.93, 0.74))
-	t_lbl.add_theme_constant_override("shadow_outline_size", 22)
-	t_lbl.add_theme_color_override("font_shadow_color", Color(0.95, 0.62, 0.22, 0.38))
+	t_lbl.add_theme_font_override("font", UITheme.spaced(UITheme.display_font(), 14, 0.35))
+	t_lbl.add_theme_font_size_override("font_size", 124)
+	t_lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.74))
+	t_lbl.add_theme_color_override("font_outline_color", Color(0.10, 0.05, 0.02, 0.9))
+	t_lbl.add_theme_constant_override("outline_size", 3)
+	t_lbl.add_theme_color_override("font_shadow_color", Color(1.0, 0.62, 0.25, 0.30))
+	t_lbl.add_theme_constant_override("shadow_offset_x", 0)
+	t_lbl.add_theme_constant_override("shadow_offset_y", 0)
+	t_lbl.add_theme_constant_override("shadow_outline_size", 30)
 	column.add_child(t_lbl)
 	title_label_path = get_path_to(t_lbl)
-
-	var sub_lbl := Label.new()
-	sub_lbl.name = "SubtitleLabel"
-	sub_lbl.text = "A  MIRROR-REALM  COMBAT  GAME"
-	MenuStyle.style_label(sub_lbl, 16, UITheme.GOLD)
-	sub_lbl.add_theme_constant_override("outline_size", 0)
-	column.add_child(sub_lbl)
 
 	var tag_lbl := Label.new()
 	tag_lbl.name = "TaglineLabel"
 	tag_lbl.text = TAGLINE_TEXT
-	tag_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	MenuStyle.style_flavor(tag_lbl, 26, Color(0.80, 0.84, 0.94))
+	MenuStyle.style_flavor(tag_lbl, 31, Color(0.92, 0.90, 0.94, 0.92))
+	tag_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
+	tag_lbl.add_theme_constant_override("outline_size", 3)
 	column.add_child(tag_lbl)
 	tagline_label_path = get_path_to(tag_lbl)
 
 	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 14)
+	spacer.custom_minimum_size = Vector2(0, 52)
 	column.add_child(spacer)
-	MenuStyle.style_divider(column)
+
+	var list := VBoxContainer.new()
+	list.name = "MenuList"
+	list.add_theme_constant_override("separation", 2)
+	list.custom_minimum_size = Vector2(420, 0)
+	list.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	column.add_child(list)
 
 	var specs: Array = [
-		["ContinueButton", "Continue Saved Run", "continue_button_path"],
-		["StartButton", "Start New Run", "start_button_path"],
+		["ContinueButton", "Continue", "continue_button_path"],
+		["StartButton", "New Run", "start_button_path"],
 		["LeaderboardButton", "Hall of Champions", "leaderboard_button_path"],
-		["OptionsButton", "Options & Controls", "options_button_path"],
+		["OptionsButton", "Options", "options_button_path"],
 		["QuitButton", "Quit", "quit_button_path"],
 	]
 	_menu_items.clear()
 	for spec: Array in specs:
 		var b := Button.new()
 		b.name = spec[0]
-		b.text = spec[1]
-		MenuStyle.style_button(b, 22, 52.0)
-		column.add_child(b)
+		b.text = String(spec[1]).to_upper()
+		b.size_flags_horizontal = Control.SIZE_FILL
+		MenuStyle.style_menu_item(b, 27)
+		list.add_child(b)
 		set(spec[2], get_path_to(b))
 		_menu_items.append(b)
-	(get_node(quit_button_path) as Button).add_theme_color_override("font_color", Color(0.70, 0.62, 0.62))
 
-	var hint := Label.new()
-	hint.name = "RealmHintLabel"
-	hint.text = "Press  Q  to glimpse the Mirror"
-	MenuStyle.style_flavor(hint, 18, Color(0.55, 0.60, 0.72))
-	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 40)
-	add_child(hint)
-
+	# Footer: key hints on the left, build tag on the right.
+	var footer := HBoxContainer.new()
+	footer.name = "FooterHints"
+	footer.add_theme_constant_override("separation", 28)
+	footer.anchor_left = 0.0
+	footer.anchor_right = 1.0
+	footer.anchor_top = 1.0
+	footer.anchor_bottom = 1.0
+	footer.offset_left = 112.0
+	footer.offset_right = -48.0
+	footer.offset_top = -64.0
+	footer.offset_bottom = -36.0
+	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(footer)
+	footer.add_child(MenuStyle.make_key_hint("↑ ↓", "Select"))
+	footer.add_child(MenuStyle.make_key_hint("ENTER", "Confirm"))
+	var realm_hint := MenuStyle.make_key_hint("Q", "Glimpse the Mirror")
+	realm_hint.name = "RealmHintLabel"
+	footer.add_child(realm_hint)
+	var fill := Control.new()
+	fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(fill)
 	var ver := Label.new()
 	ver.name = "VersionLabel"
-	ver.text = "PARALLAX  ·  IGDC BUILD"
-	MenuStyle.style_label(ver, 13, Color(0.45, 0.47, 0.55))
-	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 28)
-	add_child(ver)
+	ver.text = "IGDC BUILD"
+	ver.add_theme_font_override("font", UITheme.spaced(UITheme.body_font(), 4))
+	ver.add_theme_font_size_override("font_size", 14)
+	ver.add_theme_color_override("font_color", Color(0.62, 0.64, 0.72, 0.6))
+	footer.add_child(ver)
 
-	MenuStyle.add_atmosphere(self, 0.8, 0.9)
+	MenuStyle.add_atmosphere(self, 0.55, 0.7)
 
 	var quote_card := PanelContainer.new()
 	quote_card.name = "QuoteOverlay"
@@ -286,23 +326,39 @@ func _play_intro() -> void:
 	for b: Button in _menu_items:
 		if b.visible:
 			items.append(b)
-	UIFx.stagger_in(items, 0.08, 0.45)
-	if _crack_rect != null:
-		_crack_rect.modulate.a = 0.0
+	UIFx.stagger_in(items, 0.07, 0.5)
+	if _crack_rect != null and _crack_rect.material is ShaderMaterial:
+		var mat: ShaderMaterial = _crack_rect.material as ShaderMaterial
 		var tw: Tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-		tw.tween_property(_crack_rect, "modulate:a", 1.0, 1.4)
+		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("intro", v), 0.0, 1.0, 1.6).set_trans(Tween.TRANS_SINE)
 	var title_node: Control = get_node_or_null(title_label_path) as Control
 	if title_node != null:
-		UIFx.fade_in(title_node, 0.9)
+		UIFx.fade_in(title_node, 1.2)
+	_focus_first_item()
+
+
+func _focus_first_item() -> void:
+	if not visible or not is_inside_tree():
+		return
+	for b: Button in _menu_items:
+		if is_instance_valid(b) and b.visible and not b.disabled:
+			b.grab_focus()
+			return
+
+
+func _on_visibility_changed() -> void:
+	if visible:
+		_sync_ui_nodes()
+		_focus_first_item.call_deferred()
 
 
 func _toggle_realm_glimpse() -> void:
-	if _crack_rect == null or _crack_rect.material == null:
+	if _crack_rect == null or not (_crack_rect.material is ShaderMaterial):
 		return
 	_mirror_side = not _mirror_side
 	var mat: ShaderMaterial = _crack_rect.material as ShaderMaterial
 	var tw: Tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("realm_mix", v), float(mat.get_shader_parameter("realm_mix")), 0.18 if _mirror_side else 0.82, 0.45).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("seam", v), float(mat.get_shader_parameter("seam")), SEAM_MIRROR if _mirror_side else SEAM_REALITY, 0.6).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	if AudioManager.instance != null:
 		AudioManager.instance.play_sfx("shift_to_mirror" if _mirror_side else "shift_to_reality", -6.0)
 

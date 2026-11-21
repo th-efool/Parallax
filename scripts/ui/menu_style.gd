@@ -99,6 +99,95 @@ static func style_button(btn: BaseButton, font_size: int = 18, min_height: float
 	btn.add_theme_color_override("font_disabled_color", Color(0.50, 0.52, 0.58, 0.7))
 
 
+## Borderless, letter-spaced main-menu entry: text only, with a gold diamond + underline that grow in
+## on hover/focus. Hovering focuses the item, so mouse and keyboard share one highlight.
+static func style_menu_item(btn: Button, font_size: int = 26) -> void:
+	var empty := StyleBoxEmpty.new()
+	empty.content_margin_left = 40
+	empty.content_margin_right = 16
+	empty.content_margin_top = 7
+	empty.content_margin_bottom = 7
+	for state: String in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
+		btn.add_theme_stylebox_override(state, empty)
+	btn.add_theme_font_override("font", UITheme.spaced(UITheme.display_font(), 3, 0.25))
+	btn.add_theme_font_size_override("font_size", font_size)
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.focus_mode = Control.FOCUS_ALL
+	btn.add_theme_color_override("font_color", Color(0.86, 0.82, 0.74, 0.66))
+	btn.add_theme_color_override("font_hover_color", UITheme.GOLD_BRIGHT)
+	btn.add_theme_color_override("font_focus_color", UITheme.GOLD_BRIGHT)
+	btn.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 0.94))
+	btn.add_theme_color_override("font_hover_pressed_color", Color(1.0, 1.0, 0.94))
+	btn.add_theme_color_override("font_disabled_color", Color(0.5, 0.5, 0.55, 0.4))
+	btn.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.55))
+	btn.add_theme_constant_override("outline_size", 4)
+	btn.set_meta("hl", 0.0)
+	btn.mouse_entered.connect(func() -> void:
+		if not btn.disabled and not btn.has_focus():
+			btn.grab_focus())
+	btn.focus_entered.connect(func() -> void:
+		_tween_highlight(btn, 1.0)
+		if AudioManager.instance != null:
+			AudioManager.instance.play_sfx("ui_click", -8.0))
+	btn.focus_exited.connect(func() -> void: _tween_highlight(btn, 0.0))
+	btn.pressed.connect(func() -> void:
+		if AudioManager.instance != null:
+			AudioManager.instance.play_sfx("ui_confirm", -4.0))
+	btn.draw.connect(func() -> void: _draw_menu_item(btn))
+
+
+static func _tween_highlight(btn: Button, target: float) -> void:
+	if not is_instance_valid(btn) or not btn.is_inside_tree():
+		btn.set_meta("hl", target)
+		return
+	var tw: Tween = btn.create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.tween_method(func(v: float) -> void:
+		btn.set_meta("hl", v)
+		btn.queue_redraw(), float(btn.get_meta("hl", 0.0)), target, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+static func _draw_menu_item(btn: Button) -> void:
+	var hl: float = float(btn.get_meta("hl", 0.0))
+	if hl <= 0.01:
+		return
+	var font: Font = btn.get_theme_font("font")
+	var fs: int = btn.get_theme_font_size("font_size")
+	var text_w: float = font.get_string_size(btn.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var cy: float = btn.size.y * 0.5
+	var gold := UITheme.GOLD_BRIGHT
+	# Soft glow band behind the text.
+	btn.draw_rect(Rect2(Vector2(0, 2), Vector2((40.0 + text_w + 28.0) * hl, btn.size.y - 4)), Color(0.95, 0.70, 0.35, 0.07 * hl))
+	# Diamond marker sliding in from the left.
+	var x: float = 18.0 - (1.0 - hl) * 10.0
+	var r: float = 6.0
+	btn.draw_colored_polygon(PackedVector2Array([Vector2(x, cy - r), Vector2(x + r, cy), Vector2(x, cy + r), Vector2(x - r, cy)]), Color(gold.r, gold.g, gold.b, hl))
+	# Underline growing from the text start.
+	var y: float = btn.size.y - 5.0
+	btn.draw_line(Vector2(40, y), Vector2(40.0 + text_w * hl, y), Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.75 * hl), 1.5)
+
+
+## Small framed key glyph + caption, for footer key hints ("ENTER  Confirm").
+static func make_key_hint(key_text: String, caption: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var cap := PanelContainer.new()
+	cap.add_theme_stylebox_override("panel", make_flat_box(Color(0.0, 0.0, 0.0, 0.35), Color(UITheme.GOLD.r, UITheme.GOLD.g, UITheme.GOLD.b, 0.55), 1, 3, 7, 1))
+	var k := Label.new()
+	k.text = key_text
+	k.add_theme_font_override("font", UITheme.body_font())
+	k.add_theme_font_size_override("font_size", 17)
+	k.add_theme_color_override("font_color", UITheme.GOLD_BRIGHT)
+	cap.add_child(k)
+	row.add_child(cap)
+	var c := Label.new()
+	c.text = caption
+	c.add_theme_font_override("font", UITheme.body_font())
+	c.add_theme_font_size_override("font_size", 18)
+	c.add_theme_color_override("font_color", Color(0.78, 0.78, 0.82, 0.75))
+	row.add_child(c)
+	return row
+
+
 static func style_title(lbl: Label, font_size: int = 30, color: Color = GOLD_TEXT) -> void:
 	lbl.add_theme_font_override("font", UITheme.display_font())
 	lbl.add_theme_font_size_override("font_size", font_size)

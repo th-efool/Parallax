@@ -275,7 +275,7 @@ func _begin_run_loading() -> void:
 
 	_loading = LoadingScreen.new()
 	add_child(_loading)
-	_loading.set_progress(0.0, "Stepping through the mirror")
+	_loading.set_progress(0.0, "Preparing the arena")
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -296,7 +296,7 @@ func _begin_run_loading() -> void:
 		amb.disconnect("build_progress", on_amb)
 
 	_wire_level_dependent()
-	_loading.set_progress(0.97, "Waking the squad")
+	_loading.set_progress(0.97, "Gathering your squad")
 
 	var ed: Node = get_tree().get_first_node_in_group("encounter_director") if get_tree() != null else null
 	if _pending_continue:

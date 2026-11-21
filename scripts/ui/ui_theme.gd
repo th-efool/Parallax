@@ -86,6 +86,22 @@ static func body_font() -> Font:
 	return _body
 
 
+static var _spaced_cache: Dictionary = {}
+
+
+## Letter-spaced (tracked) copy of a font, e.g. spaced(display_font(), 8) for logo/eyebrow text.
+static func spaced(base: Font, glyph_spacing: int, embolden: float = 0.0) -> Font:
+	var key: String = "%d|%d|%.2f" % [base.get_instance_id(), glyph_spacing, embolden]
+	if _spaced_cache.has(key):
+		return _spaced_cache[key] as Font
+	var fv := FontVariation.new()
+	fv.base_font = base
+	fv.spacing_glyph = glyph_spacing
+	fv.variation_embolden = embolden
+	_spaced_cache[key] = fv
+	return fv
+
+
 static func realm_color(mirror_mix: float) -> Color:
 	return REALITY_ACCENT.lerp(MIRROR_ACCENT, clampf(mirror_mix, 0.0, 1.0))
 

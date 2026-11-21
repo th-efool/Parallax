@@ -377,7 +377,7 @@ func _can_toggle_pause() -> bool:
 	if _is_subscreen_visible():
 		return false
 	if is_inside_tree() and get_tree() != null:
-		for grp in ["title_screen", "results_screen"]:
+		for grp in ["title_screen", "results_screen", "victory_outro"]:
 			for n in get_tree().get_nodes_in_group(grp):
 				if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
 					return false

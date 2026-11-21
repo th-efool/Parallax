@@ -136,7 +136,7 @@ func build_greybox_progressive() -> void:
 		await get_tree().process_frame
 		((steps[i] as Array)[1] as Callable).call()
 	_bind_realm_visuals()
-	build_progress.emit(1.0, "The mirror is ready")
+	build_progress.emit(1.0, "Arena ready")
 
 
 func get_key_anchors() -> Dictionary:
