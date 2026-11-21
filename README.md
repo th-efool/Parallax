@@ -1,382 +1,424 @@
 <div align="center">
 
-<img src="MEMORY/reference_images/00_concept_sheet_overview.jpg" alt="PARALLAX: a mirror-realm combat game" width="100%">
+<img src="docs/media/01_title.jpg" alt="PARALLAX title screen: the colosseum split between amber Reality and cobalt Mirror" width="100%">
 
-<br>
+# PARALLAX
 
-# ◐&nbsp;&nbsp;P A R A L L A X&nbsp;&nbsp;◑
+### Same arena. Different rules.
 
-### *Same arena. Different rules.*
-
-**A third-person action game where you survive by choosing which version of the world is real.**
-<br>
-One button. Two realities. One shot at escaping the mirror.
-
-<br>
-
-[![Download](https://img.shields.io/badge/%E2%AC%87%20Download-Windows%20Build-E69938?style=for-the-badge)](https://github.com/th-efool/Parallax/releases)
-[![Play time](https://img.shields.io/badge/Run-10%E2%80%9315%20min-33B5FF?style=for-the-badge)](#-the-run)
-[![Offline](https://img.shields.io/badge/100%25-Offline-2ea44f?style=for-the-badge)](#-score-chase)
+**A single-player, third-person melee action game about choosing which version of the world is real, fought alongside an AI squad you command in plain language.**
 
 ![Godot](https://img.shields.io/badge/Godot-4.7-478CBF?logo=godotengine&logoColor=white)
 ![Renderer](https://img.shields.io/badge/Renderer-Forward%2B-8A2BE2)
 ![Language](https://img.shields.io/badge/GDScript-100%25-355570?logo=godotengine&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2064--bit-0078D6?logo=windows&logoColor=white)
-![Genre](https://img.shields.io/badge/Genre-Action%20%C2%B7%20Melee%20%C2%B7%20Puzzle-C8A860)
-![FPS](https://img.shields.io/badge/Target-60%20FPS%20%40%201080p-brightgreen)
+![Offline](https://img.shields.io/badge/Playable-Offline-2ea44f)
 
-[**Why PARALLAX**](#-why-parallax) ·
-[**The Shift**](#%EF%B8%8F-the-core-mechanic-shift) ·
-[**Controls**](#-controls) ·
-[**The Run**](#-the-run) ·
-[**Enemies**](#-bestiary) ·
-[**Scoring**](#-score-chase) ·
-[**Install**](#-install--play) ·
-[**Build**](#%EF%B8%8F-build-from-source)
-
-</div>
-
-<br>
-
-> *"They built a mirror to preserve champions. It learned to preserve their deaths."*
-
----
-
-## 🪞 Why PARALLAX
-
-You wake in the **Entry Vestibule** of an experimental mirror-colosseum. The gate is sealed. Across the hall stands a shattered mirror, and the thing that keeps you here is not a monster. It is a rule: **The Warden decides which version of the arena is real.**
-
-PARALLAX is a compact, handcrafted action game with one big idea.
-
-- 🔀 **One arena, two rulesets.** Reality and Mirror share the same space, but a bridge that's broken in one is whole in the other.
-- ⚔️ **Combat that asks a question.** Every fight has a realm answer: shift to strip a shield, dodge a lunge, or drop a pillar on a crowd.
-- 🧩 **Puzzles you solve with your hands.** Jump, shift and slam. No menus, no inventory, no hand-holding.
-- 🏆 **A score worth chasing.** Combo multipliers, realm tricks, no-hit bonuses and a local Top 5.
-- ⏱️ **Respects your time.** About 15 minutes from title screen to credits, and just as long when you try for rank **S**.
-
-<div align="center">
-
-| 🎯 Pillar | What it means for you |
-| :-- | :-- |
-| **One arena, two rulesets** | Learn the layout once, then re-read it in the other realm. |
-| **Shift must matter** | Every major encounter demands a realm decision. |
-| **Readable danger** | Wind-ups are telegraphed. Nothing kills you from an invisible rule. |
-| **Short and complete** | One level that teaches, escalates, tests and resolves. |
-| **Score rewards skill** | Fast, clean and clever beats slow and safe. |
+[Overview](#overview) ·
+[Showcase](#showcase) ·
+[Features](#features) ·
+[Controls](#controls) ·
+[The Ascent](#the-ascent) ·
+[Squad](#the-squad) ·
+[Enemies](#enemies) ·
+[Scoring](#scoring) ·
+[Getting started](#getting-started) ·
+[Architecture](#architecture) ·
+[Testing](#testing) ·
+[Documentation](#documentation)
 
 </div>
 
 ---
 
-## 🖼️ Screenshots
+## Overview
 
-<div align="center">
+You climb **The Ascent**, a ruined cliff-top pilgrimage that ends in a mirror colosseum. Every space exists twice:
 
-<img src="MEMORY/reference_images/01_hall_of_echoes_reality_and_mirror.jpg" alt="Hall of Echoes in Reality and in Mirror" width="100%">
+- **Reality** is warm and amber.
+- **Mirror** is cold and cobalt.
 
-*The Hall of Echoes. The same room in Reality (amber) and Mirror (cobalt).*
+Press `Q` and the world flips under you. Bridges that are broken in one realm stand whole in the other. Shields that block you in Reality do not exist in the Mirror. Some enemies can only be fought on the far side of the glass.
 
-<br>
+You do not climb alone. Three companions, **Brannoc, Sera and Ivo**, follow you, fight on their own, and take orders typed or spoken in everyday language. Examples:
 
-<img src="MEMORY/reference_images/02_collapsed_gallery_pillar_and_bridge.jpg" alt="Collapsed Gallery: cracked pillar and bridge" width="49%">
-<img src="MEMORY/reference_images/03_shielded_guard_and_execution_arena_warden.jpg" alt="Shielded Guard and The Warden's Execution Arena" width="49%">
+- "Brannoc, taunt the brute while Sera flanks it."
+- "Everyone hold the rear."
+- "Ivo, bait that skeleton and run in circles."
 
-*The Collapsed Gallery bridge, then a Shielded Guard and The Warden's Execution Arena.*
+A run lasts roughly 20–30 minutes from the terrace to the summit. It is scored, ranked, and saved to a local leaderboard.
 
-</div>
+<p align="center">
+  <img src="docs/media/03_causeway_vista.jpg" alt="The Pilgrim's Causeway winding from the start terrace toward the Gate of Reflections" width="100%">
+  <br><sub><i>The Pilgrim's Causeway: a winding bridge with two bastions, the first stretch of the climb.</i></sub>
+</p>
 
----
+## Showcase
 
-## ⚔️ The Core Mechanic: Shift
+All images are real in-engine captures from a single run. They are taken by [`tests/readme_showcase_shots.gd`](tests/readme_showcase_shots.gd), which you can re-run to refresh them.
 
-Press **`Q`** and the world flips. **Reality** glows amber and **Mirror** glows cobalt. Your position, health and combo carry across. Everything else is up for grabs.
+### Two realms, one world
 
-|  | 🌍 **Reality** | 🪞 **Mirror** |
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/05_gate_reality.jpg" alt="Gate of Reflections in Reality"></td>
+    <td width="50%"><img src="docs/media/06_gate_mirror.jpg" alt="Gate of Reflections in the Mirror"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Reality.</b> Shielded gate guards and a sealed gate.</sub></td>
+    <td align="center"><sub><b>Mirror</b> (press <code>Q</code>). Shields become ghosts and the hidden route lights up.</sub></td>
+  </tr>
+</table>
+
+### The Hall of Echoes: three waves, every column a weapon
+
+<p align="center">
+  <img src="docs/media/07_hall_wide.jpg" alt="The 60 x 60 m Hall of Echoes with its ring of columns" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/10_column_topple.jpg" alt="A heavy attack topples a column onto the enemies"></td>
+    <td width="50%"><img src="docs/media/09_hall_mirror.jpg" alt="The Hall of Echoes in the Mirror during wave 1"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>A heavy attack topples a column <b>away from you</b>. It crushes everything along its fall line.</sub></td>
+    <td align="center"><sub>The hall in the Mirror. Phantoms can only be fought here, and the objective tracks the wave.</sub></td>
+  </tr>
+</table>
+
+### A squad that listens
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/18_squad_command.jpg" alt="Typing a squad order on the causeway"></td>
+    <td width="50%"><img src="docs/media/04_bastion.jpg" alt="A bastion garrison on the causeway"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>"Brannoc take point, Sera and Ivo cover the rear." Every companion answers and acts.</sub></td>
+    <td align="center"><sub>Each bastion on the bridges holds a garrison.</sub></td>
+  </tr>
+</table>
+
+### The climb
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/11_gallery_mirror_bridge.jpg" alt="The Collapsed Gallery in the Mirror"></td>
+    <td width="50%"><img src="docs/media/13_clock_chamber.jpg" alt="The Clock-Tower Mechanism Chamber"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Collapsed Gallery.</b> The span over the gorge exists only in the Mirror.</sub></td>
+    <td align="center"><sub><b>Clock-Tower Chamber.</b> Three waves around the weight-and-plate puzzle, in a storm.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/14_processional_aerial.jpg" alt="The Processional bridges beside the clock tower and colosseum"></td>
+    <td width="50%"><img src="docs/media/15_colosseum.jpg" alt="The Mirror Colosseum with its central mirror plane"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Processional.</b> Bastion bridges between the clock tower and the colosseum.</sub></td>
+    <td align="center"><sub><b>Mirror Colosseum.</b> The central mirror plane splits the arena.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/16_warden.jpg" alt="The Warden beside the mirror plane"></td>
+    <td width="50%"><img src="docs/media/17_summit.jpg" alt="The Sunset Summit"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>The Warden.</b> A bone colossus that steps through the glass.</sub></td>
+    <td align="center"><sub><b>Sunset Summit.</b> Walk into the light.</sub></td>
+  </tr>
+</table>
+
+## Features
+
+**Realm shifting**
+- One key swaps Reality and Mirror.
+- The shift is checked against floor and overlap, so it never drops you into a wall or a void.
+- Inactive-realm geometry and enemies lose their collision, not just their meshes.
+
+**Melee combat**
+- 5-move light chain, charged heavy, dodge with invulnerability frames, airborne landing slam.
+- Contextual finishers on weakened or staggered enemies.
+- Hit-stop and camera trauma for impact feel.
+
+**Environmental kills**
+- Every column in the Hall of Echoes can be toppled with a heavy attack.
+- A column falls away from whoever struck it and crushes every enemy along its whole length.
+
+**Wave encounters**
+- The Hall of Echoes and the clock-tower chamber each fight in three escalating waves.
+- The next wave bursts in a moment after the current one is cleared.
+
+**AI squad**
+- Three companions with distinct roles: vanguard, skirmisher, artillery.
+- Natural-language orders by text or push-to-talk, including:
+  - chained and multi-target commands;
+  - taunts, baits, ambushes and flanking;
+  - formations, holding the rear, ranged support and emotes.
+- Companions auto-rally to protect anyone at low health.
+
+**Voice**
+- Companions speak their lines in distinct voices, and subtitles match the spoken text.
+- Works with a cloud model (Gemini preferred, OpenAI supported).
+- Without a key, typed orders still work through an offline command parser, and companion lines show as subtitles.
+- System text-to-speech is disabled on Windows because of a SAPI deadlock.
+
+**Handcrafted level**
+- Winding bridges with fortified bastions.
+- A 60 × 60 m Hall of Echoes and a 36 × 36 m clock-tower chamber.
+- A collapsed aqueduct gallery and the Warden's colosseum.
+
+**Presentation**
+- Weather that changes by area.
+- Adaptive music and room tone.
+- Ambient wildlife.
+- Stylised realm-reactive materials and sky.
+
+**Performance**
+- Static mesh batching, occlusion culling, distance-faded lights.
+- Graphics presets with integrated-GPU auto-detection.
+- FSR render scaling and an adaptive-resolution governor.
+- D3D12 / OpenGL fallbacks.
+
+**Persistence**
+- Checkpoints, continue, settings and a local top-5 leaderboard.
+- No account or server required.
+
+## Controls
+
+| Action | Keyboard / mouse | Notes |
 | :-- | :-- | :-- |
-| **Palette** | Warm amber `#E69938` | Cold cobalt `#33B5FF` |
-| **Traversal** | Broken bridges, missing stepping stones | Hidden routes, restored bridges |
-| **Enemies** | Skeleton Guards | Phantom Twins (spectral) |
-| **Shields** | Frontal shields block and absorb | The reflection is shieldless |
-| **Permanence** | Changes made in Mirror can repair Reality for good | |
-| **Safety** | `Q` is validated against floor and overlap, so a shift can never drop you into a wall or a void. | |
+| Move | `W` `A` `S` `D` | Camera-relative |
+| Look | Mouse | Sensitivity and invert-Y in Options |
+| Shift realm | `Q` | Reality ↔ Mirror, short cooldown |
+| Light attack | `LMB` | Chains into a 5-move combo |
+| Heavy attack | `RMB` | Breaks cracked props, topples hall columns, staggers |
+| Dodge | `Shift` | Brief invulnerability |
+| Jump | `Space` | |
+| Landing attack | `F` while airborne | Area slam on landing; also solves the clock-tower puzzle |
+| Interact | `E` | Switches and gates |
+| Squad order (type) | `Enter` | Free-text command to the squad |
+| Squad order (voice) | `V` (hold) | Push-to-talk; needs an API key |
+| Mark enemy / clear marks | `T` or `MMB` / `X` | Focus-fire target for the squad |
+| Command log | `L` | Hidden by default |
+| Pause | `Esc` | Freezes the world and the run timer |
+
+Bindings can be changed in **Options → Controls**.
+
+## The Ascent
+
+The level is one continuous climb north. Each area teaches one idea, and the final fight only tests what came before.
 
 ```mermaid
 flowchart LR
-    R(["🌍 REALITY<br/>Skeletons · Shields · Broken bridges"])
-    M(["🪞 MIRROR<br/>Phantoms · No shields · Hidden routes"])
-    R -- "Q · 0.6s cooldown" --> M
-    M -- "Q · 0.6s cooldown" --> R
-    M == "Pull a bridge anchor" ==> P["Reality is repaired permanently"]
-    P --> R
+    T["Start terrace"] --> R1(["Pilgrim's Causeway<br/>2 bastions"]) --> G["Gate of Reflections"]
+    G --> R2(["Sunlit Bridges<br/>2 bastions"]) --> H["Hall of Echoes<br/>3 waves"]
+    H --> R3(["Windswept Rampart<br/>2 bastions"]) --> C["Collapsed Gallery"]
+    C --> M["Clock-Tower Chamber<br/>3 waves"]
+    M --> R5(["Processional<br/>2 bastions"]) --> A["Mirror Colosseum<br/>The Warden"] --> S["Sunset Summit"]
 ```
 
-> **Boss twist:** in the final fight the mirror itself **shatters**. The realms merge, `Q` locks, and it comes down to a pure duel.
+| Area | What it asks of you |
+| :-- | :-- |
+| **Pilgrim's Causeway** | A long zig-zag bridge from the start terrace. Two bastions hold the first ambushes. |
+| **Gate of Reflections** | Beat the gate guards. The stepping stones over the chasm only exist in the Mirror. Throw the Mirror Switch beside the gate. |
+| **Sunlit Bridges** | Winding bridges and bastion fights up to the hall. |
+| **Hall of Echoes** | A 60 m hall fought in three waves. Topple its columns onto crowds, and use the Mirror to reach the phantoms. |
+| **Windswept Rampart** | Storm-lashed bridges and bastions toward the gallery. |
+| **Collapsed Gallery** | The span over the gorge exists only in the Mirror. Cross it, then break the Shielded Guard on the wide north deck. His fall opens the gate and rebuilds the bridge in stone. |
+| **Clock-Tower Chamber** | Three waves inside a 36 m tower. Jump from the dais, shift to the Mirror and slam the suspended weight onto the pressure plate. |
+| **Processional** | The last bridges and bastions before the colosseum. |
+| **Mirror Colosseum** | Two-phase duel with The Warden. In phase 2 the mirror plane shatters and the realms merge. |
 
----
+## The Squad
 
-## 🎮 Controls
+| Companion | Role | Style |
+| :-- | :-- | :-- |
+| **Brannoc** | Vanguard | Holds the line, taunts, protects the weak |
+| **Sera** | Skirmisher | Flanks, baits, sneak attacks |
+| **Ivo** | Artillery | Staff caster: visible ranged bolts and area abilities |
 
-<div align="center">
+**How orders work**
+- Each order is parsed into structured commands that companions execute and follow through on. For example, a taunted enemy stays fixated on its taunter, and an ambush converts the bait into an attack.
+- With a cloud model configured, a director model plans multi-step tactics. Without one, a deterministic offline parser handles the same vocabulary.
+- See [`addons/parallax_squad_ai`](addons/parallax_squad_ai) for the implementation.
 
-| Action | Input | Notes |
-| :-- | :--: | :-- |
-| **Move** | `W` `A` `S` `D` | Relative to the camera |
-| **Look** | `Mouse` | Over-the-shoulder follow camera. Sensitivity and invert-Y in Options. |
-| **Shift realm** | **`Q`** | Reality ↔ Mirror, 0.6 s cooldown |
-| **Light attack** | `LMB` | 3-hit combo: 25 → 25 → 35 damage |
-| **Heavy attack** | `RMB` | 60 damage. Breaks cracked props and staggers exposed enemies. |
-| **Jump / Dodge** | `Space` | 0.55 s dodge with ~0.18 s of invulnerability |
-| **Landing attack** | `F` *(airborne)* | Plunge and shockwave: 60 damage, 2.2 m radius |
-| **Interact** | `E` | Switches, anchors and gates |
-| **Pause** | `Esc` | Freezes the world and the run timer |
+## Enemies
 
-</div>
+| Enemy | Realm rule | How to beat it |
+| :-- | :-- | :-- |
+| **Skeleton Guard** | Both realms | Fight head-on, or crush it with a toppled column |
+| **Phantom Twin** | Can only be hit, and only hits you, in the Mirror | Shift, dodge the telegraphed lunge, strike |
+| **Shielded Guard** | Its shield exists only in Reality | Fight its shieldless reflection in the Mirror |
+| **Hollow Hexcaster** | Both realms | Ranged caster; close the distance or use cover |
+| **Grave Brute** | Both realms | Slow ground slams; dodge the wind-up, punish the recovery |
+| **Shade Stalker** | Both realms | Blinks behind its target; keep it in front of you |
+| **The Warden** | Split, then merged | Phase 1: punish the chest rune in the Mirror during recovery. Phase 2: realms merge for a straight duel. |
 
----
+**Mirror insight.** While you are in the Mirror, enemies reveal weak points and intel tags and take +25% damage.
 
-## 🏛️ The Run
+Archetype enemies are data-driven resources in [`data/enemies`](data/enemies).
 
-One continuous level, five connected sections. Each teaches one idea. The boss tests only what you've already learned.
+## Scoring
 
-```mermaid
-flowchart LR
-    A["① Entry<br/>Vestibule"] --> B["② Hall of<br/>Echoes"] --> C["③ Collapsed<br/>Gallery"] --> D["④ Mechanism<br/>Chamber"] --> E["⑤ Execution<br/>Arena"]
-    style A fill:#2a2118,stroke:#E69938,color:#fff
-    style B fill:#2a2118,stroke:#E69938,color:#fff
-    style C fill:#16222c,stroke:#33B5FF,color:#fff
-    style D fill:#16222c,stroke:#33B5FF,color:#fff
-    style E fill:#3a1414,stroke:#ff4d4d,color:#fff
-```
+Every run is scored and ranked **S / A / B / C**. Points come from:
 
-<details open>
-<summary><b>① Entry Vestibule: <i>learn to shift</i></b></summary>
+- kills;
+- environmental and Mirror kills;
+- finishers;
+- no-hit encounters;
+- defeating The Warden;
+- a time bonus.
 
-<br>
+A combo multiplier rewards unbroken chains. It survives a realm shift and resets when you are hit.
 
-A shattered mirror and a sealed north gate. The floor ends in a chasm. Shift once and a line of **stepping stones** appears in the Mirror. Jump across, throw the switch, and the gate opens. A first lesson in traversal, with no combat and no failure state beyond a fall.
+The top five runs are saved locally with your initials in `user://leaderboard.cfg`. Run checkpoints are saved to `user://savegame.cfg`.
 
-</details>
+## Getting started
 
-<details open>
-<summary><b>② Hall of Echoes: <i>combat meets shifting</i></b></summary>
+### Requirements
 
-<br>
+- **Godot 4.7** (standard build, Forward+ renderer).
+- **OS:** Windows 10/11 64-bit (primary target).
+- **GPU:** Vulkan-capable recommended; D3D12 and OpenGL 3 fallbacks are configured.
+- **Input:** mouse and keyboard.
 
-Two **Skeleton Guards** (Reality) and two **Phantom Twins** (Mirror) seal the doors. You can't win by staying in one world. A **cracked central pillar** glows at its fracture point. Hit it with a heavy attack, wait out the 0.6 s warning, and drop 150 damage on everything beneath it for a **+250 environmental kill**.
-
-</details>
-
-<details open>
-<summary><b>③ Collapsed Gallery: <i>actions echo across realms</i></b></summary>
-
-<br>
-
-The Reality bridge is broken. In the Mirror it stands whole. Smash the **weak stone support** to reach the **bridge anchor** on the far side and pull the switch. The bridge is now repaired in Reality for good. A **Shielded Guard** waits on the far platform. Shift to its shieldless reflection and finish it with a heavy attack.
-
-</details>
-
-<details open>
-<summary><b>④ Mechanism Chamber: <i>the verbs, combined</i></b></summary>
-
-<br>
-
-A raised dais, a suspended Mirror weight and a pressure plate far below. Jump from the dais, shift to Mirror, and use an airborne **Landing Attack (`F`)** on the weight to slam it onto the plate. Traversal and combat in a single move.
-
-</details>
-
-<details open>
-<summary><b>⑤ Execution Arena: <i>The Warden</i></b></summary>
-
-<br>
-
-- **Phase 1:** Dodge the Warden's cleave and lunge in Reality. During its **1.4 s recovery**, a rune opens in its chest. Shift to Mirror and punish the exposed echo.
-- **Phase 2 (50% HP):** The mirror plane **shatters**. The realms merge, `Q` locks, and the Warden chains attacks faster. Dodge, read the tells, and finish it in Reality.
-- Beat it and the north gate rises into daylight. 🌅
-
-</details>
-
----
-
-## 👹 Bestiary
-
-| Enemy | Realm | HP | Threat | How to beat it |
-| :-- | :--: | :--: | :-- | :-- |
-| 💀 **Skeleton Guard** | 🌍 | 100 | 15 melee | Fight it head-on, or bait it under the cracked pillar. |
-| 👻 **Phantom Twin** | 🪞 | 80 | 20 lunge | Shift to Mirror, dodge the blue-telegraphed lunge, then strike (**+200 Mirror Kill**). |
-| 🛡️ **Shielded Guard** | 🌍🪞 | 250 | 20 shield bash | The shield blocks you in Reality. Shift to its shieldless reflection and heavy-attack. |
-| ⚖️ **The Warden** | 🌍🪞 → merged | 1,000 | 20 cleave / 25 lunge | Dodge, shift during recovery, then duel it in merged reality. |
-
----
-
-## 🏆 Score Chase
-
-Finishing is only the start. Every run is graded, and every point comes from skill.
-
-<div align="center">
-
-| Event | Points | Combo multiplier? |
-| :-- | --: | :--: |
-| Enemy kill | +100 | ✅ |
-| Environmental kill | +250 | ✅ |
-| **Mirror kill** (realm trick) | +200 | ✅ |
-| No-hit encounter | +500 | ❌ |
-| Warden defeated | +1,000 | ❌ |
-| Time bonus | up to +1,000 (`1000 − seconds`) | ❌ |
-
-| Combo hits | Multiplier |
-| :--: | :--: |
-| 0 – 2 | ×1 |
-| 3 – 5 | ×2 |
-| 6+ | ×3 |
-
-| Rank | Score |
-| :--: | :-- |
-| 🥇 **S** | 5,000+ |
-| 🥈 **A** | 4,000 – 4,999 |
-| 🥉 **B** | 3,000 – 3,999 |
-| **C** | below 3,000 |
-
-</div>
-
-- Your combo survives a realm shift. Getting hit resets it.
-- Three encounters track no-hit bonuses: the Hall of Echoes, the Shielded Guard and the Warden.
-- A **local Top 5 leaderboard** with your initials is saved on your machine. No account, no server and no internet needed.
-
-> 💡 **Pro tip:** Drop the pillar on both skeletons, shift to Mirror, and chain six hits on the phantoms. Environmental and Mirror kills both stack with the ×3 multiplier.
-
----
-
-## 🎛️ Interface
-
-One shared HUD, identical in both realms, so you never hunt for information mid-fight.
-
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│ ♦ HEALTH ████████░░ 80/100          [ REALITY ⇄ MIRROR  Q ]   SCORE 001250 │
-│   combo ◆◆◇                                                 COMBO x3  ⏱ 02:34 │
-│                                                                       │
-│                                                                       │
-│                                                                       │
-│                         ·  third-person view  ·                       │
-│                                                                       │
-│                         THE WARDEN  ██████████████░░░░                │
-│ ◆ SWORD                                   LMB ATTACK · RMB HEAVY       │
-│                                           SPACE DODGE · F LAND · E USE │
-└───────────────────────────────────────────────────────────────────────┘
-```
-
-The active realm chip lights **amber** or **cobalt**, and a rejected shift pulses the chip so you always know why. Boss HP appears only in the Execution Arena.
-
----
-
-## 📥 Install & Play
-
-### Windows (recommended)
-
-1. Open the [**Releases**](https://github.com/th-efool/Parallax/releases) page.
-2. Download the latest `PARALLAX-windows-x64.zip`.
-3. Unzip it and run `PARALLAX.exe`.
-
-No installer, no launcher and no internet connection.
-
-**Recommended:** Windows 10/11 64-bit · a GPU with Vulkan support · 1920×1080 · mouse and keyboard.
-
----
-
-## 🛠️ Build from Source
-
-**Requirements:** [Godot 4.7+](https://godotengine.org/download) (Forward+ renderer)
+### Run from source
 
 ```bash
 git clone https://github.com/th-efool/Parallax.git
 cd Parallax
-godot --editor project.godot     # open in the editor, then press F5
+godot --editor project.godot
 ```
 
-Check scripts and run headless imports:
+Press **F5** in the editor. The main scene is `res://scenes/main/main.tscn`. It opens the title screen, and the level is built under a loading screen when you start a run.
+
+> The level is generated by code at run time ([`GrandJourneyBuilder`](scripts/environment/grand_journey_builder.gd)), so `main.tscn` looks empty in the editor. To inspect the whole level in the viewport, bake a preview scene:
+>
+> ```bash
+> godot --path . -s res://scripts/tools/bake_map_preview.gd
+> ```
+>
+> Then open `scenes/main/map_preview.scn`. It is gitignored; regenerate it any time.
+
+### Optional: cloud AI for the squad
+
+The game is fully playable offline. Typed orders use the offline parser, and companion lines appear as subtitles.
+
+To enable language-model tactics, voice orders and cloud voices, provide a key through an environment variable or a `.env` file in the project root:
 
 ```bash
-godot --headless --import --quit
-godot --headless --check-only -s scripts/core/realm_manager.gd
+GEMINI_API_KEY=your-key      # preferred (GEMINI_KEY / GOOGLE_API_KEY also accepted)
+OPENAI_API_KEY=your-key      # supported (OPENAI_KEY also accepted)
 ```
 
-**Export:** `Project → Export → Windows Desktop`. Use the Forward+ preset, 64-bit.
+Keys are read at run time and never written into the project. Do not commit `.env`.
 
----
+### Export
 
-## 🧱 Under the Hood
+**Project → Export → Windows Desktop** (64-bit, Forward+).
 
-Built entirely in **Godot 4.7** with **GDScript**. Gameplay rules are deterministic and authored, not left to physics luck.
+## Architecture
 
-| System | What it does |
+Gameplay rules are deterministic and authored, not left to physics chance.
+
+| System | Responsibility |
 | :-- | :-- |
-| **`RealmManager`** | Handles the `Q` shift, floor and overlap safety validation, and the cooldown. |
-| **`RealmReactive`** | A tiny contract that any prop, enemy or surface implements to react to the active realm. |
-| **`EncounterDirector`** | Gates seal, waves spawn, no-hit tracking starts and ends, doors open. |
-| **`RunState`** | Autoload for score, combo multipliers, timer and rank. |
-| **`LeaderboardStore`** | Autoload that saves a sorted local Top 5 to `user://leaderboard.cfg`. |
-| **Hitbox / Hurtbox** | Each swing hits each target at most once, with no per-frame damage ticks. |
-| **Authored breakables** | `AnimationPlayer`-driven collapses that fire once and behave identically every run. |
+| `RealmManager` | Realm shift, safety validation, cooldown, merge state; named physics-layer helpers |
+| `RealmReactive` | Contract for any prop, platform or decor group that reacts to the active realm |
+| `EncounterDirector` | Sections, checkpoints, encounter sealing and clearing, death-respawn section resets |
+| `WaveDirector` | Runs a room's garrison as consecutive waves (held enemies are hidden, inert and untargetable) |
+| `GrandJourneyBuilder` | Builds the whole level at run time, progressively under the loading screen |
+| `JourneyLayout` | Single source of truth for the macro layout and bridge routes; converts old "story" coordinates to world coordinates |
+| `BreakableProp` | Authored breakables: topple timing, directional knock and fall-line hazard, mirror-plane shatter |
+| `Hitbox3D` / `Hurtbox3D` | One hit per target per swing; realm-aware damage veto |
+| `RunState` (autoload) | Score, combo, timer, rank |
+| `LeaderboardStore` (autoload) | Leaderboard, save/continue, settings, graphics presets |
+| `GameAudio` (autoload) | Music state machine, ducking, room tone, footstep surfaces |
+| `parallax_squad_ai` (addon) | Squad manager, companion AI, command parser, comms director, text-to-speech pipeline |
 
-- **Performance:** Shader-based realm effects, no dynamic mirror viewports and bounded loops. It targets a locked 60 FPS at 1080p.
-- **Camera:** A `SpringArm3D` over-the-shoulder rig that pushes in at walls, so geometry never clips the view.
+**Physics layers:** Player 1, Enemy 2, World_Shared 3, World_Reality 4, World_Mirror 5, Interactable 6, Hitbox 7, Player_Blocker 8 (camera-ignored railing blockers).
+
+### Project layout
 
 ```
-assets/      models · textures · shaders · audio · fonts
-scenes/      player · enemies · environment · props · UI
-scripts/     core · player · enemies · environment · ui
-MEMORY/      full design document and concept art
+addons/
+  parallax_squad_ai/   squad AI, comms, voice
+  godot_ai/            editor MCP bridge (development only)
+assets/                models · textures (CC0 PBR) · shaders · audio · fonts · sky
+data/                  ally profiles, enemy archetypes (.tres)
+scenes/                main scene, player, UI, environment
+scripts/
+  core/                realm, encounters, waves, scoring, saves, audio, VFX
+  player/              player controller and camera
+  enemies/             enemy base, AI, archetypes, The Warden
+  allies/              companion controllers and profiles
+  environment/         level builder, layout, terrain, breakables, weather
+  ambient/             wildlife and vegetation
+  ui/                  HUD, menus, objective tracker, loading screen
+  tools/               editor utilities (map preview bake)
+tests/                 headless and windowed test scripts
+MEMORY/                design documents (GDD, systems, combat, levels, UI, assets, changelog)
+plan/                  implementation handoff guides
 ```
 
-Read the full design in [**`MEMORY/01_GDD_OVERVIEW_AND_SCOPE.md`**](MEMORY/01_GDD_OVERVIEW_AND_SCOPE.md).
+## Testing
 
----
+Tests are plain `SceneTree` scripts that run with the Godot binary. Import once after pulling new assets:
 
-## 🗺️ Roadmap
+```bash
+godot --headless --path . --import --quit
+```
 
-- [x] Core realm shift with safety validation
-- [x] Third-person combat: combo, heavy, dodge, landing attack
-- [x] Four enemy classes and The Warden (two phases)
-- [x] Five handcrafted stages with authored breakables and puzzles
-- [x] Shared HUD, menus, leaderboard and ranks
-- [x] Shaders, SFX and music pass
-- [x] Windows 64-bit release
-- [ ] Controller support
-- [ ] Time-attack and no-shift challenge modes
-- [ ] Additional stages and weapons
+| Test | Mode | Covers |
+| :-- | :-- | :-- |
+| `tests/boot_smoke.gd` | headless | Full boot, level build, enemy and ally spawn |
+| `tests/level_props_test.gd` | headless | Gate guards, gallery duel deck, knockable columns, wave release |
+| `tests/layout_rework_test.gd` | headless | Bridge lengths and bends, bastions, walkability, rails, 3× rooms |
+| `tests/combat_rules_test.gd` | headless | Health scaling, Warden phases, Mirror-only enemies |
+| `tests/restart_flow_test.gd` | headless | Title → run → results → restart flow |
+| `tests/squad_ai_unit_test.gd` | headless | Command parser and squad logic |
+| `tests/voice_pipeline_test.gd` | headless | Voice / subtitle pipeline |
+| `tests/squad_ai_windowed_test.gd` | windowed | Live squad behaviour in the level |
+| `tests/feel_and_movement_test.gd` | windowed | Movement, camera and formation feel |
+| `tests/readme_showcase_shots.gd` | windowed | Regenerates the README screenshots in `docs/media/` |
 
----
+Example:
 
-## 🎯 Born in a Game Jam
+```bash
+godot --headless --path . -s res://tests/boot_smoke.gd
+```
 
-PARALLAX was designed against the **IGDC 2023 Low-Prep Game-Dev Challenge** brief, and each theme lives in the game:
+> Starting a run in a test clears `user://savegame.cfg` (`%APPDATA%\Godot\app_userdata\PARALLAX\` on Windows). Back it up first if you care about your save.
 
-| Theme | In PARALLAX |
+## Documentation
+
+The design lives in [`MEMORY/`](MEMORY). Start at [`MEMORY/00_MEMORY_INDEX_AND_RULES.md`](MEMORY/00_MEMORY_INDEX_AND_RULES.md).
+
+| File | Contents |
 | :-- | :-- |
-| 💥 **Everything's breakable** | The cracked pillar, the weak stone support and the mirror plane itself |
-| 🪂 **Landing on things** | The `F` landing attack and the weight-drop puzzle |
-| 🎭 **Misdirection** | Routes, enemies and shields change with the realm |
-| ⚖️ **Symmetry** | Two realms on identical coordinates with inverted rules |
-| 🧩 **Puzzle** | Stepping stones, the bridge anchor and the pressure plate |
+| `01_GDD_OVERVIEW_AND_SCOPE.md` | Pillars, narrative, scope lock |
+| `02_CORE_SYSTEMS_AND_ARCHITECTURE.md` | Node contracts, realm and encounter systems, physics layers |
+| `03_COMBAT_PLAYER_AND_ENEMIES.md` | Controls, combat tuning, enemy AI |
+| `04_LEVEL_DESIGN_AND_ROOMS.md` | Level atlas and room logic |
+| `05_UI_SCORING_AND_AUDIO.md` | HUD, menus, scoring, audio |
+| `06_RESOURCES_AND_ASSET_CATALOG.md` | Asset sources and licences |
+| `07_DEV_STATUS_AND_CHANGELOG.md` | Milestones and dated changelog |
 
----
+For how the code works, see the developer documentation in [`docs/`](docs/README.md). It covers architecture, realms, combat, encounters and waves, level generation, environment, UI and audio, squad AI, voice and LLM, and testing.
 
-## 🙏 Credits & Acknowledgements
+Contributor and agent rules are in [`CLAUDE.md`](CLAUDE.md). Implementation handoff guides live in [`plan/`](plan).
 
-Built with **Godot Engine**, using community CC0 and free-to-use assets. Thanks to:
+## Credits
 
-[Quaternius](https://quaternius.com) · [KayKit](https://kaylousberg.com) · [Kenney](https://kenney.nl) · [ambientCG](https://ambientcg.com) · [Poly Haven](https://polyhaven.com) · [Mixamo](https://www.mixamo.com)
+Built with the [Godot Engine](https://godotengine.org), using CC0 and free-to-use community assets from:
 
-The full source and license for every asset is tracked in [`MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md`](MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md).
+[Quaternius](https://quaternius.com) · [KayKit](https://kaylousberg.com) · [Kenney](https://kenney.nl) · [Poly Haven](https://polyhaven.com) · [ambientCG](https://ambientcg.com) · [Mixamo](https://www.mixamo.com)
 
----
+The source and licence of every asset are recorded in [`MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md`](MEMORY/06_RESOURCES_AND_ASSET_CATALOG.md).
+
+Originally designed against the **IGDC 2023 Low-Prep Game-Dev Challenge** themes: everything's breakable, landing on things, misdirection, symmetry, puzzle.
 
 <div align="center">
-
-### ⭐ If you enjoyed PARALLAX, star the repo. It helps more than you'd think.
-
-**Shift the world. Break the mirror. Walk into the light.**
-
-<sub>Made with ❤️ and Godot 4 by [**th-efool**](https://github.com/th-efool)</sub>
-
+<sub>Made with Godot 4 by <a href="https://github.com/th-efool">th-efool</a></sub>
 </div>

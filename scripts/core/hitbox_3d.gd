@@ -102,7 +102,7 @@ func try_hit_target(candidate: Node) -> bool:
 	elif source_type == "player_landing" and logical_target.has_method("on_landing_slam_impact"):
 		hit_accepted = bool(logical_target.call("on_landing_slam_impact", damage, source_type))
 	elif logical_target.has_method("trigger_break"):
-		hit_accepted = bool(logical_target.call("trigger_break", is_heavy))
+		hit_accepted = bool(logical_target.call("trigger_break", is_heavy, my_owner))
 	elif is_target_player and logical_target.has_method("apply_damage"):
 		var res_p: Variant = logical_target.call("apply_damage", damage, my_owner)
 		hit_accepted = bool(res_p) if typeof(res_p) == TYPE_BOOL else true
