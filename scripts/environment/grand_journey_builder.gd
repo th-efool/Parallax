@@ -1182,6 +1182,15 @@ func _build_stage_02_hall() -> Node3D:
 		["phantom", "PhantomTwin_1", "hall_phantom_1", Vector3(-18, 0, 22)],
 		["phantom", "PhantomTwin_2", "hall_phantom_2", Vector3(18, 0, 24)],
 		["phantom", "PhantomTwin_3", "hall_phantom_3", Vector3(0, 0, 16)],
+		["skeleton", "SkeletonGuard_7", "hall_skel_7", Vector3(-6, 0, -20)],
+		["skeleton", "SkeletonGuard_8", "hall_skel_8", Vector3(6, 0, -22)],
+		["skeleton", "SkeletonGuard_9", "hall_skel_9", Vector3(-24, 0, -6)],
+		["skeleton", "SkeletonGuard_10", "hall_skel_10", Vector3(24, 0, -14)],
+		["skeleton", "SkeletonGuard_11", "hall_skel_11", Vector3(-8, 0, 24)],
+		["skeleton", "SkeletonGuard_12", "hall_skel_12", Vector3(10, 0, 26)],
+		["phantom", "PhantomTwin_4", "hall_phantom_4", Vector3(-24, 0, 10)],
+		["phantom", "PhantomTwin_5", "hall_phantom_5", Vector3(24, 0, 12)],
+		["phantom", "PhantomTwin_6", "hall_phantom_6", Vector3(0, 0, -10)],
 	]
 	var exit_gate := _make_gate("Gate02_HallToGallery", Vector3(0.0, y, zn), 1, "hall_of_echoes", false)
 	_style_gate(exit_gate)
@@ -1209,11 +1218,17 @@ func _build_stage_02_hall() -> Node3D:
 	_add_roamer(hrg, "brute", "HallBrute", c + Vector3(0, 0, 24), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 	_add_roamer(hrg, "hexcaster", "HallHexcaster_W", c + Vector3(-24, 0, 0), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 	_add_roamer(hrg, "hexcaster", "HallHexcaster_E", c + Vector3(24, 0, 4), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
-	# Three waves of four: the hall fills up in stages instead of all at once.
+	_add_roamer(hrg, "brute", "HallBrute_2", c + Vector3(0, 0, -24), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	_add_roamer(hrg, "stalker", "HallStalker", c + Vector3(14, 0, -2), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	_add_roamer(hrg, "hexcaster", "HallHexcaster_N", c + Vector3(-14, 0, 26), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
+	# Three waves of eight: the hall fills up in stages instead of all at once.
 	_add_waves(root, "HallWaves", EncounterDirector.Section.HALL_COMBAT, [
-		["Enemies/SkeletonGuard_1", "Enemies/SkeletonGuard_2", "Enemies/SkeletonGuard_3", "Roamers/HallHexcaster_W"],
-		["Enemies/SkeletonGuard_4", "Enemies/SkeletonGuard_5", "Enemies/PhantomTwin_1", "Roamers/HallHexcaster_E"],
-		["Enemies/SkeletonGuard_6", "Enemies/PhantomTwin_2", "Enemies/PhantomTwin_3", "Roamers/HallBrute"],
+		["Enemies/SkeletonGuard_1", "Enemies/SkeletonGuard_2", "Enemies/SkeletonGuard_3", "Enemies/SkeletonGuard_7",
+			"Enemies/SkeletonGuard_8", "Enemies/PhantomTwin_6", "Roamers/HallHexcaster_W", "Roamers/HallBrute_2"],
+		["Enemies/SkeletonGuard_4", "Enemies/SkeletonGuard_5", "Enemies/SkeletonGuard_9", "Enemies/SkeletonGuard_10",
+			"Enemies/PhantomTwin_1", "Enemies/PhantomTwin_4", "Roamers/HallHexcaster_E", "Roamers/HallStalker"],
+		["Enemies/SkeletonGuard_6", "Enemies/SkeletonGuard_11", "Enemies/SkeletonGuard_12", "Enemies/PhantomTwin_2",
+			"Enemies/PhantomTwin_3", "Enemies/PhantomTwin_5", "Roamers/HallBrute", "Roamers/HallHexcaster_N"],
 	])
 
 	for p in [Vector3(-(h - 1.8), y, zs + 1.8), Vector3(h - 1.8, y, zs + 1.8), Vector3(-(h - 1.8), y, zn - 1.8), Vector3(h - 1.8, y, zn - 1.8),
@@ -1778,10 +1793,20 @@ func _build_stage_04_mechanism() -> Node3D:
 	_add_roamer(rg, "brute", "TowerBrute", Vector3(0.0, y, cz + 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "hexcaster", "TowerHexcaster", Vector3(-14.0, y, cz + 2.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "stalker", "TowerStalker", Vector3(14.0, y, cz + 3.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_E", Vector3(-6.0, y, cz - 14.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_F", Vector3(14.0, y, cz - 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_G", Vector3(-15.0, y, cz + 14.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "skeleton", "TowerSkeleton_H", Vector3(8.0, y, cz + 4.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "phantom", "TowerPhantom_2", Vector3(-8.0, y, cz + 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "hexcaster", "TowerHexcaster_2", Vector3(15.0, y, cz + 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "brute", "TowerBrute_2", Vector3(-4.0, y, cz + 15.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "stalker", "TowerStalker_2", Vector3(6.0, y, cz - 15.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_waves(root, "ChamberWaves", EncounterDirector.Section.MECHANISM_CHAMBER, [
-		["Roamers/TowerSkeleton_A", "Roamers/TowerSkeleton_B", "Roamers/TowerPhantom"],
-		["Roamers/TowerSkeleton_C", "Roamers/TowerSkeleton_D", "Roamers/TowerHexcaster"],
-		["Roamers/TowerBrute", "Roamers/TowerStalker"],
+		["Roamers/TowerSkeleton_A", "Roamers/TowerSkeleton_B", "Roamers/TowerPhantom", "Roamers/TowerSkeleton_E",
+			"Roamers/TowerSkeleton_F", "Roamers/TowerSkeleton_H"],
+		["Roamers/TowerSkeleton_C", "Roamers/TowerSkeleton_D", "Roamers/TowerHexcaster", "Roamers/TowerSkeleton_G",
+			"Roamers/TowerPhantom_2", "Roamers/TowerHexcaster_2"],
+		["Roamers/TowerBrute", "Roamers/TowerStalker", "Roamers/TowerBrute_2", "Roamers/TowerStalker_2"],
 	])
 	return root
 

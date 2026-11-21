@@ -27,7 +27,7 @@ const GameFeelScript := preload("res://scripts/core/game_feel.gd")
 
 ## Global enemy durability multiplier (+30% over 2.5x = 3.25x). Applied once to the
 ## authored max_health in _ready(), so scripted enemies and data-driven archetypes are all covered.
-const HEALTH_SCALE: float = 3.25
+const HEALTH_SCALE: float = 3.74   # 3.25 x 1.15 (2026-11-21 playtest)
 var _health_scaled: bool = false
 
 @export_group("Node Paths")
