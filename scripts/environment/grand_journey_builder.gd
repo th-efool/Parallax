@@ -155,9 +155,7 @@ func get_key_anchors() -> Dictionary:
 		"phantom_1": hc + Vector3(-18.0, 0.0, 22.0),
 		"phantom_2": hc + Vector3(18.0, 0.0, 24.0),
 		"gallery_bridge_center": Vector3(0.0, Y_GALLERY, 72.0) + s3,
-		"weak_stone_support": Vector3(0.0, Y_GALLERY + 3.6, 80.2) + s3,
-		"bridge_anchor": Vector3(0.0, Y_GALLERY + 3.6, 81.6) + s3,
-		"shielded_guard": Vector3(0.0, Y_GALLERY, 83.2) + s3,
+		"shielded_guard": Vector3(0.0, Y_GALLERY, 79.5) + s3,
 		"mechanism_dais": cc + Vector3(-3.0, 1.35, -1.0),
 		"mechanism_plate": cc,
 		"arena_entry": Vector3(0.0, Y_ARENA, ARENA_CENTER.z - 13.5) + s5,
@@ -185,8 +183,7 @@ func get_route_waypoints() -> Array:
 	out.append_array(bridges["R3_WindsweptRampart"] as Array)
 	var s3 := Vector3(0, 0, JourneyLayout.OFF_S3)
 	for w in [[Vector3(0, Y_GALLERY, 65), 0], [Vector3(0, Y_GALLERY, 72), 1], [Vector3(0, Y_GALLERY, 76), 1],
-			[Vector3(2.55, Y_GALLERY + 1.0, 75.3), 1], [Vector3(2.55, Y_GALLERY + 2.0, 77.0), 1], [Vector3(2.9, Y_GALLERY + 3.0, 78.5), 1],
-			[Vector3(0, Y_GALLERY + 3.6, 79.2), 1], [Vector3(0, Y_GALLERY, 83.6), 0], [Vector3(0, Y_GALLERY, 86), 0]]:
+			[Vector3(0, Y_GALLERY, 79.5), 0], [Vector3(0, Y_GALLERY, 83.6), 0], [Vector3(0, Y_GALLERY, 86), 0]]:
 		out.append([((w as Array)[0] as Vector3) + s3, (w as Array)[1]])
 	var cc: Vector3 = JourneyLayout.CHAMBER_CENTER
 	out.append_array([[cc + Vector3(0, 0, -14), 0], [cc + Vector3(0, 0, 14), 0]])
@@ -931,6 +928,15 @@ func _style_switch(sw: Node3D) -> void:
 	tw.tween_property(rune, "rotation:y", TAU, 6.0).as_relative()
 
 
+func _make_knockable(prop: BreakableProp, column_h: float) -> void:
+	## Topples away from the striker and crushes everything along its length (enemies take a killing blow at the
+	## 2.5x enemy health; the player only if they stand in the fall line).
+	prop.knock_directional = true
+	prop.knock_fall_length = column_h
+	prop.damage_radius = 1.8
+	prop.enemy_hazard_damage = 600
+
+
 func _restyle_pillar(prop: BreakableProp, column_h: float, radius: float, broken_dir: Vector3) -> void:
 	var intact: Node3D = prop.get_node_or_null("IntactVisual") as Node3D
 	var broken: Node3D = prop.get_node_or_null("BrokenVisual") as Node3D
@@ -1132,18 +1138,20 @@ func _build_stage_02_hall() -> Node3D:
 	root.add_child(seal)
 	_build_hall_walls(root, g, y)
 
+	# Every column in the hall is a weapon: Heavy (RMB) one and it topples AWAY from whoever struck it, crushing
+	# every enemy along its whole length (directional knock, BreakableProp.knock_directional). No world label.
 	var pillar := _make_breakable_pillar("CrackedCentralPillar", Vector3(c.x, y, c.z), BreakableProp.PropKind.CRACKED_PILLAR, 1, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
 	_restyle_pillar(pillar, 9.0, 0.7, Vector3(0, 0, 1))
+	_make_knockable(pillar, 9.0)
 	root.add_child(pillar)
 	# A ring of eight great columns (r 17) breaks up the big floor: cover from the hexcasters, lanes to kite through.
-	var col_mesh: ArrayMesh = ProcMesh.column_mesh(0.9, 12.0, 16)
-	var cols: Array = []
 	for i in range(8):
 		var a: float = TAU * (float(i) + 0.5) / 8.0
 		var cp := Vector3(c.x + sin(a) * 17.0, y, c.z + cos(a) * 17.0)
-		cols.append(Transform3D(Basis.IDENTITY, cp))
-		_prop_collider(root, "HallColumnCollider", cp + Vector3(0, 6.0, 0), _cyl_shape(1.2, 12.0))
-	_multimesh(g[0], "HallColumns", col_mesh, _m_marble(), cols)
+		var col := _make_breakable_pillar("HallColumn_%d" % (i + 1), cp, BreakableProp.PropKind.CRACKED_PILLAR, 1, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
+		_restyle_pillar(col, 12.0, 0.9, Vector3(0, 0, 1))
+		_make_knockable(col, 12.0)
+		root.add_child(col)
 
 	# Encounter garrison: every one counts toward "hall_of_echoes"; the exit gate opens when all are down.
 	var hall_specs: Array = [
@@ -1506,7 +1514,9 @@ func _build_stage_03_gallery() -> Node3D:
 	var y: float = Y_GALLERY
 
 	_solid(root, "GalleryFloorSouth", Vector3(0.0, y - 0.25, 65.0), Vector3(8.0, 0.5, 10.0), _m_path())
-	_solid(root, "GalleryFloorNorth", Vector3(0.0, y - 0.25, 79.0), Vector3(8.0, 0.5, 10.0), _m_path())
+	# North deck = the Shielded Guard's duel ground: 18 m wide so the fight has room (was 8 m, the guard got
+	# wedged between wall and gate).
+	_solid(root, "GalleryFloorNorth", Vector3(0.0, y - 0.25, 79.0), Vector3(18.0, 0.5, 10.0), _m_path())
 	_solid(root, "Corridor03_Floor", Vector3(0.0, y - 0.25, 86.0), Vector3(4.0, 0.5, 4.0), _m_floor())
 	root.add_child(_make_pit_kill_zone("PitKillZone_Stage03", Vector3(0.0, y - 4.5, 72.0), Vector3(8.0, 2.5, 14.0)))
 	(root.get_node("PitKillZone_Stage03") as PitKillZone).kill_y_threshold = y - 3.0
@@ -1530,55 +1540,9 @@ func _build_stage_03_gallery() -> Node3D:
 	bridge.add_child(repaired_geo)
 	root.add_child(bridge)
 
-	# Cracked support stationed HIGH: on a stone ledge 3.6 m above the deck, reached by a 3-step parkour climb
-	# (+1.0 / +2.0 / +3.0 m blocks on the east side; jump apex ~1.94 m). The anchor switch hides behind it.
-	const LEDGE_H: float = 3.6
-	_solid(root, "SupportLedge", Vector3(0.0, y + LEDGE_H * 0.5, 80.6), Vector3(4.0, LEDGE_H, 3.6), _m_wall())
-	_solid(root, "ParkourStep_1", Vector3(2.55, y + 0.5, 75.3), Vector3(1.3, 1.0, 1.3), _m_ruin())
-	_solid(root, "ParkourStep_2", Vector3(2.55, y + 1.0, 77.0), Vector3(1.3, 2.0, 1.3), _m_ruin())
-	_solid(root, "ParkourStep_3", Vector3(2.9, y + 1.5, 78.5), Vector3(1.2, 3.0, 1.2), _m_ruin())
-	# The ledge top is above the deck rails' 2.7 m blockers: extra invisible blockers keep jumps off the ledge
-	# landing on the deck instead of in the gorge.
-	_invisible_wall(root, "LedgeBlocker_W", Vector3(-3.95, y + 4.7, 79.0), Vector3(0.45, 4.0, 10.0))
-	_invisible_wall(root, "LedgeBlocker_E", Vector3(3.95, y + 4.7, 79.0), Vector3(0.45, 4.0, 10.0))
-	var support := _make_breakable_pillar("WeakStoneSupport", Vector3(0.0, y + LEDGE_H, 80.2), BreakableProp.PropKind.WEAK_STONE_SUPPORT, 2, 0.0, Vector3.ZERO, 1.5)
-	var sup_intact: Node3D = support.get_node("IntactVisual") as Node3D
-	for c in sup_intact.get_children():
-		if c.name != "FractureSeam":
-			c.free()
-	var block := BoxMesh.new()
-	block.size = Vector3(3.2, 3.0, 1.0)
-	_mesh(sup_intact, "BarrierBlock", block, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(0, 1.5, 0)), true, 0.0, false)
-	(sup_intact.get_node("FractureSeam") as Node3D).position = Vector3(0, 1.5, -0.49)
-	# Collider = the barrier block (the greybox cylinder let players walk through both ends of the wall).
-	var sup_body: StaticBody3D = support.get_node("SolidBody") as StaticBody3D
-	for c in sup_body.get_children():
-		c.free()
-	var sup_cs := CollisionShape3D.new()
-	sup_cs.shape = _box_shape(Vector3(3.2, 3.0, 1.0))
-	sup_cs.position = Vector3(0, 1.5, 0)
-	sup_body.add_child(sup_cs)
-	# Rubble: low piles pushed against the balustrades, clear of the anchor switch path.
-	var sup_broken: Node3D = support.get_node("BrokenVisual") as Node3D
-	for c in sup_broken.get_children():
-		c.free()
-	var rubble_body := StaticBody3D.new()
-	rubble_body.name = "DebrisBody"
-	rubble_body.collision_layer = LAYER_WORLD_SHARED
-	sup_broken.add_child(rubble_body)
-	for sx in [-1.0, 1.0]:
-		var pile: ArrayMesh = ProcMesh.rock_mesh(Vector3(1.6, 0.5, 1.4), 88 + int(sx), 0.3, 6, 0.0)
-		_mesh(sup_broken, "Rubble", pile, _m_ruin(), Transform3D(Basis.IDENTITY, Vector3(sx * 1.3, 0.05, 0.2)), true, 0.0, false)
-		var rcs := CollisionShape3D.new()
-		rcs.shape = _box_shape(Vector3(0.9, 0.45, 1.0))
-		rcs.position = Vector3(sx * 1.3, 0.22, 0.2)
-		rubble_body.add_child(rcs)
-	root.add_child(support)
-
-	var anchor := _make_switch("BridgeAnchorSwitch", Vector3(0.0, y + LEDGE_H, 81.6), InteractSwitch.SwitchRole.BRIDGE_ANCHOR, 1,
-		NodePath(), NodePath("../GallerySpectralBridge"), NodePath("../WeakStoneSupport"))
-	_style_switch(anchor)
-	root.add_child(anchor)
+	# One clear Mirror lesson, no side errands: the bridge and the guard's shield both answer to the realms.
+	# Cross the spectral span in the Mirror, break the Shielded Guard (shield exists only in Reality) on the wide
+	# north deck; his fall opens the gate AND rebuilds the bridge in stone (way back for the squad).
 	var gate := _make_gate("Gate03_GalleryToMechanism", Vector3(0.0, y, 84.0), 2, "shielded_guard", false)
 	_style_gate(gate)
 	root.add_child(gate)
@@ -1588,7 +1552,10 @@ func _build_stage_03_gallery() -> Node3D:
 		var enemies := Node3D.new()
 		enemies.name = "Enemies"
 		var sg := ShieldedGuard.new()
-		_configure_enemy_actor(sg, "ShieldedGuard_1", "gallery_shielded_1", Vector3(0.0, y, 83.2), Color(0.75, 0.58, 0.25))
+		_configure_enemy_actor(sg, "ShieldedGuard_1", "gallery_shielded_1", Vector3(0.0, y, 79.5), Color(0.75, 0.58, 0.25))
+		sg.died.connect(func(_e: Node, _ctx: Dictionary) -> void:
+			if is_instance_valid(bridge) and not bridge.is_permanently_repaired:
+				bridge.repair_for_reality())
 		enemies.add_child(sg)
 		root.add_child(enemies)
 	# Gallery deck patrol (roamers: they never hold the gallery gate shut).
@@ -1599,9 +1566,11 @@ func _build_stage_03_gallery() -> Node3D:
 	# Deck edges: parapets except across the broken span.
 	for sx in [-1.0, 1.0]:
 		_parapet(root, "Rail_S_%d" % int(sx), Vector3(sx * 3.95, y, 60.0), Vector3(sx * 3.95, y, 70.0), _m_wall())
-		_parapet(root, "Rail_N_%d" % int(sx), Vector3(sx * 3.95, y, 74.0), Vector3(sx * 3.95, y, 84.0), _m_wall())
+		_parapet(root, "Rail_N_%d" % int(sx), Vector3(sx * 8.95, y, 74.0), Vector3(sx * 8.95, y, 84.0), _m_wall())
+		# South edge of the wide north deck: open only where the 3 m bridge lands (the gap stays a real pit).
+		_parapet(root, "Rail_NorthDeckS_%d" % int(sx), Vector3(sx * 2.0, y, 74.0), Vector3(sx * 8.95, y, 74.0), _m_wall())
 		_parapet(root, "Rail_SouthJoin_%d" % int(sx), Vector3(sx * 2.9, y, 60.0), Vector3(sx * 3.95, y, 60.0), _m_wall())
-		_parapet(root, "Rail_NorthJoin_%d" % int(sx), Vector3(sx * 2.2, y, 84.0), Vector3(sx * 3.95, y, 84.0), _m_wall())
+		_parapet(root, "Rail_NorthJoin_%d" % int(sx), Vector3(sx * 2.2, y, 84.0), Vector3(sx * 8.95, y, 84.0), _m_wall())
 	_parapet(root, "Corridor03_W", Vector3(-2.2, y, 84.0), Vector3(-2.2, y, 87.0), _m_wall())
 	_parapet(root, "Corridor03_E", Vector3(2.2, y, 84.0), Vector3(2.2, y, 87.0), _m_wall())
 
@@ -1620,7 +1589,7 @@ func _build_stage_03_gallery() -> Node3D:
 	for sx in [-1.0, 1.0]:
 		for s in shafts:
 			var h: float = float(s[1]) if sx < 0.0 else float(s[1]) * (0.6 if float(s[0]) > 70.0 else 1.0)
-			var pos := Vector3(sx * 3.45, y, float(s[0]))
+			var pos := Vector3(sx * (3.45 if float(s[0]) < 72.0 else 8.45), y, float(s[0]))
 			_mesh(g[0], "RuinColumn", ProcMesh.column_mesh(0.3, h, 12), _m_marble(), Transform3D(Basis.IDENTITY, pos), true, 160.0)
 			var body := StaticBody3D.new()
 			body.name = "RuinColumnBody"

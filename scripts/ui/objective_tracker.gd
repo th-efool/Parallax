@@ -110,25 +110,21 @@ func _compute(player: Node3D) -> Dictionary:
 			return {"title": "Cross the Sunlit Bridges to the Hall of Echoes", "hint": "Through the gate and over the bridges, past both bastions, to the hall.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 4, 26)))}
 		if not hall_left.is_empty():
 			return {"title": "Clear the Hall of Echoes — %d left" % hall_left.size(),
-				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) the cracked pillar to crush them.",
+				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) any column: it falls away from you and crushes everything in its path.",
 				"target": _nearest(hall_left, player).global_position}
 	if pz < 64.0 and py < 5.5:
 		return {"title": "Cross the Windswept Rampart", "hint": "Through the opened gate and over the rampart bridges, past both bastions, to the gallery.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 6, 62)))}
-	var brg: Node = _n("Stage03_CollapsedGallery/GallerySpectralBridge")
-	var sup: Node3D = _n("Stage03_CollapsedGallery/WeakStoneSupport") as Node3D
-	var sw3: Node3D = _n("Stage03_CollapsedGallery/BridgeAnchorSwitch") as Node3D
-	if brg != null and not bool(brg.get("is_permanently_repaired")) and pz <= 85.2:
-		var sup_intact: bool = sup != null and int(sup.get("current_state")) == 0
-		if sup_intact:
-			return {"title": "Cross the broken bridge",
-				"hint": "The bridge only exists in the Mirror — press Q and cross, climb the broken blocks on the right to the high ledge, then smash the cracked support with a Heavy (RMB).",
-				"target": sup.global_position}
-		return {"title": "Pull the Bridge Anchor", "hint": "Press E at the anchor switch to rebuild the bridge in Reality.",
-			"target": sw3.global_position if sw3 != null else JourneyLayout.to_world(Vector3(0, 6, 79))}
+	var brg: Node3D = _n("Stage03_CollapsedGallery/GallerySpectralBridge") as Node3D
 	var gate3: Node = _n("Stage03_CollapsedGallery/Gate03_GalleryToMechanism")
 	var guard: Array[EnemyBase] = _alive_in("Stage03_CollapsedGallery/Enemies")
 	if not guard.is_empty() and pz <= 85.2 and not (gate3 != null and bool(gate3.get("is_open"))):
-		return {"title": "Defeat the Shielded Guard", "hint": "Its shield only exists in Reality — fight it in the Mirror (Q).", "target": guard[0].global_position}
+		if pz < 74.0 and brg != null and not bool(brg.get("is_permanently_repaired")):
+			return {"title": "Cross the broken bridge",
+				"hint": "The span only exists in the Mirror: press Q and cross to the guard's deck.",
+				"target": brg.global_position}
+		return {"title": "Defeat the Shielded Guard",
+			"hint": "His shield only exists in Reality: fight him in the Mirror (Q). His fall opens the gate and rebuilds the bridge.",
+			"target": guard[0].global_position}
 	var puz: Node3D = _n("Stage04_MechanismChamber/ChamberMechanismPuzzle") as Node3D
 	if puz != null and not bool(puz.get("is_solved")) and pz <= 101.5:
 		if pz < 87.0:
@@ -201,9 +197,6 @@ func _label_props() -> void:
 	var specs: Array = [
 		["Stage01_EntryVestibule/EntryMirrorSwitch", "MIRROR SWITCH\nuse in the Mirror (E)", 1.8],
 		["Stage01_EntryVestibule/EntrySteppingStones", "MIRROR STONES\nsolid only in the Mirror (Q)", 1.2],
-		["Stage03_CollapsedGallery/BridgeAnchorSwitch", "BRIDGE ANCHOR\n(E)", 1.8],
-		["Stage03_CollapsedGallery/WeakStoneSupport", "CRACKED SUPPORT\nHeavy attack (RMB)", 3.2],
-		["Stage02_HallOfEchoes/CrackedCentralPillar", "CRACKED PILLAR\nHeavy (RMB) to topple", 5.0],
 	]
 	for s in specs:
 		var n: Node3D = _n(String(s[0])) as Node3D

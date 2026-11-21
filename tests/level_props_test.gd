@@ -33,15 +33,36 @@ func _run() -> void:
 	var gw: Node3D = s1.get_node_or_null("Roamers/GateWarden_W") as Node3D
 	_check("warden_enlarged", gw != null and (gw.get_node("VisualRoot") as Node3D).scale.x > 1.3)
 	var s3: Node3D = lv.get_node("Stage03_CollapsedGallery") as Node3D
-	var sup: Node3D = s3.get_node("WeakStoneSupport") as Node3D
-	var ledge: Node3D = s3.get_node("SupportLedge") as Node3D
-	var deck_y: float = (s3.get_node("GalleryFloorNorth") as Node3D).global_position.y + 0.25
-	_check("support_high", sup.global_position.y - deck_y > 3.4, "%.2f above deck" % (sup.global_position.y - deck_y))
-	_check("ledge_exists", ledge != null)
-	for i in [1, 2, 3]:
-		_check("parkour_step_%d" % i, s3.get_node_or_null("ParkourStep_%d" % i) != null)
-	var anchor: Node3D = s3.get_node("BridgeAnchorSwitch") as Node3D
-	_check("anchor_on_ledge", absf(anchor.global_position.y - sup.global_position.y) < 0.1 and anchor.global_position.z > sup.global_position.z)
+	# Gallery: no support/anchor errand; the guard duels on a wide deck and his death rebuilds the bridge.
+	_check("no_support_puzzle", s3.get_node_or_null("WeakStoneSupport") == null and s3.get_node_or_null("BridgeAnchorSwitch") == null and s3.get_node_or_null("SupportLedge") == null)
+	var deck_size: Vector3 = (((s3.get_node("GalleryFloorNorth") as Node3D).get_child(0) as CollisionShape3D).shape as BoxShape3D).size
+	_check("guard_deck_wide", deck_size.x >= 16.0, str(deck_size))
+	var sg: EnemyBase = s3.get_node("Enemies/ShieldedGuard_1") as EnemyBase
+	var brg: Node = s3.get_node("GallerySpectralBridge")
+	sg.is_active = true   # enemies outside the current section are dormant; wake for the test
+	sg.apply_damage(999999, true, "environmental")
+	for _i in range(3):
+		await process_frame
+	_check("guard_death_rebuilds_bridge", bool(brg.get("is_permanently_repaired")))
+	# Hall: every column is a directional knock weapon.
+	var s2: Node3D = lv.get_node("Stage02_HallOfEchoes") as Node3D
+	var knockable: int = 0
+	for ch in s2.get_children():
+		if ch is BreakableProp and (ch as BreakableProp).knock_directional:
+			knockable += 1
+	_check("hall_columns_knockable", knockable >= 9, "%d" % knockable)
+	var col: BreakableProp = s2.get_node("HallColumn_1") as BreakableProp
+	var victim: EnemyBase = s2.get_node("Enemies/SkeletonGuard_1") as EnemyBase
+	var striker := Node3D.new()
+	s2.add_child(striker)
+	striker.global_position = col.global_position - Vector3(3.0, 0, 0)   # strike from the west: falls east
+	victim.global_position = col.global_position + Vector3(6.0, 0, 0.3)
+	victim.is_active = true
+	var hp0: int = victim.health
+	col.trigger_break(true, striker)
+	col.complete_break_now()
+	_check("knock_falls_away_from_striker", col.fall_zone_offset.x > 4.0, str(col.fall_zone_offset))
+	_check("knock_crushes_in_fall_line", victim.health < hp0 or victim.is_dead, "%d -> %d" % [hp0, victim.health])
 	_check("gallery_extra_enemies", s3.get_node_or_null("Roamers/GallerySkeleton_A") != null and s3.get_node_or_null("Roamers/GallerySkeleton_B") != null)
 	var fails: int = _results.filter(func(r: String) -> bool: return r.begins_with("FAIL")).size()
 	print("[props] SUMMARY %d checks, %d failed" % [_results.size(), fails])

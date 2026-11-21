@@ -30,6 +30,10 @@ signal hazard_damage_applied(enemies_hit: int, player_hit: bool)
 @export var player_hazard_damage: int = 40
 @export var damage_radius: float = 2.5
 @export var fall_zone_offset: Vector3 = Vector3(0.0, 0.0, 2.5)
+## Directional knock: the prop falls AWAY from whoever struck it and the hazard covers the whole fall line
+## (segment of `knock_fall_length`, half-width `damage_radius`) instead of a fixed circle.
+@export var knock_directional: bool = false
+@export var knock_fall_length: float = 9.0
 @export var intact_visual_path: NodePath = NodePath("IntactVisual")
 @export var broken_visual_path: NodePath = NodePath("BrokenVisual")
 
@@ -65,13 +69,15 @@ func _process(delta: float) -> void:
 			complete_break_now()
 
 
-func trigger_break(by_heavy_attack: bool = true) -> bool:
+func trigger_break(by_heavy_attack: bool = true, knocker: Node = null) -> bool:
 	if prop_kind == PropKind.CENTRAL_MIRROR_PLANE:
 		return false
 	if current_state != PropState.INTACT:
 		return false
 	if require_heavy_attack and not by_heavy_attack:
 		return false
+	if knock_directional:
+		_aim_knock(knocker)
 
 	current_state = PropState.BREAKING
 	_warning_timer = warning_duration
@@ -224,6 +230,28 @@ func get_fall_zone_center() -> Vector3:
 	return global_position + fall_zone_offset
 
 
+## Points the fall away from the striker; the rubble (BrokenVisual, authored falling toward +Z) turns with it.
+func _aim_knock(knocker: Node) -> void:
+	var dir := Vector3(0.0, 0.0, 1.0)
+	if knocker is Node3D and is_inside_tree():
+		var d: Vector3 = global_position - (knocker as Node3D).global_position
+		d.y = 0.0
+		if d.length() > 0.05:
+			dir = d.normalized()
+	fall_zone_offset = dir * knock_fall_length * 0.5
+	var broken_vis: Node3D = get_node_or_null(broken_visual_path) as Node3D
+	if broken_vis != null:
+		broken_vis.rotation.y = atan2(dir.x, dir.z)
+
+
+func _in_fall_line(p: Vector3) -> bool:
+	var a := Vector2(global_position.x, global_position.z)
+	var off := Vector2(fall_zone_offset.x, fall_zone_offset.z) * 2.0
+	var q := Vector2(p.x, p.z)
+	var t: float = clampf((q - a).dot(off) / maxf(off.length_squared(), 0.0001), 0.0, 1.0)
+	return q.distance_to(a + off * t) <= damage_radius and absf(p.y - global_position.y) < 4.0
+
+
 func _apply_pillar_fall_hazard(explicit_candidates: Array[Node] = []) -> void:
 	var impact_center: Vector3 = get_fall_zone_center()
 	var targets: Array[Node] = []
@@ -241,7 +269,10 @@ func _apply_pillar_fall_hazard(explicit_candidates: Array[Node] = []) -> void:
 		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		var n3d: Node3D = node as Node3D
-		if n3d.global_position.distance_to(impact_center) > damage_radius:
+		if knock_directional:
+			if not _in_fall_line(n3d.global_position):
+				continue
+		elif n3d.global_position.distance_to(impact_center) > damage_radius:
 			continue
 
 		if node.is_in_group("player"):

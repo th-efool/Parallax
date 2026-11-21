@@ -2539,7 +2539,7 @@ func _run_destroy(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	_play(["2H_Melee_Attack_Chop", "1H_Melee_Attack_Chop"], 0.6, true)
 	_start_action("attack", 0.6, 0.3, func() -> void:
 		if is_instance_valid(prop):
-			prop.trigger_break(true))
+			prop.trigger_break(true, self))
 	finish_current("smashed")
 
 
