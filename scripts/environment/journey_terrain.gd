@@ -402,7 +402,7 @@ func _build_forest(root: Node3D) -> void:
 	var cells: Dictionary = {}   # Vector2i -> {"near": [[mesh_idx, xform]], "far": [xform]}
 	var placed: int = 0
 	var tries: int = 0
-	while placed < 16000 and tries < 120000:
+	while placed < 6000 and tries < 45000:
 		tries += 1
 		var x: float = rng.randf_range(-1100.0, 1100.0)
 		var z: float = rng.randf_range(-1030.0, 1170.0)

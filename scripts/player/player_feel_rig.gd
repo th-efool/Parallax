@@ -587,10 +587,12 @@ func _on_player_damaged(amount: int) -> void:
 func _update_ghosts(delta: float) -> void:
 	if _ghosts_left <= 0 or _model == null:
 		return
+	if _ghosts_left > 2:
+		_ghosts_left = 2
 	_ghost_timer -= delta
 	if _ghost_timer > 0.0:
 		return
-	_ghost_timer = 0.045
+	_ghost_timer = 0.09
 	_ghosts_left -= 1
 	_spawn_ghost(_ghost_color)
 

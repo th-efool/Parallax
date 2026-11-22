@@ -355,9 +355,15 @@ func _exit_tree() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _load_mouse_settings_from_store() -> void:
+var _mouse_settings_bound: bool = false
+
+
+func _load_mouse_settings_from_store(_changed: Dictionary = {}) -> void:
 	var store: Node = _get_leaderboard_store()
 	if store != null and store.has_method("get_settings"):
+		if not _mouse_settings_bound and store.has_signal("settings_changed"):
+			store.connect("settings_changed", _load_mouse_settings_from_store)
+			_mouse_settings_bound = true
 		var s: Dictionary = store.call("get_settings")
 		mouse_sensitivity = float(s.get("mouse_sensitivity", 0.0025))
 		invert_y = bool(s.get("invert_y", false))
@@ -383,7 +389,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func apply_look_delta(relative_motion: Vector2) -> void:
-	_load_mouse_settings_from_store()
+	if not _mouse_settings_bound:
+		_load_mouse_settings_from_store()
 	camera_yaw -= relative_motion.x * mouse_sensitivity
 	var y_sign: float = 1.0 if invert_y else -1.0
 	camera_pitch = clampf(

@@ -130,14 +130,18 @@ func m_marble() -> Material: return b.call("_m_marble") as Material
 func m_sand_stone() -> Material: return b.call("_m_wall") as Material
 
 
+static var _spectral_shader: Shader = null
+
+
 func spectral(color: Color, energy: float = 1.6, bob: float = 0.0, rim_only: float = 0.6) -> ShaderMaterial:
 	var key: String = "%s|%.2f|%.2f|%.2f" % [color.to_html(), energy, bob, rim_only]
 	if _mats.has(key):
 		return _mats[key]
-	var sh := Shader.new()
-	sh.code = SPECTRAL_SHADER_CODE
+	if _spectral_shader == null:
+		_spectral_shader = Shader.new()
+		_spectral_shader.code = SPECTRAL_SHADER_CODE
 	var m := ShaderMaterial.new()
-	m.shader = sh
+	m.shader = _spectral_shader
 	m.set_shader_parameter("color", color)
 	m.set_shader_parameter("energy", energy)
 	m.set_shader_parameter("bob", bob)

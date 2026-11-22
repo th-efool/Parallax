@@ -329,13 +329,20 @@ func stop_ambient_drone() -> void:
 	music_state_changed.emit(false)
 
 
+var _music_cache: Dictionary = {}
+
+
 func _track_stream(track: String) -> AudioStream:
+	if _music_cache.has(track):
+		return _music_cache[track] as AudioStream
 	var path: String = String(MUSIC_TRACKS.get(track, MUSIC_DRONE_PATH))
 	if not ResourceLoader.exists(path):
 		path = MUSIC_DRONE_PATH
 	if not ResourceLoader.exists(path):
 		return null
-	return _make_looping(load(path) as AudioStream)
+	var st: AudioStream = _make_looping(load(path) as AudioStream)
+	_music_cache[track] = st
+	return st
 
 
 static func _make_looping(stream: AudioStream) -> AudioStream:
@@ -773,7 +780,7 @@ func _load_streams() -> void:
 
 func _list_dirs(path: String) -> PackedStringArray:
 	var out := PackedStringArray()
-	if not DirAccess.dir_exists_absolute(path):
+	if not path.begins_with("res://") and not DirAccess.dir_exists_absolute(path):
 		return out
 	for entry in ResourceLoader.list_directory(path):
 		if entry.ends_with("/"):

@@ -404,7 +404,7 @@ func _on_mirror_insight(on: bool) -> void:
 	mirror_insight = on and mirror_damage_mult > 1.0
 	if not is_inside_tree():
 		return
-	if mirror_insight and (_weak_point == null or not is_instance_valid(_weak_point)):
+	if mirror_insight and is_active and not is_dead and (_weak_point == null or not is_instance_valid(_weak_point)):
 		var vis: Node3D = get_node_or_null(visual_root_path) as Node3D
 		if vis == null:
 			return

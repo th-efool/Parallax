@@ -55,8 +55,11 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	if get_tree() != null and get_tree().process_frame.is_connected(_on_tree_process_frame):
-		get_tree().process_frame.disconnect(_on_tree_process_frame)
+	if get_tree() != null:
+		if get_tree().root != null:
+			get_tree().root.disable_3d = false
+		if get_tree().process_frame.is_connected(_on_tree_process_frame):
+			get_tree().process_frame.disconnect(_on_tree_process_frame)
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -291,13 +294,18 @@ func _begin_run_loading() -> void:
 	_loading = LoadingScreen.new()
 	add_child(_loading)
 	_loading.set_progress(0.0, "Preparing the arena")
+	# Suspend live 3D rendering while the opaque 2D loading screen builds the world so ULTRA
+	# (MSAA_4X + 4-split shadows + SSAO) doesn't trigger cold-cache Vulkan TDR crashes mid-load.
+	if get_tree() != null and get_tree().root != null:
+		get_tree().root.disable_3d = true
 	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var level: Node = get_node_or_null(level_root_path)
 	if level != null and level.has_method("build_greybox_progressive"):
 		var on_level := func(frac: float, text: String) -> void:
-			_loading.set_progress(frac * 0.85, text)
+			if is_instance_valid(_loading):
+				_loading.set_progress(frac * 0.85, text)
 		level.connect("build_progress", on_level)
 		await level.call("build_greybox_progressive")
 		level.disconnect("build_progress", on_level)
@@ -305,13 +313,16 @@ func _begin_run_loading() -> void:
 	var amb: Node = get_node_or_null("AmbientLife")
 	if amb != null and amb.has_method("build_progressive"):
 		var on_amb := func(frac: float, text: String) -> void:
-			_loading.set_progress(0.85 + frac * 0.12, text)
+			if is_instance_valid(_loading):
+				_loading.set_progress(0.85 + frac * 0.12, text)
 		amb.connect("build_progress", on_amb)
 		await amb.call("build_progressive")
 		amb.disconnect("build_progress", on_amb)
 
 	_wire_level_dependent()
-	_loading.set_progress(0.97, "Gathering your squad")
+	if is_instance_valid(_loading):
+		_loading.set_progress(0.97, "Gathering your squad")
+	await get_tree().process_frame
 
 	var ed: Node = get_tree().get_first_node_in_group("encounter_director") if get_tree() != null else null
 	if _pending_continue:
@@ -323,9 +334,16 @@ func _begin_run_loading() -> void:
 		# Now that the enemies exist, set their section activation and the run state.
 		ed.call("restart_full_run")
 
+	await get_tree().process_frame
 	var squad: Node = get_tree().get_first_node_in_group("squad_manager") if get_tree() != null else null
 	if squad != null and squad.has_method("spawn_squad"):
 		squad.call("spawn_squad")
+
+	# Re-enable 3D rendering and let 2 frames settle behind the loading screen before fading it out.
+	if get_tree() != null and get_tree().root != null:
+		get_tree().root.disable_3d = false
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	_set_player_active(true)
 	var hud_node: HUDController = get_node_or_null(hud_path) as HUDController
@@ -336,7 +354,8 @@ func _begin_run_loading() -> void:
 	level_ready = true
 	_building = false
 	level_ready_changed.emit(true)
-	await _loading.finish()
+	if is_instance_valid(_loading):
+		await _loading.finish()
 	_loading = null
 
 

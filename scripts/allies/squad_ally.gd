@@ -3773,6 +3773,8 @@ func _steer_toward_dir(desired: Vector3, speed: float, delta: float, social: boo
 
 func _context_pick(desired: Vector3, speed: float, social: bool, goal_dist: float) -> Dictionary:
 	var space: PhysicsDirectSpaceState3D = _space()
+	if space == null:
+		return {"dir": desired, "speed_k": 1.0}
 	var wall_mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var look: float = clampf(WALL_LOOK * (0.6 + speed / 6.0), 1.0, 2.6)
 	var me: Vector3 = global_position
@@ -3875,6 +3877,8 @@ func _side_open(dir: Vector3) -> bool:
 	if not is_inside_tree():
 		return false
 	var space: PhysicsDirectSpaceState3D = _space()
+	if space == null:
+		return false
 	var from: Vector3 = global_position + Vector3.UP * 0.8
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 1.1, collision_mask, [get_rid()])
 	return space.intersect_ray(q).is_empty() and _floor_ahead(dir, 0.9)
@@ -3974,6 +3978,8 @@ func _separation() -> Vector3:
 
 func _floor_ahead(dir: Vector3, dist: float = 0.85) -> bool:
 	var space: PhysicsDirectSpaceState3D = _space()
+	if space == null:
+		return true
 	var from: Vector3 = global_position + dir * dist + Vector3.UP * 0.7
 	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.4, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
 	return not space.intersect_ray(q).is_empty()
@@ -3981,6 +3987,8 @@ func _floor_ahead(dir: Vector3, dist: float = 0.85) -> bool:
 
 func _point_walkable(p: Vector3) -> bool:
 	var space: PhysicsDirectSpaceState3D = _space()
+	if space == null:
+		return false
 	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 0.8, p + Vector3.DOWN * 2.0, mask, [get_rid()])
 	if space.intersect_ray(q).is_empty():

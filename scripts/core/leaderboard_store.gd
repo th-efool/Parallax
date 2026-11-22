@@ -470,7 +470,7 @@ func _apply_scene_graphics_and_camera() -> void:
 		var sun: DirectionalLight3D = main_node.get_node_or_null("SunLight") as DirectionalLight3D
 		if sun != null:
 			sun.shadow_enabled = (shadow_q > 0)
-			if ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality") <= 0:
+			if shadow_q <= 0:
 				sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 				sun.directional_shadow_split_1 = 0.1
 				sun.directional_shadow_split_2 = 0.3

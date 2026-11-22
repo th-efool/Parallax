@@ -237,8 +237,9 @@ func _build_rain() -> void:
 	_rain.name = "Rain"
 	_rain.amount = rain_max_particles
 	_rain.lifetime = 1.1
-	_rain.preprocess = 1.0
+	_rain.preprocess = 0.0
 	_rain.amount_ratio = 0.0
+	_rain.emitting = false
 	_rain.visibility_aabb = AABB(Vector3(-30, -30, -30), Vector3(60, 60, 60))
 	_rain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_rain.collision_base_size = 0.05

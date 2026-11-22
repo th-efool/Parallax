@@ -338,7 +338,7 @@ func _hit_flash(color: Color, duration: float) -> void:
 	_flash_serial += 1
 	var serial: int = _flash_serial
 	get_tree().create_timer(duration, true, false, true).timeout.connect(func() -> void:
-		if serial != _flash_serial or not is_instance_valid(self):
+		if not is_instance_valid(self) or serial != _flash_serial:
 			return
 		for mi2 in meshes:
 			if is_instance_valid(mi2) and mi2.material_overlay == _flash_mat:

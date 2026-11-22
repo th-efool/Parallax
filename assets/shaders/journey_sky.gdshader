@@ -1,5 +1,4 @@
 shader_type sky;
-render_mode use_half_res_pass;
 
 // Realm-reactive sky (Grand Journey).
 // Reality: Poly Haven "Kloppenheim 06 (Pure Sky)" golden-hour HDRI, rotated so its sun matches the scene sun.

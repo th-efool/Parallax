@@ -1214,7 +1214,7 @@ func _make_ambient_particles(center: Vector3, extents: Vector3, mirror_style: bo
 	p.name = "GlassFlecks" if mirror_style else "DustMotes"
 	p.amount = clampi(int(extents.x * extents.z * 0.9), 40, 160)
 	p.lifetime = 9.0
-	p.preprocess = 9.0
+	p.preprocess = 1.5
 	p.randomness = 0.5
 	p.position = center
 	p.visibility_aabb = AABB(-extents - Vector3.ONE, (extents + Vector3.ONE) * 2.0)
