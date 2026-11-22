@@ -36,7 +36,7 @@ const DEFAULTS: Dictionary = {
 }
 
 static var _loaded: bool = false
-static var provider_pref: String = "auto"
+static var provider_pref: String = "openai"
 ## Optional overrides (empty = provider default).
 static var base_url_override: String = ""
 static var model_override: String = ""

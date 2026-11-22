@@ -1820,10 +1820,18 @@ func _on_death() -> void:
 	_abort_attack()
 	_close_finisher_window("")
 	_update_hurtbox_invulnerability(false)
+	velocity = Vector3.ZERO
 	_set_state(State.DEAD, 0.0)
-	player_died.emit()
-	if EncounterDirector.instance != null:
-		EncounterDirector.instance.handle_player_death(self)
+	var overlay: Node = get_tree().get_first_node_in_group("death_overlay") if (is_inside_tree() and get_tree() != null) else null
+	if overlay != null and overlay.has_method("play_death_sequence"):
+		overlay.call("play_death_sequence", func() -> void:
+			if is_instance_valid(self) and EncounterDirector.instance != null:
+				EncounterDirector.instance.handle_player_death(self))
+		player_died.emit()
+	else:
+		player_died.emit()
+		if EncounterDirector.instance != null:
+			EncounterDirector.instance.handle_player_death(self)
 
 
 func _get_run_state() -> Node:
