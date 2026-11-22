@@ -222,12 +222,16 @@ func _handle_mark_enemy() -> void:
 			var nm: String = String(res.get("name", "Enemy"))
 			var extra: String = "  ·  +%d nearby in %dm" % [nearby, int(intel_n.mark_region_radius)] if nearby > 0 else ""
 			_on_notify("Marked %s [M%d]%s" % [nm, m_num, extra], "info")
+		"marked_location":
+			if AudioManager.instance != null:
+				AudioManager.instance.play_sfx("ui_confirm", -4.0)
+			_on_notify("Marked location (%dm)" % int(res.get("dist", 0)), "info")
 		"unmarked":
 			if AudioManager.instance != null:
 				AudioManager.instance.play_sfx("ui_back", -4.0)
 			_on_notify("Unmarked %s" % String(res.get("name", "Enemy")), "info")
 		_:
-			_on_notify("No enemy in sights to mark", "info")
+			_on_notify("Nothing in sights to mark", "info")
 	queue_redraw()
 
 
@@ -235,12 +239,12 @@ func _handle_clear_marks() -> void:
 	var intel_n: WorldIntel = _intel()
 	if intel_n == null:
 		return
-	if not intel_n.has_marks() and not intel_n.has_mark_zones():
+	if not intel_n.has_marks() and not intel_n.has_mark_zones() and not intel_n.has_location_mark():
 		return
 	intel_n.clear_marks()
 	if AudioManager.instance != null:
 		AudioManager.instance.play_sfx("ui_back", -4.0)
-	_on_notify("Cleared all enemy marks", "info")
+	_on_notify("Cleared all marks", "info")
 	queue_redraw()
 
 

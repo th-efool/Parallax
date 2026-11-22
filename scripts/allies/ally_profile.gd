@@ -85,10 +85,23 @@ func find_skill(key: String) -> AllySkill:
 	return null
 
 
+var _last_line_by_event: Dictionary = {}
+
+
 func line(event: String, fallback: String = "") -> String:
 	var arr: Variant = voice_lines.get(event, null)
 	if arr is Array and not (arr as Array).is_empty():
-		return String((arr as Array).pick_random())
+		var list: Array = arr as Array
+		if list.size() == 1:
+			return String(list[0])
+		var prev: String = String(_last_line_by_event.get(event, ""))
+		var pool: Array = []
+		for item in list:
+			if String(item) != prev:
+				pool.append(item)
+		var picked: String = String((pool if not pool.is_empty() else list).pick_random())
+		_last_line_by_event[event] = picked
+		return picked
 	if arr is String:
 		return String(arr)
 	return fallback

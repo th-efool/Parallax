@@ -57,9 +57,9 @@ color = Color(0.9, 0.7, 0.4, 1)
 [resource]
 script = ExtResource("1_prof")
 order = 1
-ally_name = "Brannoc"
+ally_name = "Sam"
 role = "vanguard"
-personality = "A towering shield-captain who died holding a gate. Calm, protective, gravel-voiced, speaks in short soldierly sentences, secretly sentimental."
+personality = "Sam is a grounded, deadpan frontline tank who watches everyone's back. Practical, dry-humored, protective, speaks like a real soldier under fire — never stiff or corny."
 color = Color(1, 0.72, 0.32, 1)
 model_path = "res://assets/models/characters/Barbarian.glb"
 model_scale = 1.04
@@ -82,39 +82,39 @@ nuke_radius = 2.6
 nuke_channel_sec = 1.6
 tts_voice = "onyx"
 gemini_voice = "Algenib"
-tts_instructions = "Deep, gravelly, calm veteran shield-captain. Short sentences."
+tts_instructions = "Calm, grounded, deadpan frontline veteran. Natural, human delivery — never theatrical."
 voice_lines = {
-"ack": ["On it.", "Understood.", "Aye.", "Consider it done."],
-"refuse": ["Not while I'm holding this line.", "Finish the job first."],
-"confused": ["Say again? I didn't catch that order.", "Speak plainly, friend."],
-"engage": ["Brannoc engaging!", "To me, filth!", "Shield up!"],
-"taunt": ["Over here, you rattling coward!", "Face ME!"],
-"retreat": ["Falling back to mend.", "I need a breath."],
-"low_hp": ["I'm bleeding badly.", "Can't take much more."],
-"downed": ["Down... get me up..."],
-"revived": ["Back on my feet. Thank you.", "Not done yet."],
-"kill": ["One less.", "Stay down."],
-"combo_ready": ["Charge ready!"],
-"combo_go": ["Now!", "With me!"],
-"charge": ["Charging!", "Out of my way!"],
-"clear": ["Clear! Hit them!"],
-"finish": ["Finish it!"],
-"nuke": ["Fire in the hole!"],
-"massacre": ["No mercy. No retreat.", "Then we end them all!"],
-"ceasefire": ["Weapons down.", "Holding fire."],
-"scatter": ["Break! Spread out!"],
-"dance": ["...I'm told this counts as dancing."],
-"jump": ["Hup!"],
-"idle": ["Quiet. Too quiet.", "Keep your eyes on the mirrors."],
-"revive_other": ["Hold on, I've got you."],
-"mission_lock": ["Mission first. I'll get to that after."],
-"bodyguard": ["I'm your shield.", "Nothing reaches you."],
-"complain": ["I held a gate for nine days. Now I jump on command.", "Is this a war or a festival?", "My knees were not built for this."],
-"banter": ["Sera, you call that footwork? I call it panic.", "Ivo, does your mirror ever show you anything useful?", "Quiet roads make me nervous."],
-"banter_reply": ["Steady, lad.", "Hmph. Fair point.", "Aye, aye."],
-"peel": ["Off them! Face me instead!", "That one's mine."],
-"hunt": ["Fine. I'll chase the birds."],
-"destroy": ["Stand back. Stone's coming down."],
-"interact": ["Let me get that."],
-"substitute": ["I'll cover it."]
+"ack": ["Got it.", "On my way.", "Copy that.", "Moving.", "Already on it."],
+"refuse": ["Kind of busy holding the line here.", "Give me a second to finish this."],
+"confused": ["Didn't quite catch that.", "Say that again?"],
+"engage": ["Taking point.", "I've got their attention.", "Pushing in."],
+"taunt": ["Hey! Eyes on me!", "Over here, big guy!"],
+"retreat": ["Pulling back a bit, taking heat.", "Need a breather."],
+"low_hp": ["Taking heavy hits here!", "Running low, watch my back."],
+"downed": ["I'm down... could use a hand."],
+"revived": ["Back up. Appreciate it.", "Still standing. Let's finish this."],
+"kill": ["That's one down.", "Scratch one."],
+"combo_ready": ["Lined up and ready."],
+"combo_go": ["Going in!", "Now!"],
+"charge": ["Coming through!", "Breaking their line!"],
+"clear": ["Clear — hit 'em!"],
+"finish": ["Ending this one."],
+"nuke": ["Brace for impact!"],
+"massacre": ["Alright, gloves off.", "Let's clear the whole room."],
+"ceasefire": ["Holding fire.", "Standing down."],
+"scatter": ["Spread out!", "Breaking formation!"],
+"dance": ["Don't tell anyone I did this."],
+"jump": ["Hup."],
+"idle": ["Quiet stretch. Stay sharp.", "Watch the corners."],
+"revive_other": ["Hang tight, I've got you."],
+"mission_lock": ["Finishing this first, then I'm on it."],
+"bodyguard": ["Stay behind my shield.", "Got you covered."],
+"complain": ["Sure, why not.", "I used to hold fortress gates, now I'm doing cardio."],
+"banter": ["Sera, try not to pull the whole room at once.", "Mark, tell me you've got something big loaded."],
+"banter_reply": ["Fair enough.", "Yeah, I hear you."],
+"peel": ["Get off them!", "Take it up with me!"],
+"hunt": ["Alright, chasing it down."],
+"destroy": ["Bringing this down — watch your head."],
+"interact": ["On it, grabbing that."],
+"substitute": ["I'll cover for them."]
 }

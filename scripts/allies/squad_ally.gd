@@ -259,6 +259,7 @@ func _build_body() -> void:
 			_tint(model, profile.tint)
 		if profile.role == "artillery":
 			_attach_staff(model, profile.color)
+		_apply_green_outline(model)
 	_bridge = CharacterAnimationBridge.new()
 	_bridge.name = "CharacterAnimationBridge"
 	_bridge.actor_path = NodePath("..")
@@ -290,11 +291,42 @@ func _build_body() -> void:
 	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	rm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	rm.albedo_color = Color(profile.color.r, profile.color.g, profile.color.b, 0.55) if profile != null else Color(1, 0.8, 0.4, 0.5)
+	rm.albedo_color = Color(0.24, 0.96, 0.48, 0.50)
 	_ring.material_override = rm
 	_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_ring)
 	_refresh_label()
+
+
+static var _ally_outline_mat: ShaderMaterial = null
+
+
+static func _get_green_outline_mat() -> ShaderMaterial:
+	if _ally_outline_mat == null:
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode cull_front, unshaded, depth_draw_opaque;
+uniform vec4 outline_color : source_color = vec4(0.18, 0.96, 0.44, 1.0);
+uniform float outline_width : hint_range(0.005, 0.08) = 0.028;
+void vertex() {
+	VERTEX += NORMAL * outline_width;
+}
+void fragment() {
+	ALBEDO = outline_color.rgb;
+}
+"""
+		_ally_outline_mat = ShaderMaterial.new()
+		_ally_outline_mat.shader = sh
+	return _ally_outline_mat
+
+
+func _apply_green_outline(node: Node) -> void:
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mi: MeshInstance3D = node as MeshInstance3D
+		mi.material_overlay = _get_green_outline_mat()
+	for ch in node.get_children():
+		_apply_green_outline(ch)
 
 
 func _tint(node: Node, c: Color) -> void:
@@ -679,6 +711,8 @@ func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
 			_run_follow(delta, player, cmd)
 		"hold":
 			_run_hold(delta, cmd)
+		"advance":
+			_run_advance(delta, player, cmd)
 		"retreat":
 			_run_retreat_order(delta, player, cmd)
 		"attack":
@@ -861,8 +895,20 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 
 func _run_hold(delta: float, cmd: SquadCommand) -> void:
 	if not cmd.data.has("spot"):
-		cmd.data["spot"] = cmd.args.get("spot", global_position) as Vector3
-		cmd.args["spot"] = cmd.data["spot"]   # survives an interruption (rally / skill) -> resumes at the same spot
+		var tgt_s: String = String(cmd.args.get("target", "")).to_lower()
+		var resolved_spot: Vector3 = Vector3.INF
+		if cmd.args.has("spot") and cmd.args["spot"] is Vector3:
+			resolved_spot = cmd.args["spot"] as Vector3
+		elif tgt_s.contains("mark") or tgt_s.contains("ping") or tgt_s.contains("location") or tgt_s.contains("spot"):
+			var wi: Node = get_tree().get_first_node_in_group("world_intel") if get_tree() != null else null
+			if wi != null and wi.has_method("get_location_mark"):
+				resolved_spot = wi.call("get_location_mark") as Vector3
+				if not cmd.args.has("engage_r"):
+					cmd.args["engage_r"] = 14.0
+		if resolved_spot == Vector3.INF:
+			resolved_spot = global_position
+		cmd.data["spot"] = resolved_spot
+		cmd.args["spot"] = resolved_spot   # survives an interruption (rally / skill) -> resumes at the same spot
 		cmd.step = "holding " + String(cmd.args.get("lane", "")) if cmd.args.has("lane") else "holding"
 	var spot: Vector3 = cmd.data["spot"]
 	var near: EnemyAI = _nearest_enemy(global_position, float(cmd.args.get("engage_r", 3.5)))
@@ -873,6 +919,47 @@ func _run_hold(delta: float, cmd: SquadCommand) -> void:
 		_move_to(spot, profile.move_speed, delta)
 	else:
 		cmd.data["arrived"] = true
+		_halt(delta)
+
+
+## March to a marked location (or ahead of the player), engaging and holding any enemies encountered along the way.
+func _run_advance(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		var base_spot: Vector3 = Vector3.INF
+		if cmd.args.has("spot") and cmd.args["spot"] is Vector3:
+			base_spot = cmd.args["spot"] as Vector3
+		if base_spot == Vector3.INF and get_tree() != null:
+			var wi: Node = get_tree().get_first_node_in_group("world_intel")
+			if wi != null and wi.has_method("get_location_mark"):
+				base_spot = wi.call("get_location_mark") as Vector3
+		if base_spot == Vector3.INF and player != null:
+			var fwd: Vector3 = player.call("get_facing_direction") as Vector3 if player.has_method("get_facing_direction") else -player.global_transform.basis.z
+			fwd.y = 0.0
+			fwd = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
+			base_spot = player.global_position + fwd * 24.0
+		if base_spot == Vector3.INF:
+			base_spot = global_position
+		# Spread multiple allies laterally around the marked spot so they don't stack.
+		var to_spot: Vector3 = base_spot - global_position
+		to_spot.y = 0.0
+		var dir: Vector3 = to_spot.normalized() if to_spot.length_squared() > 0.01 else Vector3.FORWARD
+		var right := Vector3(-dir.z, 0.0, dir.x)
+		var slot_spot: Vector3 = base_spot + right * (float(slot_index) - 1.0) * 1.4
+		cmd.data["spot"] = slot_spot
+		cmd.args["spot"] = slot_spot
+	var spot: Vector3 = cmd.data["spot"]
+	var engage_r: float = float(cmd.args.get("engage_r", 14.0))
+	var near: EnemyAI = _nearest_enemy(global_position, engage_r)
+	if near != null:
+		cmd.step = "engaging ahead"
+		_fight(near, delta, true)
+		return
+	if global_position.distance_to(spot) > 1.4:
+		cmd.step = "advancing to mark"
+		_move_to(spot, profile.move_speed, delta)
+	else:
+		cmd.data["arrived"] = true
+		cmd.step = "holding mark"
 		_halt(delta)
 
 
@@ -1752,7 +1839,8 @@ func use_skill(s: AllySkill, target: Node3D = null) -> bool:
 		_skill_gap = 1.5
 		last_skill = s.display_name
 		_combat_quiet = 0.0
-		if not s.voice_line.is_empty():
+		# Only voice skill callouts on explicit player-ordered skills so auto-cast combat skills never spam repetitive lines.
+		if not s.voice_line.is_empty() and current != null and current.verb == "skill":
 			say(s.voice_line, "skill", 1)
 		if manager != null and manager.has_method("log_event"):
 			manager.call("log_event", get_display_name(), "skill " + s.display_name, (target.call("get_display_name") if target != null and target.has_method("get_display_name") else ""))
@@ -3112,19 +3200,10 @@ func _process_downed(delta: float) -> void:
 	velocity.z = 0.0
 	_apply_gravity_and_move(delta)
 	var pl: Node3D = _player()
+	# Never distance-teleport a downed ally back to the player; only rescue them to safe local floor on real pit/void falls.
 	var pit_or_void: bool = _in_pit_kill_zone() or global_position.y < -20.0
-	var far_or_below: bool = false
-	if pl != null and is_instance_valid(pl):
-		if global_position.y < pl.global_position.y - 6.0 or global_position.distance_to(pl.global_position) > 35.0:
-			far_or_below = true
-	if pit_or_void or far_or_below:
-		if pl != null and is_instance_valid(pl):
-			if not (pl is PlayerController and (pl as PlayerController).is_currently_airborne()):
-				_blink_to(pl)
-			elif pit_or_void or global_position.y < pl.global_position.y - 6.0:
-				_rescue_from_pit(pl)
-		else:
-			_rescue_from_pit(null)
+	if pit_or_void:
+		_rescue_from_pit(pl)
 	_update_revive_prompt()
 
 

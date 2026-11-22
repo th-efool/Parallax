@@ -76,7 +76,7 @@ script = ExtResource("1_prof")
 order = 2
 ally_name = "Sera"
 role = "skirmisher"
-personality = "A quick, sardonic duelist echo who loves being chased. Cocky, playful, fast-talking, never wants to look scared."
+personality = "Sera is a fast, sharp-tongued flanker and duelist who thrives under pressure. Cocky, playful, observant, quick with dry humor — speaks naturally like a real teammate."
 color = Color(0.4, 0.88, 1, 1)
 model_path = "res://assets/models/characters/Skeleton_Rogue.glb"
 model_scale = 1.0
@@ -127,7 +127,7 @@ voice_lines = {
 "mission_lock": ["Mid-job! Queueing that."],
 "kite": ["Come on, follow me!", "Running laps!"],
 "complain": ["Seriously? Again?", "I died for this. Literally died. For this.", "If anyone asks, this was my idea."],
-"banter": ["Brannoc, do you ever smile, or is the helmet stuck?", "Ivo, read me something boring so I can nap.", "Race you to the next gate."],
+"banter": ["Sam, do you ever relax, or is the shield welded to your arm?", "Mark, save one of those blasts for me.", "Race you to the next gate."],
 "banter_reply": ["Ha! Sure.", "Whatever you say, boss.", "Mm-hm."],
 "peel": ["Hey ugly, over here instead!", "Peeling it off you!"],
 "hunt": ["Ooh, wildlife! Tally-ho!"],

@@ -15,6 +15,7 @@ enum Priority { AUTO = 0, ORDER = 1, MISSION = 2, PANIC = 3 }
 const VERBS: Dictionary = {
 	"follow": [Priority.ORDER, false, true],
 	"hold": [Priority.ORDER, false, true],
+	"advance": [Priority.ORDER, false, true],     # move to marked location / ahead, engaging & holding enemies along the way
 	"attack": [Priority.ORDER, true, false],
 	"retreat": [Priority.ORDER, false, true],
 	"auto_engage": [Priority.ORDER, true, false],
@@ -132,4 +133,6 @@ func describe() -> String:
 				return "hold %s" % String(args["lane"])
 			if args.has("label"):
 				return String(args["label"])
+		"advance":
+			return "advance to marked spot"
 	return verb.replace("_", " ") + ("" if t.is_empty() else " " + t)

@@ -348,6 +348,10 @@ func find_ally(n: String) -> SquadAlly:
 	var key: String = n.strip_edges().to_lower()
 	if key.is_empty():
 		return null
+	if key == "brannoc":
+		key = "sam"
+	elif key == "ivo":
+		key = "mark"
 	for a in allies:
 		if a.get_display_name().to_lower() == key or a.get_role() == key:
 			return a

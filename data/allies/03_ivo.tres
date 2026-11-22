@@ -68,15 +68,15 @@ radius = 5
 power = 22
 duration = 0.8
 auto_use = "engaged"
-voice_line = "Conducting!"
+voice_line = "Chaining them!"
 color = Color(0.75, 0.6, 1, 1)
 
 [resource]
 script = ExtResource("1_prof")
 order = 3
-ally_name = "Ivo"
+ally_name = "Mark"
 role = "artillery"
-personality = "A scholarly mirror-mage echo. Precise, polite, a little pompous, fascinated by the arena's mirror magic, calls explosions 'demonstrations'."
+personality = "Mark is a cool-headed, sarcastic tactical caster who reads the battlefield two steps ahead. Dry wit, sharp callouts, grounded and modern — never pompous or corny."
 color = Color(0.82, 0.55, 1, 1)
 model_path = "res://assets/models/characters/Knight.glb"
 model_scale = 0.98
@@ -99,40 +99,40 @@ nuke_radius = 3.8
 nuke_channel_sec = 1.3
 tts_voice = "fable"
 gemini_voice = "Iapetus"
-tts_instructions = "Precise, refined scholar-mage. Slightly pompous, articulate."
+tts_instructions = "Cool-headed, dry-witted tactical teammate. Natural conversational tone — never pompous or theatrical."
 voice_lines = {
-"ack": ["Certainly.", "As you wish.", "A sound plan."],
-"refuse": ["I am mid-incantation, kindly wait.", "One spell at a time, please."],
-"confused": ["I'm afraid that instruction is beyond my grimoire.", "Could you rephrase that?"],
-"engage": ["Commencing demonstration.", "Mirror, lend me your edge."],
-"taunt": ["You there! Yes, you, ghastly thing!"],
-"retreat": ["Retiring to a safer vantage.", "Withdrawing to recompose."],
-"low_hp": ["My wards are failing!", "I'm rather badly hurt."],
-"downed": ["Most... undignified..."],
-"revived": ["Ah. Restored. Splendid.", "My thanks."],
-"kill": ["Q.E.D.", "Elegant."],
-"combo_ready": ["Channeling! Keep them clustered!", "The circle is ready."],
-"combo_go": ["Release!", "Behold!"],
-"sigil": ["Sigil laid. Bring them to me.", "The trap is set. Lure them in."],
-"detonate": ["Release!", "Detonating!"],
-"clear": ["Clear the circle!"],
-"finish": ["Allow me."],
-"charge": ["Ahem. Charging."],
-"massacre": ["Unrestrained? How delightfully reckless.", "Full power, then."],
-"ceasefire": ["Dispelling.", "Holding my fire."],
-"scatter": ["Dispersing!"],
-"dance": ["A minuet, then. Observe."],
-"jump": ["Ahem. Hup."],
-"idle": ["These mirrors hum in B-flat.", "Fascinating architecture."],
-"revive_other": ["Stay still, I'm mending you."],
-"mission_lock": ["Noted, after this incantation."],
-"nuke": ["Stand clear!", "Shards, fall!"],
-"complain": ["This is not what the Academy trained me for.", "I shall document this indignity.", "Must I? Very well."],
-"banter": ["Did you know these mirrors hum in B-flat?", "Brannoc, your shield is scientifically fascinating.", "Sera, please stop licking the crystals."],
-"banter_reply": ["Indeed.", "How... illuminating.", "Noted."],
-"peel": ["Away from them, fiend!"],
-"hunt": ["For research purposes, naturally."],
-"destroy": ["A controlled demolition, then."],
+"ack": ["Got it.", "On it.", "Easy enough.", "Locking it in.", "Already moving."],
+"refuse": ["Mid-cast right now, give me a second.", "Let me finish this shot first."],
+"confused": ["Wait, say that again?", "Didn't quite follow that."],
+"engage": ["Opening up on them.", "Got a clean angle."],
+"taunt": ["Hey! Look over here!"],
+"retreat": ["Backing off for space.", "Repositioning, too close."],
+"low_hp": ["Taking hits here, need a breather!", "Shields down, I'm hurt!"],
+"downed": ["Ugh... I'm down."],
+"revived": ["Back in it. Thanks.", "Owe you one."],
+"kill": ["Clean.", "Down they go."],
+"combo_ready": ["Charging up — keep 'em grouped!", "Ready when you are."],
+"combo_go": ["Dropping it now!", "Here it comes!"],
+"sigil": ["Trap's down. Pull them over it.", "Mine is live, bait them in."],
+"detonate": ["Blowing it!", "Boom."],
+"clear": ["Step back, clearing the zone!"],
+"finish": ["Wrapping this up."],
+"charge": ["Alright, pushing in."],
+"massacre": ["No holding back? Works for me.", "Full send, then."],
+"ceasefire": ["Holding fire.", "Standing down."],
+"scatter": ["Spreading out!"],
+"dance": ["If we survive this, never bring this up."],
+"jump": ["Up we go."],
+"idle": ["Keep an eye on the flanks.", "Too quiet right now."],
+"revive_other": ["Hold still, patching you up."],
+"mission_lock": ["Right after I finish this."],
+"nuke": ["Heads up, incoming!", "Clearing the cluster!"],
+"complain": ["Not really my job description, but fine.", "Sure, I'll handle it."],
+"banter": ["Sam, keep them bunched up and I'll wipe the whole line.", "Sera, try not to dodge into my blast radius."],
+"banter_reply": ["Fair point.", "Noted.", "Yeah, I'm on it."],
+"peel": ["Pulling them off you!"],
+"hunt": ["Sure, I'll chase it down."],
+"destroy": ["Bringing that structure down."],
 "interact": ["Allow me to operate the mechanism."],
 "substitute": ["I shall improvise."]
 }

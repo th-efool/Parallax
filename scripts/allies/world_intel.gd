@@ -46,6 +46,9 @@ var show_tags: bool = false
 var _marks: Array[Dictionary] = []       # {"iid": int, "ref": WeakRef, "num": int, "marked_ms": int, "last_pos": Vector3}
 var _mark_zones: Array[Dictionary] = []  # {"pos": Vector3, "expires_ms": int, "mark_num": int}
 var mark_region_radius: float = MARK_REGION_RADIUS
+var _has_location_mark: bool = false
+var _location_mark_pos: Vector3 = Vector3.ZERO
+var _location_pin: Label3D = null
 
 
 func _ready() -> void:
@@ -108,6 +111,7 @@ func refresh() -> void:
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	if player == null or not is_instance_valid(player):
 		return
+	_update_location_pin(player)
 	var pf: Vector3 = player.call("get_facing_direction") if player.has_method("get_facing_direction") else Vector3.FORWARD
 	for n in get_tree().get_nodes_in_group("enemy"):
 		if not is_instance_valid(n) or not (n is EnemyAI):
@@ -307,9 +311,13 @@ func describe_text(max_rows: int = 18) -> String:
 func describe_marks_text() -> String:
 	prune_marks()
 	var summaries: Array[Dictionary] = get_marked_summaries()
-	if summaries.is_empty() and _mark_zones.is_empty():
+	if summaries.is_empty() and _mark_zones.is_empty() and not _has_location_mark:
 		return "- none"
 	var lines: PackedStringArray = []
+	if _has_location_mark:
+		var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D if (is_inside_tree() and get_tree() != null) else null
+		var d_loc: float = player.global_position.distance_to(_location_mark_pos) if (player != null and is_instance_valid(player)) else 0.0
+		lines.append("- MARKED LOCATION (ground ping): %.0fm away — send allies here with action='advance' target='marked_location' (they engage & hold any enemies on the way)" % d_loc)
 	for sm in summaries:
 		var m_num: int = int(sm.get("num", 1))
 		var e: EnemyAI = sm.get("node", null) as EnemyAI
@@ -744,6 +752,65 @@ func unmark_enemy(e: EnemyAI) -> bool:
 	return removed
 
 
+func has_location_mark() -> bool:
+	return _has_location_mark
+
+
+func get_location_mark() -> Vector3:
+	if _has_location_mark:
+		return _location_mark_pos
+	prune_marks()
+	if not _marks.is_empty():
+		var rec: Dictionary = _marks[_marks.size() - 1]
+		var obj: Object = (rec["ref"] as WeakRef).get_ref()
+		if is_instance_valid(obj) and obj is Node3D:
+			return (obj as Node3D).global_position
+		return rec.get("last_pos", Vector3.INF) as Vector3
+	if not _mark_zones.is_empty():
+		return (_mark_zones[_mark_zones.size() - 1] as Dictionary).get("pos", Vector3.INF) as Vector3
+	return Vector3.INF
+
+
+func set_location_mark(pos: Vector3) -> void:
+	_has_location_mark = true
+	_location_mark_pos = pos
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D if (is_inside_tree() and get_tree() != null) else null
+	_update_location_pin(player)
+	marks_changed.emit(get_marked_summaries())
+
+
+func clear_location_mark() -> void:
+	_has_location_mark = false
+	_location_mark_pos = Vector3.ZERO
+	if _location_pin != null and is_instance_valid(_location_pin):
+		_location_pin.visible = false
+
+
+func _update_location_pin(player: Node3D) -> void:
+	if not _has_location_mark:
+		if _location_pin != null and is_instance_valid(_location_pin):
+			_location_pin.visible = false
+		return
+	if _location_pin == null or not is_instance_valid(_location_pin):
+		_location_pin = Label3D.new()
+		_location_pin.name = "LocationMarkPin"
+		_location_pin.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_location_pin.no_depth_test = true
+		_location_pin.fixed_size = true
+		_location_pin.pixel_size = 0.0011
+		_location_pin.font_size = 22
+		_location_pin.outline_size = 6
+		_location_pin.outline_modulate = Color(0.02, 0.02, 0.04, 0.92)
+		_location_pin.font = UITheme.body_font()
+		add_child(_location_pin)
+		WorldLabelOverlay.adopt(_location_pin, {"px": 15, "offset": Vector2(0.0, -18.0), "max_dist": 200.0, "kind": "mark"})
+	_location_pin.global_position = _location_mark_pos + Vector3.UP * 1.4
+	var dist: float = player.global_position.distance_to(_location_mark_pos) if (player != null and is_instance_valid(player)) else 0.0
+	_location_pin.text = "SPOT · %.0fm" % dist
+	_location_pin.modulate = Color(0.42, 0.92, 1.0, 0.98)
+	_location_pin.visible = not bool(_location_pin.get_meta("cinematic_hidden", false))
+
+
 func clear_marks() -> void:
 	for rec in _marks:
 		var obj: Object = ((rec as Dictionary)["ref"] as WeakRef).get_ref()
@@ -751,6 +818,7 @@ func clear_marks() -> void:
 			_hide_mark_pins(obj as Node)
 	_marks.clear()
 	_mark_zones.clear()
+	clear_location_mark()
 	refresh()
 	marks_changed.emit(get_marked_summaries())
 
@@ -759,9 +827,38 @@ func peek_aim_candidate(max_dist: float = MARK_AIM_MAX_DIST) -> EnemyAI:
 	return _pick_aim_candidate(max_dist)
 
 
+func _raycast_aim_location(max_dist: float = MARK_AIM_MAX_DIST) -> Vector3:
+	if not is_inside_tree() or get_tree() == null or get_viewport() == null:
+		return Vector3.INF
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null or not is_instance_valid(cam):
+		return Vector3.INF
+	var world: World3D = cam.get_world_3d()
+	if world == null or world.direct_space_state == null:
+		return Vector3.INF
+	var origin: Vector3 = cam.global_position
+	var fwd: Vector3 = -cam.global_transform.basis.z
+	var mask: int = RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR
+	var excl: Array[RID] = []
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player is CollisionObject3D:
+		excl.append((player as CollisionObject3D).get_rid())
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + fwd * max_dist, mask, excl)
+	var hit: Dictionary = world.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return Vector3.INF
+	return hit["position"] as Vector3
+
+
 func mark_enemy_at_aim(max_dist: float = MARK_AIM_MAX_DIST) -> Dictionary:
 	var target: EnemyAI = _pick_aim_candidate(max_dist)
 	if target == null:
+		var loc: Vector3 = _raycast_aim_location(max_dist)
+		if loc != Vector3.INF:
+			set_location_mark(loc)
+			var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D if get_tree() != null else null
+			var dist_m: int = int(round(player.global_position.distance_to(loc))) if (player != null and is_instance_valid(player)) else 0
+			return {"action": "marked_location", "enemy": null, "pos": loc, "dist": dist_m, "mark_num": 0, "nearby_count": 0}
 		return {"action": "none", "enemy": null, "mark_num": 0, "nearby_count": 0}
 	var ename: String = String(_look_of(target).get("name", target.name))
 	if is_marked(target):

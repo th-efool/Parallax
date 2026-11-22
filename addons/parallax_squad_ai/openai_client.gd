@@ -69,7 +69,7 @@ func transcribe(wav_bytes: PackedByteArray, prompt_hint: String = "") -> int:
 	if SquadAIConfig.provider() == "gemini":
 		var body: Dictionary = {
 			"contents": [{"role": "user", "parts": [
-				{"text": "Listen to the audio and transcribe only what the player actually spoke verbatim. If the audio is silence, background noise, or inaudible, reply with empty text. Do not invent words or repeat instructions. " + prompt_hint},
+				{"text": "Listen to the audio and transcribe only what the player actually spoke verbatim. ONLY recognize English or Hindi (including Hinglish). If the audio is in any other language, silence, background noise, or inaudible, reply with empty text. Do not invent words or repeat instructions. " + prompt_hint},
 				{"inline_data": {"mime_type": "audio/wav", "data": Marshalls.raw_to_base64(wav_bytes)}},
 			]}],
 			"generationConfig": {"temperature": 0.0},
@@ -79,8 +79,11 @@ func transcribe(wav_bytes: PackedByteArray, prompt_hint: String = "") -> int:
 	var boundary: String = "----parallax%d" % Time.get_ticks_usec()
 	var mb := PackedByteArray()
 	mb.append_array(_form_field(boundary, "model", SquadAIConfig.stt_model()))
+	mb.append_array(_form_field(boundary, "temperature", "0"))
+	var stt_prompt: String = "English or Hindi (Hinglish) only."
 	if not prompt_hint.is_empty():
-		mb.append_array(_form_field(boundary, "prompt", prompt_hint))
+		stt_prompt += " " + prompt_hint
+	mb.append_array(_form_field(boundary, "prompt", stt_prompt))
 	mb.append_array(("--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n" % boundary).to_utf8_buffer())
 	mb.append_array(wav_bytes)
 	mb.append_array(("\r\n--%s--\r\n" % boundary).to_utf8_buffer())

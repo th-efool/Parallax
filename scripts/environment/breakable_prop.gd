@@ -29,6 +29,7 @@ signal hazard_damage_applied(enemies_hit: int, player_hit: bool)
 @export var enemy_hazard_damage: int = 150
 @export var player_hazard_damage: int = 40
 @export var damage_radius: float = 2.5
+@export var splash_radius: float = 6.0
 @export var fall_zone_offset: Vector3 = Vector3(0.0, 0.0, 2.5)
 ## Directional knock: the prop falls AWAY from whoever struck it and the hazard covers the whole fall line
 ## (segment of `knock_fall_length`, half-width `damage_radius`) instead of a fixed circle.
@@ -244,12 +245,18 @@ func _aim_knock(knocker: Node) -> void:
 		broken_vis.rotation.y = atan2(dir.x, dir.z)
 
 
-func _in_fall_line(p: Vector3) -> bool:
+func _distance_to_fall_line(p: Vector3) -> float:
+	if absf(p.y - global_position.y) >= 4.0:
+		return INF
 	var a := Vector2(global_position.x, global_position.z)
 	var off := Vector2(fall_zone_offset.x, fall_zone_offset.z) * 2.0
 	var q := Vector2(p.x, p.z)
 	var t: float = clampf((q - a).dot(off) / maxf(off.length_squared(), 0.0001), 0.0, 1.0)
-	return q.distance_to(a + off * t) <= damage_radius and absf(p.y - global_position.y) < 4.0
+	return q.distance_to(a + off * t)
+
+
+func _in_fall_line(p: Vector3) -> bool:
+	return _distance_to_fall_line(p) <= damage_radius
 
 
 func _apply_pillar_fall_hazard(explicit_candidates: Array[Node] = []) -> void:
@@ -265,24 +272,31 @@ func _apply_pillar_fall_hazard(explicit_candidates: Array[Node] = []) -> void:
 
 	var enemies_hit: int = 0
 	var player_hit: bool = false
+	var outer_r: float = damage_radius + maxf(0.0, splash_radius)
 	for node in targets:
 		if not is_instance_valid(node) or not (node is Node3D):
 			continue
 		var n3d: Node3D = node as Node3D
-		if knock_directional:
-			if not _in_fall_line(n3d.global_position):
-				continue
-		elif n3d.global_position.distance_to(impact_center) > damage_radius:
+		var dist: float = _distance_to_fall_line(n3d.global_position) if knock_directional else n3d.global_position.distance_to(impact_center)
+		if dist > outer_r:
 			continue
 
 		if node.is_in_group("player"):
-			if node.has_method("apply_damage"):
+			# Only direct crush under the pillar hurts the player, not the outer shockwave.
+			if dist <= damage_radius and node.has_method("apply_damage"):
 				if bool(node.call("apply_damage", player_hazard_damage, self)):
 					player_hit = true
 		elif node.has_method("apply_damage"):
-			var res: Variant = node.call("apply_damage", enemy_hazard_damage, true, "environmental")
+			var dmg: int = enemy_hazard_damage
+			var is_splash: bool = dist > damage_radius
+			if is_splash:
+				var falloff: float = clampf((dist - damage_radius) / maxf(0.01, splash_radius), 0.0, 1.0)
+				dmg = maxi(1, int(round(lerpf(float(enemy_hazard_damage) * 0.55, float(enemy_hazard_damage) * 0.25, falloff))))
+			var res: Variant = node.call("apply_damage", dmg, true, "environmental")
 			if typeof(res) != TYPE_BOOL or bool(res):
 				enemies_hit += 1
+				if is_splash and node.has_method("enter_stunned") and not bool(node.get("is_dead")):
+					node.call("enter_stunned", 1.2)
 
 	hazard_damage_applied.emit(enemies_hit, player_hit)
 
