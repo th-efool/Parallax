@@ -38,6 +38,11 @@ var quote_timer: float = 0.0
 var _crack_rect: ColorRect = null
 var _menu_items: Array[Button] = []
 var _mirror_side: bool = false
+var _selected_idx: int = 0
+var _current_seam: float = SEAM_REALITY
+var _seam_tween: Tween = null
+var _prev_keys: Dictionary = {}
+var _last_nav_frame: int = -1
 
 
 func _ready() -> void:
@@ -50,6 +55,7 @@ func _ready() -> void:
 	_sync_ui_nodes()
 	if not visibility_changed.is_connected(_on_visibility_changed):
 		visibility_changed.connect(_on_visibility_changed)
+	_focus_first_item.call_deferred()
 
 
 func _process(delta: float) -> void:
@@ -57,6 +63,41 @@ func _process(delta: float) -> void:
 		quote_timer = maxf(0.0, quote_timer - delta)
 		if quote_timer <= 0.0:
 			dismiss_quote_card()
+	if not visible or not is_visible_in_tree():
+		_prev_keys.clear()
+		return
+	var q_down: bool = Input.is_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_Q)
+	var up_down: bool = Input.is_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_UP) or Input.is_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_W)
+	var down_down: bool = Input.is_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_S)
+	var enter_down: bool = Input.is_key_pressed(KEY_ENTER) or Input.is_physical_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_KP_ENTER) or Input.is_physical_key_pressed(KEY_KP_ENTER) or Input.is_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_SPACE)
+	var q_edge: bool = q_down and not bool(_prev_keys.get("q", false))
+	var up_edge: bool = up_down and not bool(_prev_keys.get("up", false))
+	var down_edge: bool = down_down and not bool(_prev_keys.get("down", false))
+	var enter_edge: bool = enter_down and not bool(_prev_keys.get("enter", false))
+	_prev_keys["q"] = q_down
+	_prev_keys["up"] = up_down
+	_prev_keys["down"] = down_down
+	_prev_keys["enter"] = enter_down
+	var cur_frame: int = Engine.get_process_frames()
+	if cur_frame == _last_nav_frame:
+		return
+	if quote_overlay_visible:
+		if q_edge or up_edge or down_edge or enter_edge:
+			_last_nav_frame = cur_frame
+			dismiss_quote_card()
+		return
+	if q_edge:
+		_last_nav_frame = cur_frame
+		_toggle_realm_glimpse()
+	elif up_edge:
+		_last_nav_frame = cur_frame
+		_select_menu_index(_selected_idx - 1)
+	elif down_edge:
+		_last_nav_frame = cur_frame
+		_select_menu_index(_selected_idx + 1)
+	elif enter_edge:
+		_last_nav_frame = cur_frame
+		_activate_selected_button()
 
 
 func _visible_menu_buttons() -> Array[Button]:
@@ -74,11 +115,37 @@ func _visible_menu_buttons() -> Array[Button]:
 	return out
 
 
+func _select_menu_index(idx: int) -> void:
+	var vis_btns: Array[Button] = _visible_menu_buttons()
+	if vis_btns.is_empty():
+		return
+	_selected_idx = (idx % vis_btns.size() + vis_btns.size()) % vis_btns.size()
+	for i in range(vis_btns.size()):
+		var b: Button = vis_btns[i]
+		var is_sel: bool = (i == _selected_idx)
+		MenuStyle._tween_highlight(b, 1.0 if is_sel else 0.0)
+		b.add_theme_color_override("font_color", UITheme.GOLD_BRIGHT if is_sel else Color(0.86, 0.82, 0.74, 0.66))
+		if is_sel and b.is_inside_tree() and not b.has_focus():
+			b.grab_focus()
+
+
+func _activate_selected_button() -> void:
+	var vis_btns: Array[Button] = _visible_menu_buttons()
+	if vis_btns.is_empty():
+		return
+	var idx: int = clampi(_selected_idx, 0, vis_btns.size() - 1)
+	var target_btn: Button = vis_btns[idx]
+	_select_menu_index(idx)
+	target_btn.pressed.emit()
+
+
 func _input(event: InputEvent) -> void:
 	if not visible or not is_visible_in_tree():
 		return
+	var cur_frame: int = Engine.get_process_frames()
 	if quote_overlay_visible:
 		if (event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo) or (event is InputEventMouseButton and (event as InputEventMouseButton).pressed):
+			_last_nav_frame = cur_frame
 			dismiss_quote_card()
 			if get_viewport() != null:
 				get_viewport().set_input_as_handled()
@@ -89,32 +156,37 @@ func _input(event: InputEvent) -> void:
 	if not kev.pressed or kev.echo:
 		return
 	var code: Key = kev.keycode if kev.keycode != KEY_NONE else kev.physical_keycode
-	if code == KEY_Q or kev.physical_keycode == KEY_Q:
-		_toggle_realm_glimpse()
+	var phys: Key = kev.physical_keycode
+	if code == KEY_Q or phys == KEY_Q:
+		if cur_frame != _last_nav_frame:
+			_last_nav_frame = cur_frame
+			_prev_keys["q"] = true
+			_toggle_realm_glimpse()
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
 		return
 	var vis_btns: Array[Button] = _visible_menu_buttons()
 	if vis_btns.is_empty():
 		return
-	var cur_idx: int = -1
-	var focus_owner: Control = get_viewport().gui_get_focus_owner() if get_viewport() != null else null
-	if focus_owner is Button:
-		cur_idx = vis_btns.find(focus_owner as Button)
-	if code == KEY_UP or code == KEY_W:
-		var next_i: int = (cur_idx - 1 + vis_btns.size()) % vis_btns.size() if cur_idx >= 0 else 0
-		vis_btns[next_i].grab_focus()
+	if code == KEY_UP or phys == KEY_UP or code == KEY_W or phys == KEY_W:
+		if cur_frame != _last_nav_frame:
+			_last_nav_frame = cur_frame
+			_prev_keys["up"] = true
+			_select_menu_index(_selected_idx - 1)
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
-	elif code == KEY_DOWN or code == KEY_S:
-		var next_i: int = (cur_idx + 1) % vis_btns.size() if cur_idx >= 0 else 0
-		vis_btns[next_i].grab_focus()
+	elif code == KEY_DOWN or phys == KEY_DOWN or code == KEY_S or phys == KEY_S:
+		if cur_frame != _last_nav_frame:
+			_last_nav_frame = cur_frame
+			_prev_keys["down"] = true
+			_select_menu_index(_selected_idx + 1)
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
-	elif code == KEY_ENTER or code == KEY_KP_ENTER or code == KEY_SPACE:
-		var target_btn: Button = vis_btns[cur_idx] if cur_idx >= 0 else vis_btns[0]
-		target_btn.grab_focus()
-		target_btn.pressed.emit()
+	elif code == KEY_ENTER or phys == KEY_ENTER or code == KEY_KP_ENTER or phys == KEY_KP_ENTER or code == KEY_SPACE or phys == KEY_SPACE:
+		if cur_frame != _last_nav_frame:
+			_last_nav_frame = cur_frame
+			_prev_keys["enter"] = true
+			_activate_selected_button()
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
 
@@ -292,6 +364,11 @@ func _build_default_ui() -> void:
 		b.text = String(spec[1]).to_upper()
 		b.size_flags_horizontal = Control.SIZE_FILL
 		MenuStyle.style_menu_item(b, 27)
+		b.mouse_entered.connect(func() -> void:
+			var vb: Array[Button] = _visible_menu_buttons()
+			var idx: int = vb.find(b)
+			if idx >= 0:
+				_select_menu_index(idx))
 		list.add_child(b)
 		set(spec[2], get_path_to(b))
 		_menu_items.append(b)
@@ -386,10 +463,7 @@ func _play_intro() -> void:
 func _focus_first_item() -> void:
 	if not visible or not is_inside_tree():
 		return
-	for b: Button in _menu_items:
-		if is_instance_valid(b) and b.visible and not b.disabled:
-			b.grab_focus()
-			return
+	_select_menu_index(0)
 
 
 func _on_visibility_changed() -> void:
@@ -403,8 +477,15 @@ func _toggle_realm_glimpse() -> void:
 		return
 	_mirror_side = not _mirror_side
 	var mat: ShaderMaterial = _crack_rect.material as ShaderMaterial
-	var tw: Tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("seam", v), float(mat.get_shader_parameter("seam")), SEAM_MIRROR if _mirror_side else SEAM_REALITY, 0.6).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	var target_seam: float = SEAM_MIRROR if _mirror_side else SEAM_REALITY
+	if _seam_tween != null and is_instance_valid(_seam_tween):
+		_seam_tween.kill()
+	var start_seam: float = _current_seam
+	_seam_tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	_seam_tween.tween_method(func(v: float) -> void:
+		_current_seam = v
+		if is_instance_valid(mat):
+			mat.set_shader_parameter("seam", v), start_seam, target_seam, 0.55).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	if AudioManager.instance != null:
 		AudioManager.instance.play_sfx("shift_to_mirror" if _mirror_side else "shift_to_reality", -6.0)
 

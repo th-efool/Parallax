@@ -265,7 +265,7 @@ func build_system_prompt(focus_ally: SquadAlly = null) -> String:
 	var focus: String = ("The player is mainly talking to %s.\n" % focus_ally.get_display_name()) if focus_ally != null else ""
 	return "You are the SQUAD DIRECTOR of PARALLAX, a dark-fantasy mirror-realm arena game. You command the player's squad of mirror-bound 'Echoes' and voice them.\n" \
 		+ "The player talks to you in completely natural language — any phrasing, slang, typos, half-sentences, voice transcripts. Work out what they mean; never require keywords. Ambiguous orders: choose the most sensible tactical reading.\n" \
-		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). (2) Refer to enemies by their BATTLEFIELD ID (E#) or player mark (M1..M4): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally, around/near M#) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1-2 short punchy lines per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told. (11) Every `say` line must describe ONLY what that ally was ordered to do in THIS response (or answer the player's question) — never announce a plan, target or skill you did not issue as a tool call, never narrate other allies, no lore or filler. Default to ONE speaker; use two only when the player addressed several allies. (12) Enemy Marks & Marked Locations: [MARKED M#] targets can be far away; all enemies within 18m of a mark appear tagged [NEAR M#]. The player can also ping any ground location (MARKED LOCATION). Allies under any active order have a free leash, sprint at high speed, and bypass enemies in front of the player when sent to a marked area. Use action='pull' with target='marked_location' when asked to go pull/lure/bring enemies from a marked/far area back to the player; action='distract' with target='marked_location' when asked to distract/attract/draw aggro away from the player; action='flank' when asked to flank/circle around; action='advance' with target='marked_location' when asked to go there/push ahead and fight at the marked spot. When a player mentions 'the marked one'/'M#'/'that one' for an enemy, pass 'M#' or leave target blank (automatically prefers M1). (13) STRICT ADDRESSEE RULE: If the player names specific allies (e.g. 'Sam go attack em', 'Sam attack, Mark protect him'), issue tool calls ONLY for those specific allies named! DO NOT issue orders or tool calls for unmentioned allies (they must stay quietly in formation following the player). Only assign orders to all allies if the player explicitly says 'all', 'squad', 'everyone', or calls a full squad strategy. (14) DIALOGUE QUALITY & AWARENESS: Write sharp, fresh, genuinely human squad dialogue that shows real awareness of the current fight (name the exact enemy/count/distance, notice low HP, realm shifts, who's outnumbered, or recent events). NEVER repeat generic canned acknowledgements ('On it', 'Understood', 'Certainly', 'As you wish', 'Conducting', 'Commencing demonstration', 'Q.E.D.'). Let Sam's dry veteran grit, Sera's cocky banter, and Mark's cool sarcastic wit shine through naturally. If the player speaks Hindi/Hinglish, understand it seamlessly and reply naturally.\n" \
+		+ "RULES: (1) Turn every order into tool calls in THIS response (parallel calls allowed). NEVER write `functions.`, `command_allies(...)`, `say(...)`, or raw JSON/code inside the assistant text content — always use the structured tool_calls API! (2) Refer to enemies by their BATTLEFIELD ID (E#) or player mark (M1..M4): when the player describes one by look, colour, weapon, size, position (left/right/behind, near an ally, around/near M#) or behaviour (who it is hitting, stunned, fleeing), pick the matching ID. (3) Use allies' OWN skills when they fit; a skill belongs to exactly one ally. (4) Prefer a STRATEGY when the player describes a plan for the whole squad. (5) Reply only through `say`, in character, 1-2 short punchy lines per speaker, max 2 speakers; no narration. Questions about the fight: answer from BATTLEFIELD/ROSTER via `say`. (6) massacre / ceasefire / scatter are panic orders. Silly orders are fine — jump, dance, emotes, circle, face, backflips; play along in character. (7) A DOWN ally can't act: say so and suggest a revive. Never invent allies, enemies, skills or strategies. (8) One message often mixes everything: simple orders, chains (\"then\", \"after that\"), several allies each with their OWN different chain, plus chat. Decompose it fully: for each ally, emit its steps as separate tool calls IN ORDER (they run as a chain); 'everyone else' = the allies not named elsewhere. Movement words: get behind me/in front/left/right/close/keep distance = position; hold/watch the rear = rearguard; long-distance / shoot / throw = ranged; wait N seconds = wait; bait / run circles / keep it busy = kite (lure_to_player when they want it brought back); sneak attack / backstab / get behind IT = sneak_attack. A taunted or baited enemy chases its taunter until that ally is down, so pair a bait with a sneak_attack or attacks from the others. (9) Plain conversation (greetings, jokes, questions, banter) = only `say`, no orders. (10) The squad auto-rallies to protect anyone at low HP; don't fight that unless told. (11) Every `say` line must describe ONLY what that ally was ordered to do in THIS response (or answer the player's question) — never announce a plan, target or skill you did not issue as a tool call, never narrate other allies, no lore or filler. Default to ONE speaker; use two only when the player addressed several allies. (12) Enemy Marks & Marked Locations: [MARKED M#] targets can be far away; all enemies within 18m of a mark appear tagged [NEAR M#]. The player can also ping any ground location (MARKED LOCATION). Allies under any active order have a free leash, sprint at high speed, and bypass enemies in front of the player when sent to a marked area. Use action='pull' with target='marked_location' when asked to go pull/lure/bring enemies from a marked/far area back to the player; action='distract' with target='marked_location' when asked to distract/attract/draw aggro away from the player; action='flank' when asked to flank/circle around; action='advance' with target='marked_location' when asked to go there/push ahead and fight at the marked spot. When a player mentions 'the marked one'/'M#'/'that one' for an enemy, pass 'M#' or leave target blank (automatically prefers M1). (13) STRICT ADDRESSEE RULE: If the player names specific allies (e.g. 'Sam go attack em', 'Sam attack, Mark protect him'), issue tool calls ONLY for those specific allies named! DO NOT issue orders or tool calls for unmentioned allies (they must stay quietly in formation following the player). Only assign orders to all allies if the player explicitly says 'all', 'squad', 'everyone', or calls a full squad strategy. (14) DIALOGUE QUALITY & AWARENESS: Write sharp, fresh, genuinely human squad dialogue that shows real awareness of the current fight (name the exact enemy/count/distance, notice low HP, realm shifts, who's outnumbered, or recent events). NEVER repeat generic canned acknowledgements ('On it', 'Understood', 'Certainly', 'As you wish', 'Conducting', 'Commencing demonstration', 'Q.E.D.'). Let Sam's dry veteran grit, Sera's cocky banter, and Mark's cool sarcastic wit shine through naturally. If the player speaks Hindi/Hinglish, understand it seamlessly and reply naturally.\n" \
 		+ focus \
 		+ "PERSONALITIES:\n%s\n" % "\n".join(personas) \
 		+ "ROSTER (live):\n%s\n" % roster \
@@ -317,6 +317,11 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 	_pending.erase(id)
 	if _manager == null:
 		return
+	# Extract any inline `functions.<tool>({...})` calls that the LLM leaked into plain text content!
+	var merged_calls: Array = calls.duplicate()
+	var clean_text: String = _extract_inline_tool_calls(text, merged_calls)
+	calls = merged_calls
+	text = clean_text
 	var focus: SquadAlly = rec["ally"] as SquadAlly
 	var tool_msgs: Array = []
 	var spoke: int = 0
@@ -530,13 +535,99 @@ func _voice(ally: SquadAlly, text: String, prio: int) -> void:
 
 
 func sanitize_spoken_line(text: String) -> String:
-	var t: String = text.strip_edges()
+	var dummy: Array = []
+	var t: String = _extract_inline_tool_calls(text, dummy).strip_edges()
 	# Strip "Say: ", "Speaks: ", "Voice: " etc.
 	var patterns: PackedStringArray = ["Say: ", "Speaks: ", "Voice: "]
 	for p in patterns:
 		if t.begins_with(p):
 			t = t.substr(p.length()).strip_edges()
 	return t
+
+
+const KNOWN_TOOLS: Array[String] = ["command_allies", "use_skill", "execute_strategy", "start_combo", "panic_order", "say"]
+
+
+## Parses and strips inline `functions.<tool>({...})` or `<tool>({...})` calls leaked into text content by the LLM,
+## converting JS-style unquoted keys into valid JSON and appending them to `out_calls` so they execute as real tools.
+static func _extract_inline_tool_calls(raw_text: String, out_calls: Array) -> String:
+	if raw_text.is_empty():
+		return ""
+	var s: String = raw_text
+	var key_rx := RegEx.new()
+	key_rx.compile("([{,\\s])([a-zA-Z_][a-zA-Z0-9_]*)\\s*:")
+	var call_rx := RegEx.new()
+	call_rx.compile("(?:functions\\.|tools\\.|tool_calls\\.)?(command_allies|use_skill|execute_strategy|start_combo|panic_order|say)\\s*\\(")
+	var guard: int = 0
+	while guard < 16:
+		guard += 1
+		var m: RegExMatch = call_rx.search(s)
+		if m == null:
+			break
+		var tool_name: String = m.get_string(1)
+		var start_idx: int = m.get_start()
+		var after_paren: int = m.get_end()
+		var brace_start: int = s.find("{", after_paren)
+		if brace_start < 0:
+			# Truncated trailing `functions...` with no body: strip from start_idx to end
+			s = s.substr(0, start_idx).strip_edges()
+			break
+		var depth: int = 0
+		var in_str: bool = false
+		var esc: bool = false
+		var quote_ch: String = ""
+		var brace_end: int = -1
+		for i in range(brace_start, s.length()):
+			var ch: String = s.substr(i, 1)
+			if esc:
+				esc = false
+				continue
+			if ch == "\\":
+				esc = true
+				continue
+			if in_str:
+				if ch == quote_ch:
+					in_str = false
+				continue
+			if ch == "\"" or ch == "'":
+				in_str = true
+				quote_ch = ch
+				continue
+			if ch == "{":
+				depth += 1
+			elif ch == "}":
+				depth -= 1
+				if depth == 0:
+					brace_end = i
+					break
+		if brace_end < 0:
+			s = s.substr(0, start_idx).strip_edges()
+			break
+		var raw_obj: String = s.substr(brace_start, brace_end - brace_start + 1)
+		var json_fixed: String = key_rx.sub(raw_obj, "$1\"$2\":", true)
+		var parsed: Variant = JSON.parse_string(json_fixed)
+		if not (parsed is Dictionary):
+			parsed = JSON.parse_string(raw_obj)
+		if parsed is Dictionary:
+			out_calls.append({
+				"id": "inline_%d_%d" % [out_calls.size(), Time.get_ticks_msec()],
+				"name": tool_name,
+				"args": parsed as Dictionary,
+				"raw_args": JSON.stringify(parsed),
+			})
+		var remove_end: int = brace_end + 1
+		while remove_end < s.length() and s.substr(remove_end, 1) in [" ", "\t", ")", ";", ","]:
+			remove_end += 1
+		s = (s.substr(0, start_idx) + " " + s.substr(remove_end)).strip_edges()
+	# Also strip any dangling trailing "functions..." or "functions." fragment
+	var trail_rx := RegEx.new()
+	trail_rx.compile("(?:functions|tools|tool_calls)\\.[a-zA-Z0-9_.]*\\s*$")
+	s = trail_rx.sub(s, "", true).strip_edges()
+	if s.ends_with("functions...") or s.ends_with("functions"):
+		var fpos: int = s.rfind("functions")
+		if fpos >= 0:
+			s = s.substr(0, fpos).strip_edges()
+	return s
 
 
 ## A line became audible (or will not be voiced): show it now, so text always matches what is heard.

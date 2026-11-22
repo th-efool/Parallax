@@ -381,6 +381,16 @@ func _on_results_presented(_summary: Dictionary) -> void:
 func _on_return_to_title() -> void:
 	PlayerController.ui_input_locked = false
 	if is_inside_tree() and get_tree() != null:
+		for sc in get_tree().get_nodes_in_group("squad_comms_hud"):
+			if sc != null and sc.has_method("close_chat"):
+				sc.call("close_chat")
+		var hud_c: Node = get_node_or_null(hud_path)
+		if hud_c != null:
+			var sc2: Node = hud_c.find_child("SquadCommsHUD", true, false)
+			if sc2 != null and sc2.has_method("close_chat"):
+				sc2.call("close_chat")
+		if get_viewport() != null:
+			get_viewport().gui_release_focus()
 		get_tree().paused = true
 		if get_tree().root != null:
 			var run_state: Node = get_tree().root.get_node_or_null("RunState")
