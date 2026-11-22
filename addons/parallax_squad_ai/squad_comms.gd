@@ -284,7 +284,7 @@ func _ask_llm(text: String, via: String) -> void:
 	var msgs: Array = [{"role": "system", "content": build_system_prompt(focus)}]
 	msgs.append_array(_director_history)
 	msgs.append({"role": "user", "content": text})
-	var id: int = client.chat_stream(msgs, tools(), 0.85)
+	var id: int = client.chat_stream(msgs, tools(), 0.45)
 	_pending[id] = {"ally": focus, "user_text": text, "via": via, "spoken_upto": 0, "text": ""}
 
 
@@ -320,6 +320,7 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 	var focus: SquadAlly = rec["ally"] as SquadAlly
 	var tool_msgs: Array = []
 	var spoke: int = 0
+	var action_calls: int = 0
 	var acted: Array[SquadAlly] = []
 	# One LLM turn = one batch: same-ally calls become a chain in call order.
 	_manager.begin_batch()
@@ -365,6 +366,8 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 				res = "no such ally"
 		else:
 			var cmd: Dictionary = tool_to_command(tname, args)
+			if not cmd.is_empty():
+				action_calls += 1
 			res = _manager.issue(cmd, String(rec["via"]) + "+llm") if not cmd.is_empty() else "invalid tool call"
 			_remember("squad", "%s %s -> %s" % [tname, JSON.stringify(args), res.left(80)])
 			for n in (cmd.get("allies", []) as Array):
@@ -374,6 +377,18 @@ func _on_chat_completed(id: int, text: String, calls: Array) -> void:
 		tool_called.emit(String(args.get("ally", focus.get_display_name() if focus != null else "squad")), tname, args, res)
 		tool_msgs.append({"role": "tool", "tool_call_id": String(cd.get("id", "")), "content": res})
 	_manager.end_batch()
+	# Safety net: if the LLM only talked (0 action tool calls) on an utterance that clearly contains an order,
+	# run the deterministic parser so allies never acknowledge an order and then sit idle.
+	if action_calls == 0:
+		var parsed_cmds: Array = ParserScript.parse(String(rec["user_text"]), _manager.get_ally_names(), _manager.get_parser_context())
+		var fallback_cmds: Array = []
+		for pc in parsed_cmds:
+			if pc is Dictionary:
+				var pv: String = String((pc as Dictionary).get("verb", ""))
+				if not pv.is_empty() and not (pv in ["chat", "say", "status"]):
+					fallback_cmds.append(pc)
+		if not fallback_cmds.is_empty():
+			_manager.issue_commands(fallback_cmds, String(rec["via"]) + "+llm")
 	# Shared Director history (one conversation; per-ally memory lives in _histories / RECENT EVENTS).
 	_director_history.append({"role": "user", "content": String(rec["user_text"])})
 	var assistant: Dictionary = {"role": "assistant", "content": text if not text.is_empty() else null}
@@ -422,7 +437,16 @@ static func tool_to_command(tool_name: String, args: Dictionary) -> Dictionary:
 		allies = [String(allies)] if allies != null else []
 	match tool_name:
 		"command_allies":
-			var action: String = String(args.get("action", ""))
+			var action: String = String(args.get("action", "")).strip_edges().to_lower()
+			match action:
+				"move", "go", "push", "scout", "move_to", "go_to", "forward":
+					action = "advance"
+				"engage", "fight", "kill", "strike", "focus", "clear":
+					action = "attack"
+				"protect", "guard", "defend", "cover":
+					action = "bodyguard"
+				"fall_back", "back_off", "regroup":
+					action = "retreat"
 			var cmd: Dictionary = {"verb": action, "allies": allies, "target": String(args.get("target", "")), "count": int(args.get("count", 1))}
 			if action == "auto_engage_on" or action == "auto_engage_off":
 				cmd["verb"] = "auto_engage"

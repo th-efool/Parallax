@@ -3508,29 +3508,35 @@ func _process_action(delta: float) -> void:
 
 # ------------------------------------------------------------------ movement
 
+func _command_speed_mult() -> float:
+	return 2.0 if has_free_leash() else 1.0
+
+
 func _move_to(goal: Vector3, speed: float, delta: float, avoid_allies: bool = true) -> void:
+	var eff_speed: float = speed * _command_speed_mult()
 	var to: Vector3 = goal - global_position
 	to.y = 0.0
 	var d: float = to.length()
 	if d < 0.05:
 		_halt(delta)
 		return
-	if d >= 0.85 and speed > 0.2:
+	if d >= 0.85 and eff_speed > 0.2:
 		_want_move_this_frame = true
 		_want_move_goal = goal
 	# Arrival: ease in over the last metre and a half instead of slamming into the spot.
 	var arrive: float = clampf(d / 1.5, 0.25, 1.0)
-	_steer_toward_dir(to / d, speed * arrive, delta, avoid_allies, d)
+	_steer_toward_dir(to / d, eff_speed * arrive, delta, avoid_allies, d)
 
 
 func _move_dir(dir: Vector3, speed: float, delta: float) -> void:
+	var eff_speed: float = speed * _command_speed_mult()
 	var d: Vector3 = Vector3(dir.x, 0.0, dir.z)
 	if d.length_squared() < 0.0001:
 		_halt(delta)
 		return
-	if speed > 0.2:
+	if eff_speed > 0.2:
 		_want_move_this_frame = true
-	_steer_toward_dir(d.normalized(), speed, delta, true, 99.0)
+	_steer_toward_dir(d.normalized(), eff_speed, delta, true, 99.0)
 
 
 # ------------------------------------------------------------------ context steering (spatial awareness)
@@ -4302,9 +4308,19 @@ func _pick_auto_target(player: Node3D, radius: float = -1.0, any: bool = false) 
 
 
 func _resolve_enemy(selector: String, player: Node3D) -> EnemyAI:
+	var anchor: Vector3 = player.global_position if player != null else global_position
+	var found: EnemyAI = null
 	if manager != null and manager.has_method("resolve_enemy"):
-		return manager.call("resolve_enemy", selector, player.global_position if player != null else global_position, self) as EnemyAI
-	return _nearest_enemy(global_position, 20.0)
+		found = manager.call("resolve_enemy", selector, anchor, self) as EnemyAI
+	if found != null and _enemy_ok(found):
+		return found
+	# Fallback: unless the player explicitly gave a descriptive filter ("desc:..."), never sit idle
+	# when there is a live hittable enemy in the arena/ahead.
+	if not selector.strip_edges().to_lower().begins_with("desc:"):
+		found = _nearest_enemy(anchor, 70.0)
+		if found == null:
+			found = _nearest_enemy(global_position, 70.0)
+	return found
 
 
 func _resolve_ward(sel: String, player: Node3D) -> Node3D:

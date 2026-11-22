@@ -63,7 +63,7 @@ static var ambient_chatter: bool = false
 
 
 static func config_path() -> String:
-	if OS.has_feature("standalone"):
+	if OS.has_feature("template") or not OS.has_feature("editor"):
 		return OS.get_executable_path().get_base_dir().path_join("saved").path_join("squad_ai.cfg")
 	return PATH
 

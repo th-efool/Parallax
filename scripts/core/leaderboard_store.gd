@@ -76,8 +76,12 @@ var _build_fingerprint_override: String = ""
 var last_save_error: Error = OK
 
 
+static func is_exported_build() -> bool:
+	return OS.has_feature("template") or not OS.has_feature("editor")
+
+
 func get_save_directory() -> String:
-	if OS.has_feature("standalone"):
+	if is_exported_build():
 		return OS.get_executable_path().get_base_dir().path_join("saved")
 	return "user://"
 
@@ -91,8 +95,9 @@ func _ensure_save_dir_for(path: String) -> void:
 
 
 func _ready() -> void:
-	if OS.has_feature("standalone"):
+	if is_exported_build():
 		var save_dir: String = get_save_directory()
+		DirAccess.make_dir_recursive_absolute(save_dir)
 		if leaderboard_path == LEADERBOARD_PATH:
 			leaderboard_path = save_dir.path_join("leaderboard.cfg")
 		if settings_path == SETTINGS_PATH:
@@ -785,7 +790,7 @@ func get_build_fingerprint() -> String:
 		return _build_fingerprint_override
 	if not _build_fingerprint_cache.is_empty():
 		return _build_fingerprint_cache
-	if not OS.has_feature("standalone"):
+	if not is_exported_build():
 		_build_fingerprint_cache = "editor_dev"
 		return _build_fingerprint_cache
 	var exe_path: String = OS.get_executable_path()
