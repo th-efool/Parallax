@@ -255,6 +255,7 @@ func _activation_sweep() -> void:
 	if cam == null:
 		return
 	var cp: Vector3 = cam.global_position
+	var wake_budget: int = 12
 	for list in [creatures, flora]:
 		for n in list:
 			if not is_instance_valid(n) or not n.is_inside_tree():
@@ -264,6 +265,10 @@ func _activation_sweep() -> void:
 			var near: bool = (n as Node3D).global_position.distance_squared_to(cp) < r * r
 			var want: int = Node.PROCESS_MODE_INHERIT if near else Node.PROCESS_MODE_DISABLED
 			if n.process_mode != want:
+				if want == Node.PROCESS_MODE_INHERIT:
+					if wake_budget <= 0:
+						continue
+					wake_budget -= 1
 				n.process_mode = want
 	RealmLook.set_blend(_current_realm_blend())
 

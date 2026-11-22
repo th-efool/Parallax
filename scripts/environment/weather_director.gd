@@ -287,19 +287,24 @@ void fragment() {
 	_rain.draw_pass_1 = streak
 	add_child(_rain)
 	# Heightfield follows the camera so rain stops on roofs/arcades instead of falling indoors.
-	_rain_collider = GPUParticlesCollisionHeightField3D.new()
-	_rain_collider.name = "RainOcclusion"
-	_rain_collider.size = Vector3(48, 60, 48)
-	_rain_collider.resolution = GPUParticlesCollisionHeightField3D.RESOLUTION_256
-	_rain_collider.follow_camera_enabled = true
-	_rain_collider.update_mode = GPUParticlesCollisionHeightField3D.UPDATE_MODE_WHEN_MOVED
-	add_child(_rain_collider)
+	# Skip on low-end/integrated GPUs and keep hidden while dry so it never burns a full depth pass when not raining.
+	if not LeaderboardManager.is_low_end_gpu():
+		_rain_collider = GPUParticlesCollisionHeightField3D.new()
+		_rain_collider.name = "RainOcclusion"
+		_rain_collider.size = Vector3(48, 60, 48)
+		_rain_collider.resolution = GPUParticlesCollisionHeightField3D.RESOLUTION_256
+		_rain_collider.follow_camera_enabled = true
+		_rain_collider.update_mode = GPUParticlesCollisionHeightField3D.UPDATE_MODE_WHEN_MOVED
+		_rain_collider.visible = false
+		add_child(_rain_collider)
 
 
 func _update_rain(cam: Camera3D) -> void:
 	var r: float = clampf(float(_cur["rain"]), 0.0, 1.0)
 	_rain.amount_ratio = r
 	_rain.emitting = r > 0.01
+	if _rain_collider != null and is_instance_valid(_rain_collider):
+		_rain_collider.visible = r > 0.01
 	if cam != null:
 		_rain.global_position = cam.global_position + Vector3(0, 14.0, 0)
 	var rc: Color = _cur["rain_color"]

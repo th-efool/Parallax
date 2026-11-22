@@ -264,7 +264,6 @@ func _reload_for_new_run(continue_saved: bool) -> void:
 		var game_feel: GDScript = load("res://scripts/core/game_feel.gd") as GDScript
 		if game_feel != null and game_feel.has_method("reset_time_scale"):
 			game_feel.call("reset_time_scale")
-		SquadAlly._ally_outline_mat = null
 		# Deferred: the old scene is still mid-call here, so the swap happens at the end of the frame.
 		get_tree().call_deferred("reload_current_scene")
 

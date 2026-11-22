@@ -134,8 +134,10 @@ func build_greybox_progressive() -> void:
 	for i in range(steps.size()):
 		build_progress.emit(float(i) / float(steps.size()), String((steps[i] as Array)[0]))
 		await get_tree().process_frame
+		await get_tree().process_frame
 		((steps[i] as Array)[1] as Callable).call()
 	_bind_realm_visuals()
+	await get_tree().process_frame
 	build_progress.emit(1.0, "Arena ready")
 
 

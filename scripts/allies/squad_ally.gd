@@ -123,11 +123,26 @@ func _ready() -> void:
 	_sync_realm_mask()
 	var rm: RealmManager = RealmManager.instance as RealmManager
 	if rm != null:
-		rm.realm_changed.connect(func(_r: int) -> void: _sync_realm_mask())
-		rm.realms_merged.connect(_sync_realm_mask)
+		if not rm.realm_changed.is_connected(_on_realm_changed):
+			rm.realm_changed.connect(_on_realm_changed)
+		if not rm.realms_merged.is_connected(_sync_realm_mask):
+			rm.realms_merged.connect(_sync_realm_mask)
 	_last_pos = global_position
 	_stuck_anchor_pos = global_position
 	_idle_chatter = _rng.randf_range(25.0, 50.0)
+
+
+func _on_realm_changed(_r: int) -> void:
+	_sync_realm_mask()
+
+
+func _exit_tree() -> void:
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null and is_instance_valid(rm):
+		if rm.realm_changed.is_connected(_on_realm_changed):
+			rm.realm_changed.disconnect(_on_realm_changed)
+		if rm.realms_merged.is_connected(_sync_realm_mask):
+			rm.realms_merged.disconnect(_sync_realm_mask)
 
 
 # ------------------------------------------------------------------ contract

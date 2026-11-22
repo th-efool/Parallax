@@ -17,7 +17,6 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 [audio]
 
-general/text_to_speech=false
 driver/enable_input=true
 
 [autoload]
@@ -116,8 +115,8 @@ pause={
 
 [rendering]
 
-lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
-anti_aliasing/quality/msaa_3d=2
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
+anti_aliasing/quality/msaa_3d=1
 anti_aliasing/quality/screen_space_aa=1
 occlusion_culling/use_occlusion_culling=true
 

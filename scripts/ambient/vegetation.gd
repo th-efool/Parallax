@@ -82,13 +82,23 @@ func _ready() -> void:
 	_director = FaunaDirector.get_for(self)
 	if _director != null:
 		_director.register_flora(self)
-		_director.realm_shifted.connect(func(_r: int) -> void: _refresh_presence())
-		_director.disturbance.connect(_on_disturbance)
+		if not _director.realm_shifted.is_connected(_on_realm_shifted):
+			_director.realm_shifted.connect(_on_realm_shifted)
+		if not _director.disturbance.is_connected(_on_disturbance):
+			_director.disturbance.connect(_on_disturbance)
+	_refresh_presence()
+
+
+func _on_realm_shifted(_r: int) -> void:
 	_refresh_presence()
 
 
 func _exit_tree() -> void:
 	if _director != null and is_instance_valid(_director):
+		if _director.realm_shifted.is_connected(_on_realm_shifted):
+			_director.realm_shifted.disconnect(_on_realm_shifted)
+		if _director.disturbance.is_connected(_on_disturbance):
+			_director.disturbance.disconnect(_on_disturbance)
 		_director.unregister_flora(self)
 
 
