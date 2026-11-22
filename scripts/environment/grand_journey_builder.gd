@@ -105,6 +105,11 @@ func _step_dressing() -> void:
 				JourneyLayout.remap_subtree(dz)
 
 
+func _step_scenery_progressive() -> void:
+	add_child(_scenery)
+	await _build_world_scenery_progressive()
+
+
 func _step_scenery() -> void:
 	add_child(_scenery)
 	_build_world_scenery()
@@ -134,8 +139,12 @@ func build_greybox_progressive() -> void:
 	for i in range(steps.size()):
 		build_progress.emit(float(i) / float(steps.size()), String((steps[i] as Array)[0]))
 		await get_tree().process_frame
+		var fn: Callable = (steps[i] as Array)[1] as Callable
+		if fn == _step_scenery:
+			await _step_scenery_progressive()
+		else:
+			fn.call()
 		await get_tree().process_frame
-		((steps[i] as Array)[1] as Callable).call()
 	_bind_realm_visuals()
 	await get_tree().process_frame
 	build_progress.emit(1.0, "Arena ready")
@@ -2086,6 +2095,59 @@ func _build_stage_05_arena() -> Node3D:
 # =====================================================================================================
 # World scenery: massifs, gorge, crags, distant ranges, cloud sea, floating mirror isles, kill plane
 # =====================================================================================================
+
+func _build_world_scenery_progressive() -> void:
+	var rock_m: ShaderMaterial = _m_rock()
+	var massifs: Array = [
+		[Vector3(0, -0.6, -136), Vector3(17, 70, 15), 1],
+		[Vector3(0, -0.6, -10.5), Vector3(26, 74, 16), 5],
+		[Vector3(0, -0.6, 5.6), Vector3(26, 74, 3.0), 13],
+		[Vector3(0, 3.4, 86), Vector3(70, 80, 66), 14],
+		[Vector3(0, 5.4, 165), Vector3(14, 70, 6), 8],
+		[Vector3(0, 5.4, 210), Vector3(42, 84, 42), 9],
+		[Vector3(0, 9.4, 278), Vector3(20, 84, 8), 10],
+		[Vector3(0, 9.4, 317), Vector3(76, 96, 70), 11],
+		[Vector3(0, 9.4, 354), Vector3(26, 90, 20), 12],
+	]
+	var mi_idx: int = 0
+	for mdef in massifs:
+		var top: Vector3 = (mdef[0] as Vector3) + Vector3(0, -0.035 * float(mi_idx % 5), 0)
+		var rk: MeshInstance3D = _rock(_scenery, "Massif", top, mdef[1], int(mdef[2]), rock_m, 0.72, 0.24, 18, false, true)
+		rk.remove_meta("gj_batch")
+		mi_idx += 1
+	await get_tree().process_frame
+	var terrain = (load("res://scripts/environment/journey_terrain.gd") as GDScript).new(get_route_waypoints(), SUN_HEADING)
+	await terrain.call("build_progressive", _scenery, _with_lods, get_tree())
+	await get_tree().process_frame
+	_build_sky_isles_and_kill_plane(rock_m)
+
+
+func _build_sky_isles_and_kill_plane(rock_m: ShaderMaterial) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2026
+	# Mirror-only floating isles with crystal crowns drifting around the summit.
+	var isles: Array[Node3D] = _zone("Zone_SkyIsles")
+	var isle_mesh: ArrayMesh = ProcMesh.rock_mesh(Vector3(1, 1, 1), 555, 0.3, 8, 0.0)
+	for i in range(10):
+		var ang: float = TAU * float(i) / 10.0
+		var pos := Vector3(sin(ang) * rng.randf_range(45.0, 90.0), rng.randf_range(18.0, 55.0), 120.0 + JourneyLayout.OFF_S5 + cos(ang) * rng.randf_range(50.0, 95.0))
+		var s: float = rng.randf_range(4.0, 9.0)
+		var pivot := Node3D.new()
+		pivot.name = "SkyIslePivot"
+		pivot.position = pos
+		isles[2].add_child(pivot)
+		_mesh(pivot, "SkyIsle", isle_mesh, rock_m, Transform3D(Basis.IDENTITY.scaled(Vector3(s, s * 0.7, s)), Vector3.ZERO), false, 0.0, false)
+		_crystal_cluster(pivot, Vector3(0, s * 0.3, 0), s * 0.5, 600 + i)
+		var tw := pivot.create_tween().set_loops()
+		tw.tween_property(pivot, "position:y", pos.y + 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(pivot, "position:y", pos.y - 2.5, 4.0 + float(i) * 0.3).set_trans(Tween.TRANS_SINE)
+		_anim_tweens.append(tw)
+
+	# One world kill plane catches every fall off the cliffs.
+	var kz := _make_pit_kill_zone("PitKillZone_World", Vector3(0.0, -25.0, 113.0), Vector3(700.0, 19.0, 700.0))
+	kz.kill_y_threshold = -6.0
+	_scenery.add_child(kz)
+
 
 func _build_world_scenery() -> void:
 	var rock_m: ShaderMaterial = _m_rock()

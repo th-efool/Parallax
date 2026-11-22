@@ -43,6 +43,18 @@ var _current_seam: float = SEAM_REALITY
 var _seam_tween: Tween = null
 var _prev_keys: Dictionary = {}
 var _last_nav_frame: int = -1
+var _content_hidden: bool = false
+
+
+func set_menu_content_visible(show_content: bool) -> void:
+	_content_hidden = not show_content
+	for nm: String in ["TitleMargin", "FooterHints"]:
+		var n: CanvasItem = get_node_or_null(nm) as CanvasItem
+		if n != null:
+			n.visible = show_content
+	if show_content:
+		_prev_keys.clear()
+		_focus_first_item.call_deferred()
 
 
 func _ready() -> void:
@@ -63,7 +75,7 @@ func _process(delta: float) -> void:
 		quote_timer = maxf(0.0, quote_timer - delta)
 		if quote_timer <= 0.0:
 			dismiss_quote_card()
-	if not visible or not is_visible_in_tree():
+	if not visible or not is_visible_in_tree() or _content_hidden:
 		_prev_keys.clear()
 		return
 	var q_down: bool = Input.is_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_Q)
@@ -140,7 +152,7 @@ func _activate_selected_button() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not visible or not is_visible_in_tree():
+	if not visible or not is_visible_in_tree() or _content_hidden:
 		return
 	var cur_frame: int = Engine.get_process_frames()
 	if quote_overlay_visible:

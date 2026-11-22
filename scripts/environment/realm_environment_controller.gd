@@ -178,6 +178,9 @@ func _setup_pulse_material() -> void:
 			_pulse_material.set_shader_parameter("pulse_color", MIRROR_ACCENT)
 
 
+var _last_sky_mirror_blend: float = -1.0
+
+
 func _apply_to_scene_nodes() -> void:
 	if _pulse_material != null:
 		_pulse_material.set_shader_parameter("shift_progress", shift_pulse_progress)
@@ -203,6 +206,10 @@ func _apply_to_scene_nodes() -> void:
 		if we != null and we.environment != null:
 			we.environment.ambient_light_color = current_ambient_color
 			we.environment.fog_light_color = current_fog_color
-			we.environment.volumetric_fog_albedo = Color(1.0, 0.93, 0.85).lerp(Color(0.55, 0.7, 1.0), current_realm_blend)
+			if we.environment.volumetric_fog_enabled:
+				we.environment.volumetric_fog_albedo = Color(1.0, 0.93, 0.85).lerp(Color(0.55, 0.7, 1.0), current_realm_blend)
+			# Throttle sky shader uniform writes so we don't re-bake the 6x256x256 radiance cubemap 30x/sec during Q shifts.
 			if we.environment.sky != null and we.environment.sky.sky_material is ShaderMaterial:
-				(we.environment.sky.sky_material as ShaderMaterial).set_shader_parameter("mirror_blend", current_realm_blend)
+				if not is_transitioning or _last_sky_mirror_blend < 0.0 or absf(current_realm_blend - _last_sky_mirror_blend) >= 0.34:
+					_last_sky_mirror_blend = current_realm_blend
+					(we.environment.sky.sky_material as ShaderMaterial).set_shader_parameter("mirror_blend", current_realm_blend)

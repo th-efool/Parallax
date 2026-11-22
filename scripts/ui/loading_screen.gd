@@ -41,17 +41,22 @@ func _ready() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_root)
 
-	var bg := ColorRect.new()
-	bg.color = Color(0.02, 0.02, 0.03, 1.0)
+	var bg := TextureRect.new()
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var shader: Shader = load("res://assets/shaders/ui/ui_title_backdrop.gdshader") as Shader
-	if shader != null:
-		var mat := ShaderMaterial.new()
-		mat.shader = shader
-		mat.set_shader_parameter("intro", 0.42)
-		mat.set_shader_parameter("menu_shade", 0.5)
-		bg.material = mat
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	grad.colors = PackedColorArray([Color(0.05, 0.04, 0.06, 1.0), Color(0.025, 0.028, 0.042, 1.0), Color(0.015, 0.016, 0.025, 1.0)])
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.72, 0.35)
+	tex.fill_to = Vector2(0.0, 1.0)
+	tex.width = 256
+	tex.height = 144
+	bg.texture = tex
 	_root.add_child(bg)
 
 	var logo := Label.new()
@@ -171,10 +176,11 @@ func set_progress(fraction: float, text: String = "") -> void:
 func _process(delta: float) -> void:
 	if _bar == null:
 		return
-	_shown = move_toward(_shown, _target, delta * 2.5)
+	var dt: float = minf(delta, 0.05)
+	_shown = move_toward(_shown, _target, dt * 2.2)
 	_bar.value = _shown * 100.0
 	_pct.text = "%d%%" % int(round(_shown * 100.0))
-	_tip_t += delta
+	_tip_t += dt
 	if _tip_t >= TIP_SECONDS:
 		_tip_t = 0.0
 		_tip_index = (_tip_index + 1) % TIPS.size()

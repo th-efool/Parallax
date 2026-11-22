@@ -1265,18 +1265,13 @@ func _build_styled_hud_tree() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# 0. Fullscreen Realm Shift Ripple Overlay
+	# 0. Fullscreen Realm Shift Ripple Overlay (handled by RealmEnvironmentController's single PulseOverlay
+	# to avoid running two full-screen MSAA screen-texture resolves per frame on Q shifts).
 	_pulse_rect = ColorRect.new()
 	_pulse_rect.name = "RealmPulseOverlay"
 	_pulse_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_pulse_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_pulse_rect.visible = false
-	if ResourceLoader.exists("res://assets/shaders/realm_shift_pulse.gdshader"):
-		var sh: Shader = load("res://assets/shaders/realm_shift_pulse.gdshader") as Shader
-		if sh != null:
-			_pulse_mat = ShaderMaterial.new()
-			_pulse_mat.shader = sh
-			_pulse_rect.material = _pulse_mat
 	root.add_child(_pulse_rect)
 
 	# 1. Top Cinematic Header Band: PARALLAX ------ <SECTION TITLE>

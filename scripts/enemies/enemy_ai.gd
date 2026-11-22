@@ -1412,13 +1412,10 @@ func _begin_telegraph_flash(windup_sec: float) -> void:
 		return
 	if _telegraph_mat == null:
 		_telegraph_mat = StandardMaterial3D.new()
-		_telegraph_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		_telegraph_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_telegraph_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_telegraph_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		_telegraph_mat.cull_mode = BaseMaterial3D.CULL_BACK
-		_telegraph_mat.emission_enabled = true
-		_telegraph_mat.emission = Color(telegraph_color.r, telegraph_color.g, telegraph_color.b)
-		_telegraph_mat.emission_energy_multiplier = 0.6
 	_telegraph_mat.albedo_color = Color(telegraph_color.r, telegraph_color.g, telegraph_color.b, 0.0)
 
 	_telegraph_active = true
@@ -1427,25 +1424,11 @@ func _begin_telegraph_flash(windup_sec: float) -> void:
 	for mi in _telegraph_meshes:
 		mi.material_overlay = _telegraph_mat
 
-	if _telegraph_light == null or not is_instance_valid(_telegraph_light):
-		_telegraph_light = OmniLight3D.new()
-		_telegraph_light.name = "TelegraphGlow"
-		_telegraph_light.light_color = telegraph_color
-		_telegraph_light.omni_range = 2.4
-		_telegraph_light.shadow_enabled = false
-		vis_root.add_child(_telegraph_light)
-		_telegraph_light.position = Vector3(0.0, telegraph_light_height, -0.35)
-	_telegraph_light.light_energy = 0.0
-	_telegraph_light.visible = true
-
 	var dur: float = maxf(0.05, windup_sec)
 	_telegraph_tween = create_tween()
-	_telegraph_tween.set_parallel(true)
 	_telegraph_tween.tween_property(_telegraph_mat, "albedo_color:a", telegraph_overlay_peak_alpha, dur * 0.75).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	_telegraph_tween.tween_property(_telegraph_light, "light_energy", telegraph_light_energy, dur * 0.75).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	# Final "glint" right before the strike lands.
-	_telegraph_tween.chain().tween_property(_telegraph_mat, "albedo_color:a", minf(1.0, telegraph_overlay_peak_alpha * 1.6), dur * 0.25)
-	_telegraph_tween.parallel().tween_property(_telegraph_light, "light_energy", telegraph_light_energy * 1.5, dur * 0.25)
+	_telegraph_tween.tween_property(_telegraph_mat, "albedo_color:a", minf(1.0, telegraph_overlay_peak_alpha * 1.6), dur * 0.25)
 
 
 func _release_telegraph_flash() -> void:

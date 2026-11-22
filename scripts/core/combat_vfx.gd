@@ -81,17 +81,12 @@ static func spawn_impact_burst(host: Node, world_pos: Vector3, mirror_style: boo
 	p.restart()
 	p.emitting = true
 
-	var flash := OmniLight3D.new()
-	flash.name = "ImpactFlash"
-	flash.light_color = COBALT_HOT if mirror_style else AMBER_HOT
-	flash.omni_range = 3.2 if heavy else 2.2
-	flash.light_energy = 2.6 if heavy else 1.5
-	flash.shadow_enabled = false
-	p.add_child(flash)
-	var tw := p.create_tween()
-	tw.tween_property(flash, "light_energy", 0.0, 0.14)
-
-	host.get_tree().create_timer(p.lifetime + 0.6, false, false, true).timeout.connect(p.queue_free)
+	var tree: SceneTree = host.get_tree()
+	if tree != null:
+		tree.create_timer(p.lifetime + 0.25, false, false, true).timeout.connect(func() -> void:
+			if is_instance_valid(p):
+				p.queue_free()
+		)
 	return p
 
 

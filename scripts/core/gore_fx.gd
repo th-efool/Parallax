@@ -7,8 +7,8 @@ extends RefCounted
 const WORLD_MASK: int = 4 | 8 | 16  # World_Shared | World_Reality | World_Mirror (layers 3-5)
 const BLOOD_RED: Color = Color(0.40, 0.012, 0.018, 1.0)
 const ICHOR_CYAN: Color = Color(0.22, 0.86, 1.0, 1.0)
-const MAX_DECALS: int = 48
-const MAX_GIBS: int = 32
+const MAX_DECALS: int = 16
+const MAX_GIBS: int = 12
 
 static var _decals: Array[Node] = []
 static var _gibs: Array[Node] = []
@@ -204,18 +204,18 @@ static func blood_decal(context: Node, near_pos: Vector3, size: float, color: Co
 static func _get_splat_texture() -> Texture2D:
 	if _splat_tex != null:
 		return _splat_tex
-	var sz: int = 128
+	var sz: int = 64
 	var img := Image.create(sz, sz, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 90210
 	var lobes: Array[Vector3] = []  # (freq, phase, amp)
-	for i in range(6):
+	for i in range(5):
 		lobes.append(Vector3(float(rng.randi_range(3, 11)), rng.randf_range(0.0, TAU), rng.randf_range(0.02, 0.07)))
 	var drops: Array[Vector3] = []  # (x, y, r) in 0..1
-	for i in range(14):
+	for i in range(8):
 		var ang: float = rng.randf_range(0.0, TAU)
 		var dist: float = rng.randf_range(0.33, 0.47)
-		drops.append(Vector3(0.5 + cos(ang) * dist, 0.5 + sin(ang) * dist, rng.randf_range(0.012, 0.035)))
+		drops.append(Vector3(0.5 + cos(ang) * dist, 0.5 + sin(ang) * dist, rng.randf_range(0.015, 0.038)))
 	for y in range(sz):
 		for x in range(sz):
 			var u: float = (float(x) + 0.5) / sz

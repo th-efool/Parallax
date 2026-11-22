@@ -362,7 +362,10 @@ func _begin_run_loading() -> void:
 func _on_open_leaderboard(from_menu: Control) -> void:
 	_previous_menu = from_menu
 	if from_menu != null:
-		from_menu.visible = false
+		if from_menu is TitleScreenController and from_menu.has_method("set_menu_content_visible"):
+			from_menu.call("set_menu_content_visible", false)
+		else:
+			from_menu.visible = false
 	var lb_ui: LeaderboardScreenController = get_node_or_null(leaderboard_screen_path) as LeaderboardScreenController
 	if lb_ui != null:
 		lb_ui.refresh_entries()
@@ -372,7 +375,10 @@ func _on_open_leaderboard(from_menu: Control) -> void:
 func _on_open_options(from_menu: Control) -> void:
 	_previous_menu = from_menu
 	if from_menu != null:
-		from_menu.visible = false
+		if from_menu is TitleScreenController and from_menu.has_method("set_menu_content_visible"):
+			from_menu.call("set_menu_content_visible", false)
+		else:
+			from_menu.visible = false
 	var opts_ui: OptionsScreenController = get_node_or_null(options_screen_path) as OptionsScreenController
 	if opts_ui != null:
 		opts_ui.reload_from_store()
@@ -383,7 +389,11 @@ func _on_close_subscreen(subscreen: Control) -> void:
 	if subscreen != null:
 		subscreen.visible = false
 	if _previous_menu != null:
-		_previous_menu.visible = true
+		if _previous_menu is TitleScreenController and _previous_menu.has_method("set_menu_content_visible"):
+			_previous_menu.visible = true
+			_previous_menu.call("set_menu_content_visible", true)
+		else:
+			_previous_menu.visible = true
 		_previous_menu = null
 
 

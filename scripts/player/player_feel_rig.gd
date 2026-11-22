@@ -597,33 +597,36 @@ func _update_ghosts(delta: float) -> void:
 	_spawn_ghost(_ghost_color)
 
 
-## Frozen, tinted copy of the character in its exact current animation pose.
+static var _ghost_capsule_mesh: CapsuleMesh = null
+
+
+## Lightweight translucent afterimage silhouette (avoids cloning Skeleton3D/AnimationPlayer per dodge).
 func _spawn_ghost(color: Color) -> void:
 	var host: Node = GoreFXScript.host_for(_pc)
 	if host == null:
 		return
-	var src_ap: AnimationPlayer = _find_anim_player(_model)
-	var ghost: Node3D = _model.duplicate() as Node3D
-	if ghost == null:
-		return
-	host.add_child(ghost)
-	ghost.global_transform = _model.global_transform
-	var ap: AnimationPlayer = _find_anim_player(ghost)
-	if ap != null and src_ap != null and src_ap.current_animation != "":
-		ap.play(src_ap.current_animation)
-		ap.seek(src_ap.current_animation_position, true)
-		ap.pause()
+	if _ghost_capsule_mesh == null:
+		_ghost_capsule_mesh = CapsuleMesh.new()
+		_ghost_capsule_mesh.radius = 0.34
+		_ghost_capsule_mesh.height = 1.55
+		_ghost_capsule_mesh.radial_segments = 10
+		_ghost_capsule_mesh.rings = 3
+	var ghost := MeshInstance3D.new()
+	ghost.mesh = _ghost_capsule_mesh
+	ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.albedo_color = color
-	mat.cull_mode = BaseMaterial3D.CULL_BACK
-	_apply_ghost_material(ghost, mat)
+	mat.albedo_color = Color(color.r, color.g, color.b, minf(color.a, 0.42))
+	ghost.material_override = mat
+	host.add_child(ghost)
+	ghost.global_transform = _model.global_transform
+	ghost.global_position += Vector3.UP * 0.88
 	var tw := ghost.create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(mat, "albedo_color:a", 0.0, 0.28).set_ease(Tween.EASE_IN)
-	tw.tween_property(ghost, "scale", ghost.scale * 1.04, 0.28)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.24).set_ease(Tween.EASE_IN)
+	tw.tween_property(ghost, "scale", Vector3(1.12, 1.04, 1.12), 0.24)
 	tw.set_parallel(false)
 	tw.tween_callback(ghost.queue_free)
 

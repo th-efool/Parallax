@@ -269,6 +269,68 @@ func make_material() -> ShaderMaterial:
 	return m
 
 
+## Progressive build: yields across frames so the loading screen stays silky-smooth with zero stalls.
+func build_progressive(parent: Node3D, lod_fn: Callable, tree: SceneTree) -> void:
+	var mat: ShaderMaterial = make_material()
+	var root := Node3D.new()
+	root.name = "Terrain"
+	parent.add_child(root)
+	var near := Rect2(-360.0, -270.0, 720.0, 760.0)
+	var cache: Dictionary = {}
+	var chunks: int = 4
+	var built: int = 0
+	for cj in range(chunks):
+		for ci in range(chunks):
+			var sx: float = near.size.x / float(chunks)
+			var sz: float = near.size.y / float(chunks)
+			var mesh: ArrayMesh = _grid_mesh(near.position.x + sx * float(ci), near.position.y + sz * float(cj), sx, sz, 60, Rect2(), cache)
+			var mi := MeshInstance3D.new()
+			mi.name = "TerrainChunk_%d_%d" % [ci, cj]
+			mi.mesh = lod_fn.call(mesh) if lod_fn.is_valid() else mesh
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if (ci == 1 or ci == 2) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(mi)
+			built += 1
+			if tree != null and built % 2 == 0:
+				await tree.process_frame
+	var mid := Rect2(-1200.0, -1130.0, 2400.0, 2400.0)
+	for mj in range(2):
+		for mi2 in range(2):
+			var mid_mesh: ArrayMesh = _grid_mesh(mid.position.x + 1200.0 * float(mi2), mid.position.y + 1200.0 * float(mj), 1200.0, 1200.0, 100, near.grow(-2.0))
+			var mid_mi := MeshInstance3D.new()
+			mid_mi.name = "TerrainMid_%d_%d" % [mi2, mj]
+			mid_mi.mesh = lod_fn.call(mid_mesh) if lod_fn.is_valid() else mid_mesh
+			mid_mi.material_override = mat
+			mid_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(mid_mi)
+			if tree != null:
+				await tree.process_frame
+	var far_mesh: ArrayMesh = _grid_mesh(-3500.0, -3430.0, 7000.0, 7000.0, 200, mid.grow(-2.0))
+	var far_mi := MeshInstance3D.new()
+	far_mi.name = "TerrainFar"
+	far_mi.mesh = far_mesh
+	far_mi.material_override = mat
+	far_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(far_mi)
+	if tree != null:
+		await tree.process_frame
+	var water := PlaneMesh.new()
+	water.size = Vector2(6000.0, 6000.0)
+	water.subdivide_width = 0
+	var wm := ShaderMaterial.new()
+	wm.shader = load(WATER_SHADER) as Shader
+	var wmi := MeshInstance3D.new()
+	wmi.name = "Water"
+	wmi.mesh = water
+	wmi.material_override = wm
+	wmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	wmi.position = Vector3(0.0, WATER_Y, 70.0)
+	root.add_child(wmi)
+	if tree != null:
+		await tree.process_frame
+	_build_forest(root)
+
+
 ## Builds terrain chunks, water, and forests under `parent`. `lod_fn` adds mesh LODs (builder's _with_lods).
 func build(parent: Node3D, lod_fn: Callable) -> void:
 	var mat: ShaderMaterial = make_material()
