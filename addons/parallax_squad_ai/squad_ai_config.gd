@@ -62,12 +62,18 @@ const VOICE_ENGINES: Array[String] = ["auto", "cloud", "system", "off"]
 static var ambient_chatter: bool = false
 
 
+static func config_path() -> String:
+	if OS.has_feature("standalone"):
+		return OS.get_executable_path().get_base_dir().path_join("saved").path_join("squad_ai.cfg")
+	return PATH
+
+
 static func ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
 	var cf := ConfigFile.new()
-	if cf.load(PATH) == OK:
+	if cf.load(config_path()) == OK:
 		provider_pref = String(cf.get_value("api", "provider", provider_pref))
 		base_url_override = String(cf.get_value("api", "base_url_override", ""))
 		model_override = String(cf.get_value("api", "model_override", ""))
@@ -141,8 +147,13 @@ static func _parse_dotenv(path: String) -> Dictionary:
 
 static func save() -> void:
 	ensure_loaded()
+	var p: String = config_path()
+	if not p.begins_with("user://") and not p.begins_with("res://"):
+		var dir_path: String = p.get_base_dir()
+		if not dir_path.is_empty() and not DirAccess.dir_exists_absolute(dir_path):
+			DirAccess.make_dir_recursive_absolute(dir_path)
 	var cf := ConfigFile.new()
-	cf.load(PATH)
+	cf.load(p)
 	cf.set_value("api", "provider", provider_pref)
 	cf.set_value("api", "base_url_override", base_url_override)
 	cf.set_value("api", "model_override", model_override)
@@ -154,7 +165,7 @@ static func save() -> void:
 	cf.set_value("comms", "show_subtitles", show_subtitles)
 	cf.set_value("comms", "voice_engine", voice_engine)
 	cf.set_value("comms", "ambient_chatter", ambient_chatter)
-	cf.save(PATH)
+	cf.save(p)
 
 
 static func key_for(prov: String) -> String:

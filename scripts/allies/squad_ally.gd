@@ -25,7 +25,7 @@ signal prompt_changed(show_prompt: bool, prompt_text: String)
 const GRAVITY: float = 22.0
 const INTERCEPT_RADIUS: float = 6.0
 const LEASH_RADIUS: float = 8.5
-const FOLLOW_LEASH: float = 19.5
+const FOLLOW_LEASH: float = 42.0
 const KITE_RADIUS: float = 5.5
 const REVIVE_CHANNEL: float = 2.2
 const PLAYER_REVIVE_DURATION: float = 5.0
@@ -884,11 +884,14 @@ func _run_follow(delta: float, player: Node3D, _cmd: SquadCommand) -> void:
 	var goal: Vector3 = _formation_point(player)
 	if global_position.distance_to(goal) > 0.9:
 		var spd: float = profile.move_speed * clampf(global_position.distance_to(goal) / 4.0, 0.45, 1.25)
-		# Keep pace with a running player: trailing allies otherwise settle a few metres behind their slot,
-		# which is exactly where the over-the-shoulder camera looks.
+		# Keep natural pace with a running player, but cap speed and ignore dodge bursts so allies
+		# never rocket along as if dragged on a rigid leash.
 		if player is CharacterBody3D and global_position.distance_to(goal) > 1.5:
-			var pv: Vector3 = (player as CharacterBody3D).velocity
-			spd = maxf(spd, Vector2(pv.x, pv.z).length() * 1.15)
+			var player_dodging: bool = player is PlayerController and (player as PlayerController).current_state == PlayerController.State.DODGE
+			if not player_dodging:
+				var pv: Vector3 = (player as CharacterBody3D).velocity
+				var match_spd: float = minf(Vector2(pv.x, pv.z).length() * 1.05, profile.move_speed * 1.45)
+				spd = maxf(spd, match_spd)
 		# In the lens: hurry out of it (straight to the flank slot) rather than drifting through.
 		if _camera_blocking_at(global_position, player):
 			spd = maxf(spd, profile.move_speed * 1.3)
@@ -2887,8 +2890,11 @@ func _run_position(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	if global_position.distance_to(goal) > 0.8:
 		var spd: float = profile.move_speed * clampf(global_position.distance_to(goal) / 3.0, 0.5, 1.3)
 		if player is CharacterBody3D:
-			var pv: Vector3 = (player as CharacterBody3D).velocity
-			spd = maxf(spd, Vector2(pv.x, pv.z).length() * 1.1)
+			var player_dodging: bool = player is PlayerController and (player as PlayerController).current_state == PlayerController.State.DODGE
+			if not player_dodging:
+				var pv: Vector3 = (player as CharacterBody3D).velocity
+				var match_spd: float = minf(Vector2(pv.x, pv.z).length() * 1.05, profile.move_speed * 1.45)
+				spd = maxf(spd, match_spd)
 		_move_to(goal, spd, delta, spot != "close")
 	else:
 		cmd.data["arrived"] = true
@@ -4186,10 +4192,12 @@ func _catch_up(player: Node3D) -> void:
 				var hit: Dictionary = space.intersect_ray(q)
 				if hit.is_empty() and d.length() < (150.0 if cam_exempt else 40.0):
 					return
-	if player is PlayerController and (player as PlayerController).is_currently_airborne():
-		if fallen_pit:
-			_rescue_from_pit(player)
-		return
+	if player is PlayerController:
+		var pc: PlayerController = player as PlayerController
+		if pc.is_currently_airborne() or pc.current_state == PlayerController.State.DODGE:
+			if fallen_pit:
+				_rescue_from_pit(player)
+			return
 	_blink_to(player)
 
 

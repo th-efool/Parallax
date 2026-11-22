@@ -76,7 +76,29 @@ var _build_fingerprint_override: String = ""
 var last_save_error: Error = OK
 
 
+func get_save_directory() -> String:
+	if OS.has_feature("standalone"):
+		return OS.get_executable_path().get_base_dir().path_join("saved")
+	return "user://"
+
+
+func _ensure_save_dir_for(path: String) -> void:
+	if path.begins_with("user://") or path.begins_with("res://"):
+		return
+	var dir_path: String = path.get_base_dir()
+	if not dir_path.is_empty() and not DirAccess.dir_exists_absolute(dir_path):
+		DirAccess.make_dir_recursive_absolute(dir_path)
+
+
 func _ready() -> void:
+	if OS.has_feature("standalone"):
+		var save_dir: String = get_save_directory()
+		if leaderboard_path == LEADERBOARD_PATH:
+			leaderboard_path = save_dir.path_join("leaderboard.cfg")
+		if settings_path == SETTINGS_PATH:
+			settings_path = save_dir.path_join("settings.cfg")
+		if savegame_path == SAVEGAME_PATH:
+			savegame_path = save_dir.path_join("savegame.cfg")
 	_ensure_audio_buses()
 	_load_leaderboard_from_disk()
 	_load_settings_from_disk()
@@ -1219,6 +1241,7 @@ func _load_leaderboard_from_disk() -> void:
 
 
 func _save_leaderboard_to_disk() -> Error:
+	_ensure_save_dir_for(leaderboard_path)
 	var cfg := ConfigFile.new()
 	cfg.set_value("meta", "count", _entries.size())
 	for i in range(_entries.size()):
@@ -1262,6 +1285,7 @@ func _load_settings_from_disk() -> void:
 
 
 func _save_settings_to_disk() -> Error:
+	_ensure_save_dir_for(settings_path)
 	var cfg := ConfigFile.new()
 	for k in _settings.keys():
 		if k == "keybindings":
@@ -1300,6 +1324,7 @@ func _load_savegame_from_disk() -> void:
 
 
 func _save_savegame_to_disk() -> Error:
+	_ensure_save_dir_for(savegame_path)
 	var cfg := ConfigFile.new()
 	for k in _save_data.keys():
 		if k == "custom_claude_data":
