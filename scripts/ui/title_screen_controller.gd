@@ -59,16 +59,62 @@ func _process(delta: float) -> void:
 			dismiss_quote_card()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if visible and not quote_overlay_visible and event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_Q:
+func _visible_menu_buttons() -> Array[Button]:
+	var out: Array[Button] = []
+	var src: Array = _menu_items
+	if src.is_empty():
+		for p: NodePath in [continue_button_path, start_button_path, leaderboard_button_path, options_button_path, quit_button_path]:
+			if not p.is_empty():
+				var n: Node = get_node_or_null(p)
+				if n is Button:
+					src.append(n)
+	for b in src:
+		if b is Button and is_instance_valid(b) and (b as Button).visible and not (b as Button).disabled:
+			out.append(b as Button)
+	return out
+
+
+func _input(event: InputEvent) -> void:
+	if not visible or not is_visible_in_tree():
+		return
+	if quote_overlay_visible:
+		if (event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo) or (event is InputEventMouseButton and (event as InputEventMouseButton).pressed):
+			dismiss_quote_card()
+			if get_viewport() != null:
+				get_viewport().set_input_as_handled()
+		return
+	if not (event is InputEventKey):
+		return
+	var kev: InputEventKey = event as InputEventKey
+	if not kev.pressed or kev.echo:
+		return
+	var code: Key = kev.keycode if kev.keycode != KEY_NONE else kev.physical_keycode
+	if code == KEY_Q or kev.physical_keycode == KEY_Q:
 		_toggle_realm_glimpse()
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
 		return
-	if not visible or not quote_overlay_visible:
+	var vis_btns: Array[Button] = _visible_menu_buttons()
+	if vis_btns.is_empty():
 		return
-	if (event is InputEventKey and event.is_pressed()) or (event is InputEventMouseButton and event.is_pressed()):
-		dismiss_quote_card()
+	var cur_idx: int = -1
+	var focus_owner: Control = get_viewport().gui_get_focus_owner() if get_viewport() != null else null
+	if focus_owner is Button:
+		cur_idx = vis_btns.find(focus_owner as Button)
+	if code == KEY_UP or code == KEY_W:
+		var next_i: int = (cur_idx - 1 + vis_btns.size()) % vis_btns.size() if cur_idx >= 0 else 0
+		vis_btns[next_i].grab_focus()
+		if get_viewport() != null:
+			get_viewport().set_input_as_handled()
+	elif code == KEY_DOWN or code == KEY_S:
+		var next_i: int = (cur_idx + 1) % vis_btns.size() if cur_idx >= 0 else 0
+		vis_btns[next_i].grab_focus()
+		if get_viewport() != null:
+			get_viewport().set_input_as_handled()
+	elif code == KEY_ENTER or code == KEY_KP_ENTER or code == KEY_SPACE:
+		var target_btn: Button = vis_btns[cur_idx] if cur_idx >= 0 else vis_btns[0]
+		target_btn.grab_focus()
+		target_btn.pressed.emit()
 		if get_viewport() != null:
 			get_viewport().set_input_as_handled()
 

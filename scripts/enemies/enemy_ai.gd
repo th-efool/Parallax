@@ -146,6 +146,8 @@ var _telegraph_active: bool = false
 var _threat: Dictionary = {}          # target instance_id -> float
 var _taunt_lock_id: int = 0
 var _taunt_lock_timer: float = 0.0
+var _taunt_started_ms: int = 0
+var _recent_dmg: Dictionary = {}      # attacker_id -> {"dmg": float, "hits": int, "last_ms": int}
 var _retarget_timer: float = 0.0
 var _home: Vector3 = Vector3.ZERO
 var _alert_pos: Vector3 = Vector3.ZERO
@@ -381,6 +383,7 @@ func apply_taunt(source: Node3D, bonus: float = -1.0, lock_sec: float = -1.0) ->
 		return
 	_taunt_lock_id = sid
 	_taunt_lock_timer = lock
+	_taunt_started_ms = Time.get_ticks_msec()
 	_fixated = taunt_fixation and lock >= 3.0
 	_fixation_far_t = 0.0
 	if current_state == State.FLEEING:
@@ -593,6 +596,7 @@ func apply_damage(amount: int, is_heavy: bool = false, source_type: String = "",
 		return ok
 	if attacker is Node3D:
 		add_threat(attacker, amt * damage_threat_mult * (backstab_threat_mult if backstab else 1.0))
+		_record_self_preservation_damage(attacker as Node3D, amt)
 	if was_idle and attacker is Node3D and _is_valid_target(attacker as Node3D):
 		_set_target(attacker as Node3D)
 		_reaggro_block = 0.0
@@ -714,8 +718,44 @@ func _set_target(n: Node3D) -> void:
 	target_changed.emit(n)
 
 
+func _record_self_preservation_damage(attacker: Node3D, dmg_amt: float) -> void:
+	if attacker == null or not _is_valid_target(attacker) or dmg_amt <= 0.0:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	# Prune stale damage windows (> 4.5 s old).
+	for k in _recent_dmg.keys():
+		if now_ms - int((_recent_dmg[k] as Dictionary).get("last_ms", 0)) > 4500:
+			_recent_dmg.erase(k)
+	var aid: int = attacker.get_instance_id()
+	var rec: Dictionary = _recent_dmg.get(aid, {"dmg": 0.0, "hits": 0, "last_ms": now_ms}) as Dictionary
+	rec["dmg"] = float(rec.get("dmg", 0.0)) + dmg_amt
+	rec["hits"] = int(rec.get("hits", 0)) + 1
+	rec["last_ms"] = now_ms
+	_recent_dmg[aid] = rec
+
+	var cur: Node3D = get_current_target()
+	if cur == attacker:
+		return
+	# Self-preservation instinct: if someone other than our current target is shredding us with
+	# continuous hits (>= 3 hits) or high burst damage (>= 22% max HP or >= 85 dmg) inside 4.5 s,
+	# break fixation/taunt (after a 1.8 s fresh-taunt grace window) and switch onto them!
+	var high_dmg_cut: float = minf(float(max_health) * 0.22, 85.0)
+	var sustained_threat: bool = int(rec["hits"]) >= 3 or float(rec["dmg"]) >= high_dmg_cut
+	if not sustained_threat:
+		return
+	if is_taunted():
+		if now_ms - _taunt_started_ms < 1800:
+			return
+		_end_fixation()
+	var cur_threat: float = float(_threat.get(cur.get_instance_id(), 0.0)) if cur != null else 0.0
+	_threat[aid] = maxf(float(_threat.get(aid, 0.0)), cur_threat * 1.25 + 30.0)
+	_recent_dmg.erase(aid)
+	_set_target(attacker)
+
+
 func _clear_threat() -> void:
 	_threat.clear()
+	_recent_dmg.clear()
 	_end_fixation()
 	target_player = null
 	if _squad != null:
