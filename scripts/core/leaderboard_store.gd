@@ -250,18 +250,18 @@ func get_default_settings() -> Dictionary:
 		# Display / Screen Type
 		"screen_mode": "windowed", # "windowed", "borderless", "fullscreen"
 		"fullscreen": false,
-		"resolution": Vector2i(1280, 720),
+		"resolution": Vector2i(1920, 1080),
 		"vsync_mode": DisplayServer.VSYNC_ENABLED,
 		"max_fps": 0, # 0 = unlimited
 		# Graphics Quality
-		"graphics_preset": "high", # "low", "medium", "high", "ultra", "custom"
+		"graphics_preset": "medium", # "low", "medium", "high", "ultra", "custom"
 		"msaa_3d": Viewport.MSAA_2X,
-		"screen_space_aa": Viewport.SCREEN_SPACE_AA_FXAA,
-		"shadow_quality": 2, # 0=Off, 1=Low, 2=Medium, 3=High
+		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED,
+		"shadow_quality": 1, # 0=Off, 1=Low, 2=Medium, 3=High
 		"glow_enabled": true,
 		"fog_enabled": true,
 		"brightness": 1.0, # 0.5 .. 1.5 tonemap_exposure
-		"render_scale": 1.0, # 0.5 .. 1.0 3D resolution (FSR 1 upscale below 1.0)
+		"render_scale": 0.85, # 0.5 .. 1.0 3D resolution (FSR 1 upscale below 1.0)
 		"adaptive_resolution": true, # PerformanceGovernor lowers the 3D scale when FPS drops
 		"hw_autodetected": false, # first launch on integrated / software GPUs picks the Low preset
 		"finisher_window_enabled": true, # critical-hit slow-mo finisher window
@@ -418,7 +418,7 @@ func apply_settings() -> void:
 			if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			var res_val: Variant = _settings.get("resolution", Vector2i(1280, 720))
+			var res_val: Variant = _settings.get("resolution", Vector2i(1920, 1080))
 			if res_val is Vector2i:
 				var res: Vector2i = res_val as Vector2i
 				var usable: Vector2i = DisplayServer.screen_get_usable_rect().size
