@@ -106,11 +106,40 @@ func _release(i: int) -> void:
 	for e in _enemies(i):
 		if e.is_dead:
 			continue
+		_ensure_clear_spawn(e)
 		e.set_wave_held(false)
 		CombatVFXScript.spawn_impact_burst(host, e.global_position + Vector3(0, 1.0, 0), true, true, 1.6)
 	if AudioManager.instance != null:
 		AudioManager.instance.play_sfx("ui_confirm", -2.0)
 	wave_started.emit(i + 1, waves.size())
+
+
+func _ensure_clear_spawn(e: EnemyBase) -> void:
+	if not is_inside_tree() or e == null or not e.is_inside_tree():
+		return
+	var world: World3D = get_world_3d()
+	if world == null or world.direct_space_state == null:
+		return
+	var space: PhysicsDirectSpaceState3D = world.direct_space_state
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.45
+	cap.height = 1.6
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = cap
+	q.collision_mask = RealmManager.LAYER_WORLD_SHARED
+	q.exclude = [e.get_rid()]
+	var base: Vector3 = e.global_position
+	q.transform = Transform3D(Basis.IDENTITY, base + Vector3(0.0, 1.05, 0.0))
+	if space.intersect_shape(q, 1).is_empty():
+		return
+	for rad in [2.6, 4.2, 6.0]:
+		for k in range(8):
+			var ang: float = TAU * float(k) / 8.0
+			var cand: Vector3 = base + Vector3(cos(ang) * float(rad), 0.0, sin(ang) * float(rad))
+			q.transform = Transform3D(Basis.IDENTITY, cand + Vector3(0.0, 1.05, 0.0))
+			if space.intersect_shape(q, 1).is_empty():
+				e.global_position = cand
+				return
 
 
 func _on_section_reset(sec: int) -> void:

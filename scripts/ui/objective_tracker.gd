@@ -116,22 +116,21 @@ func _compute(player: Node3D) -> Dictionary:
 	if gate2 != null and not bool(gate2.get("is_open")):
 		if pz < 24.0:
 			return {"title": "Cross the Sunlit Bridges to the Hall of Echoes", "hint": "Through the gate and over the bridges, past both bastions, to the hall.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 4, 26)))}
-		var hall_hint: String = "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) any column: it falls away from you and crushes everything in its path."
 		var hall_waves: WaveDirector = _n("Stage02_HallOfEchoes/HallWaves") as WaveDirector
 		if hall_waves != null and not hall_waves.finished:
 			var wave_alive: Array[EnemyBase] = hall_waves.get_current_wave_alive()
 			if not wave_alive.is_empty():
-				return {"title": "Clear the Hall of Echoes%s — %d left" % [_wave_tag("Stage02_HallOfEchoes/HallWaves"), wave_alive.size()],
-					"hint": hall_hint,
+				return {"title": "Clear the Hall of Echoes",
+					"sub": "Wave %d/%d  ·  %d left" % [hall_waves.get_display_wave(), hall_waves.get_total(), wave_alive.size()],
 					"target": _nearest(wave_alive, player).global_position}
 			if hall_waves.is_waiting_for_next_wave() or hall_waves.current_wave < hall_waves.get_total() - 1:
 				var next_w: int = hall_waves.get_display_wave() if hall_waves.is_waiting_for_next_wave() else mini(hall_waves.get_display_wave() + 1, hall_waves.get_total())
-				return {"title": "Clear the Hall of Echoes — Wave %d/%d incoming..." % [next_w, hall_waves.get_total()],
-					"hint": hall_hint,
+				return {"title": "Clear the Hall of Echoes",
+					"sub": "Wave %d/%d incoming..." % [next_w, hall_waves.get_total()],
 					"target": JourneyLayout.HALL_CENTER}
 		if not hall_left.is_empty():
-			return {"title": "Clear the Hall of Echoes%s — %d left" % [_wave_tag("Stage02_HallOfEchoes/HallWaves"), hall_left.size()],
-				"hint": hall_hint,
+			return {"title": "Clear the Hall of Echoes",
+				"sub": "%d left" % hall_left.size(),
 				"target": _nearest(hall_left, player).global_position}
 	if pz < 64.0 and py < 5.5:
 		return {"title": "Cross the Windswept Rampart", "hint": "Through the opened gate and over the rampart bridges, past both bastions, to the gallery.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 6, 62)))}
@@ -150,8 +149,10 @@ func _compute(player: Node3D) -> Dictionary:
 	if puz != null and not bool(puz.get("is_solved")) and pz <= 101.5:
 		if pz < 87.0:
 			return {"title": "Enter the Clock-Tower Mechanism Chamber", "hint": "North through the gallery gate.", "target": JourneyLayout.to_world(Vector3(0, 6, 90))}
-		return {"title": "Drop the Mirror weight onto the plate" + _wave_tag("Stage04_MechanismChamber/ChamberWaves"),
-			"hint": "In the Mirror, jump off the raised dais and press F in mid-air above the hanging weight to slam it down.",
+		var cw: WaveDirector = _n("Stage04_MechanismChamber/ChamberWaves") as WaveDirector
+		var cw_sub: String = ("Wave %d/%d" % [cw.get_display_wave(), cw.get_total()]) if (cw != null and cw.get_display_wave() > 0) else ""
+		return {"title": "Drop the Mirror weight onto the plate",
+			"sub": cw_sub,
 			"target": puz.global_position}
 	var gate5: Node = _n("Stage05_ExecutionArena/Gate05_ArenaExit")
 	var warden: WardenBoss = _n("Stage05_ExecutionArena/Enemies/TheWarden") as WardenBoss
@@ -260,27 +261,27 @@ func _draw() -> void:
 	var disp: Font = UITheme.display_font()
 	var body: Font = UITheme.body_font()
 	var title: String = String(_obj.get("title", "")).to_upper()
-	var hint: String = String(_obj.get("hint", ""))
+	var sub: String = String(_obj.get("sub", "")).to_upper()
 	var k: float = 1.0 + 0.25 * _pop
 	var tsz: int = int(19.0 * k)
 	var tw: float = disp.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tsz).x
-	var y: float = 156.0   # below the Reality/Mirror chip + shift cooldown readout
+	var sw: float = body.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x if not sub.is_empty() else 0.0
+	var sep_w: float = maxf(tw, sw) + 36.0
+	var y: float = 176.0   # cleanly below the Reality/Mirror pills + [Q] keycap
 	var glow: Color = GOLD.lerp(Color(1, 1, 1), _pop * 0.6)
 	var cx: float = s.x * 0.5
-	# Combined background (removed solid rect).
-	var lines: PackedStringArray = _wrap(body, hint, 16, minf(760.0, s.x - 80.0))
-	
-	_draw_fractured_separator(cx, y - 38.0, tw, GOLD)
-	_draw_fractured_separator(cx, y + 25.0 + 19.0 * float(lines.size()), tw, GOLD)
+
+	_draw_fractured_separator(cx, y - 26.0, sep_w, GOLD)
+	var bot_y: float = (y + 38.0) if not sub.is_empty() else (y + 16.0)
+	_draw_fractured_separator(cx, bot_y, sep_w, GOLD)
 
 	# Diamond + title.
 	_diamond(Vector2(cx - tw * 0.5 - 16.0, y - 7.0), 5.0, glow)
 	_text(disp, Vector2(cx - tw * 0.5, y), title, tsz, glow, 8)
-	
-	# Hint (wrapped to two lines max).
-	for i in range(mini(2, lines.size())):
-		var lw: float = body.get_string_size(lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_text(body, Vector2(cx - lw * 0.5, y + 22.0 + 19.0 * float(i)), lines[i], 16, Color(1, 1, 1, 0.95), 4)
+
+	# Second line: Wave X/3 · N left (when present); no verbose tip/hint clutter.
+	if not sub.is_empty():
+		_text(body, Vector2(cx - sw * 0.5, y + 23.0), sub, 15, Color(0.98, 0.94, 0.84, 0.96), 5)
 	_draw_marker(s)
 
 func _draw_fractured_separator(cx: float, y: float, w: float, col: Color) -> void:

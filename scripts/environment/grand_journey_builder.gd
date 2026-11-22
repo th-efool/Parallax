@@ -1163,9 +1163,11 @@ func _build_stage_02_hall() -> Node3D:
 	_make_knockable(pillar, 9.0)
 	root.add_child(pillar)
 	# A ring of eight great columns (r 17) breaks up the big floor: cover from the hexcasters, lanes to kite through.
+	var pillar_centers: Array[Vector3] = [Vector3(c.x, y, c.z)]
 	for i in range(8):
 		var a: float = TAU * (float(i) + 0.5) / 8.0
 		var cp := Vector3(c.x + sin(a) * 17.0, y, c.z + cos(a) * 17.0)
+		pillar_centers.append(cp)
 		var col := _make_breakable_pillar("HallColumn_%d" % (i + 1), cp, BreakableProp.PropKind.CRACKED_PILLAR, 1, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
 		_restyle_pillar(col, 12.0, 0.9, Vector3(0, 0, 1))
 		_make_knockable(col, 12.0)
@@ -1215,7 +1217,14 @@ func _build_stage_02_hall() -> Node3D:
 			else:
 				e = SkeletonGuard.new()
 				e.died.connect(_on_hall_skeleton_died)
-			_configure_enemy_actor(e, String(spec[1]), String(spec[2]), c + (spec[3] as Vector3), tint)
+			var spawn_p: Vector3 = c + (spec[3] as Vector3)
+			for pc in pillar_centers:
+				var d2 := Vector2(spawn_p.x - pc.x, spawn_p.z - pc.z)
+				if d2.length() < 3.6:
+					var push: Vector2 = d2.normalized() if d2.length() > 0.05 else Vector2(1.0, 0.0)
+					spawn_p.x = pc.x + push.x * 3.8
+					spawn_p.z = pc.z + push.y * 3.8
+			_configure_enemy_actor(e, String(spec[1]), String(spec[2]), spawn_p, tint)
 			e.section_id = EncounterDirector.Section.HALL_COMBAT
 			e.encounter_id = "hall_of_echoes"
 			if kind_s == "shield":
@@ -2040,6 +2049,18 @@ func _build_stage_05_arena() -> Node3D:
 		warden.health_changed.connect(_on_warden_health_changed)
 		enemies.add_child(warden)
 		root.add_child(enemies)
+
+	# Six knockable columns flanking the Warden's arena (east & west, clear of the CentralMirrorPlane at x = 0).
+	var arena_col_offsets: Array[Vector3] = [
+		Vector3(-8.2, 0.0, -6.0), Vector3(-8.6, 0.0, 0.0), Vector3(-8.2, 0.0, 6.0),
+		Vector3(8.2, 0.0, -6.0), Vector3(8.6, 0.0, 0.0), Vector3(8.2, 0.0, 6.0),
+	]
+	for ci in range(arena_col_offsets.size()):
+		var cp: Vector3 = c + arena_col_offsets[ci]
+		var col := _make_breakable_pillar("ArenaColumn_%d" % (ci + 1), cp, BreakableProp.PropKind.CRACKED_PILLAR, 4, 0.60, Vector3(0.0, 0.0, 2.5), 2.5)
+		_restyle_pillar(col, 9.0, 0.72, Vector3(0, 0, 1))
+		_make_knockable(col, 9.0)
+		root.add_child(col)
 
 	# Crystals crown the podium (out of the duel space) instead of sitting on the arena sand.
 	for spec in [[2.3, 1.4, 51], [4.0, 1.3, 52], [5.6, 1.2, 53]]:

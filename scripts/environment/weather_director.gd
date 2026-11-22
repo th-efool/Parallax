@@ -22,18 +22,18 @@ const PROFILES: Dictionary = {
 	"haze": {"overcast": 0.12, "blood": 0.0, "fog_mul": 1.6, "fog_color": Color(0.88, 0.72, 0.52), "fog_tint": 0.4,
 		"light_mul": 0.95, "light_tint": Color(1, 0.8, 0.6), "light_tint_amt": 0.0, "ambient_mul": 1.0,
 		"rain": 0.0, "rain_color": Color(0.7, 0.75, 0.85, 0.35), "lightning_per_min": 0.0, "wind": 0.35},
-	"storm": {"overcast": 0.72, "blood": 0.0, "fog_mul": 2.6, "fog_color": Color(0.42, 0.45, 0.52), "fog_tint": 0.85,
-		"light_mul": 0.42, "light_tint": Color(0.7, 0.78, 0.92), "light_tint_amt": 0.6, "ambient_mul": 0.75,
-		"rain": 0.35, "rain_color": Color(0.72, 0.78, 0.9, 0.32), "lightning_per_min": 2.0, "wind": 0.75},
-	"tempest": {"overcast": 0.9, "blood": 0.0, "fog_mul": 3.2, "fog_color": Color(0.32, 0.35, 0.42), "fog_tint": 0.9,
-		"light_mul": 0.3, "light_tint": Color(0.62, 0.7, 0.88), "light_tint_amt": 0.75, "ambient_mul": 0.62,
-		"rain": 0.85, "rain_color": Color(0.72, 0.78, 0.9, 0.38), "lightning_per_min": 5.0, "wind": 1.0},
-	"blood": {"overcast": 0.35, "blood": 0.85, "fog_mul": 2.4, "fog_color": Color(0.45, 0.06, 0.04), "fog_tint": 0.9,
-		"light_mul": 0.62, "light_tint": Color(1.0, 0.32, 0.22), "light_tint_amt": 0.85, "ambient_mul": 0.7,
-		"rain": 0.55, "rain_color": Color(0.55, 0.02, 0.02, 0.55), "lightning_per_min": 3.0, "wind": 0.6},
-	"blood_frenzy": {"overcast": 0.45, "blood": 1.0, "fog_mul": 3.0, "fog_color": Color(0.5, 0.04, 0.03), "fog_tint": 1.0,
-		"light_mul": 0.55, "light_tint": Color(1.0, 0.22, 0.15), "light_tint_amt": 0.95, "ambient_mul": 0.62,
-		"rain": 1.0, "rain_color": Color(0.6, 0.0, 0.0, 0.62), "lightning_per_min": 7.0, "wind": 0.9},
+	"storm": {"overcast": 0.58, "blood": 0.0, "fog_mul": 1.45, "fog_color": Color(0.46, 0.50, 0.58), "fog_tint": 0.55,
+		"light_mul": 0.72, "light_tint": Color(0.76, 0.84, 0.96), "light_tint_amt": 0.45, "ambient_mul": 0.88,
+		"rain": 0.22, "rain_color": Color(0.78, 0.84, 0.95, 0.18), "lightning_per_min": 2.0, "wind": 0.65},
+	"tempest": {"overcast": 0.72, "blood": 0.0, "fog_mul": 1.75, "fog_color": Color(0.38, 0.43, 0.52), "fog_tint": 0.65,
+		"light_mul": 0.65, "light_tint": Color(0.72, 0.80, 0.94), "light_tint_amt": 0.55, "ambient_mul": 0.84,
+		"rain": 0.40, "rain_color": Color(0.80, 0.86, 0.96, 0.22), "lightning_per_min": 4.0, "wind": 0.85},
+	"blood": {"overcast": 0.28, "blood": 0.75, "fog_mul": 1.45, "fog_color": Color(0.48, 0.14, 0.10), "fog_tint": 0.55,
+		"light_mul": 0.80, "light_tint": Color(1.0, 0.52, 0.38), "light_tint_amt": 0.55, "ambient_mul": 0.88,
+		"rain": 0.24, "rain_color": Color(0.85, 0.22, 0.18, 0.20), "lightning_per_min": 2.5, "wind": 0.5},
+	"blood_frenzy": {"overcast": 0.36, "blood": 0.90, "fog_mul": 1.70, "fog_color": Color(0.52, 0.12, 0.09), "fog_tint": 0.65,
+		"light_mul": 0.74, "light_tint": Color(1.0, 0.42, 0.30), "light_tint_amt": 0.65, "ambient_mul": 0.85,
+		"rain": 0.40, "rain_color": Color(0.90, 0.18, 0.15, 0.24), "lightning_per_min": 5.0, "wind": 0.75},
 	"aftermath": {"overcast": 0.0, "blood": 0.0, "fog_mul": 1.2, "fog_color": Color(0.95, 0.78, 0.55), "fog_tint": 0.5,
 		"light_mul": 1.15, "light_tint": Color(1.0, 0.84, 0.6), "light_tint_amt": 0.3, "ambient_mul": 1.1,
 		"rain": 0.0, "rain_color": Color(0.7, 0.75, 0.85, 0.35), "lightning_per_min": 0.0, "wind": 0.2},
@@ -46,7 +46,7 @@ const AMBIENCE_DIR: String = "res://assets/audio/ambience/"
 
 @export var blend_speed: float = 0.35          # fraction of the gap closed per second (~4 s to settle)
 @export var base_fog_density: float = 0.00075
-@export var rain_max_particles: int = 6000
+@export var rain_max_particles: int = 1600
 @export var world_environment_path: NodePath
 @export var sun_path: NodePath
 @export var realm_controller_path: NodePath
@@ -60,7 +60,7 @@ var warden_phase2: bool = false
 var _cur: Dictionary = {}
 var _rain: GPUParticles3D = null
 var _rain_mat: ParticleProcessMaterial = null
-var _rain_draw: StandardMaterial3D = null
+var _rain_draw: ShaderMaterial = null
 var _rain_collider: GPUParticlesCollisionHeightField3D = null
 var _flash: float = 0.0
 var _next_lightning: float = 6.0
@@ -254,14 +254,35 @@ func _build_rain() -> void:
 	_rain_mat.collision_mode = ParticleProcessMaterial.COLLISION_HIDE_ON_CONTACT
 	_rain.process_material = _rain_mat
 	var streak := QuadMesh.new()
-	streak.size = Vector2(0.025, 0.7)
-	_rain_draw = StandardMaterial3D.new()
-	_rain_draw.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_rain_draw.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_rain_draw.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
-	_rain_draw.billboard_keep_scale = true
-	_rain_draw.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_rain_draw.albedo_color = Color(0.7, 0.75, 0.85, 0.35)
+	streak.size = Vector2(0.010, 0.52)
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, blend_mix;
+uniform vec4 rain_color : source_color = vec4(0.78, 0.84, 0.95, 0.18);
+varying float cam_fade;
+void vertex() {
+	// Y-axis cylindrical billboard so streaks stay aligned with fall direction
+	vec3 cam_right = normalize(vec3(INV_VIEW_MATRIX[0].x, 0.0, INV_VIEW_MATRIX[0].z));
+	vec3 up_dir = normalize(MODEL_MATRIX[1].xyz);
+	vec3 world_pos = MODEL_MATRIX[3].xyz + cam_right * VERTEX.x + up_dir * VERTEX.y;
+	vec4 view_pos = VIEW_MATRIX * vec4(world_pos, 1.0);
+	POSITION = PROJECTION_MATRIX * view_pos;
+	// Fade out droplets close to the camera lens so rain never obstructs visibility
+	cam_fade = smoothstep(4.2, 9.5, length(view_pos.xyz));
+}
+void fragment() {
+	// Soft tapered raindrop: smooth fade at top, bottom, and horizontal edges
+	float x_fade = 1.0 - smoothstep(0.0, 0.5, abs(UV.x - 0.5));
+	float y_fade = sin(UV.y * 3.14159265);
+	float a = rain_color.a * x_fade * y_fade * cam_fade;
+	ALBEDO = rain_color.rgb;
+	ALPHA = a;
+}
+"""
+	_rain_draw = ShaderMaterial.new()
+	_rain_draw.shader = sh
+	_rain_draw.set_shader_parameter("rain_color", Color(0.78, 0.84, 0.95, 0.18))
 	streak.material = _rain_draw
 	_rain.draw_pass_1 = streak
 	add_child(_rain)
@@ -282,7 +303,7 @@ func _update_rain(cam: Camera3D) -> void:
 	if cam != null:
 		_rain.global_position = cam.global_position + Vector3(0, 14.0, 0)
 	var rc: Color = _cur["rain_color"]
-	_rain_draw.albedo_color = rc
+	_rain_draw.set_shader_parameter("rain_color", rc)
 	var wind: float = float(_cur["wind"])
 	_rain_mat.direction = Vector3(0.1 + wind * 0.25, -1.0, 0.05 + wind * 0.08)
 

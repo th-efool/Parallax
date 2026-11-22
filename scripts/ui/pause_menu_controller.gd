@@ -94,8 +94,14 @@ func set_paused(paused: bool) -> void:
 	if is_paused_state:
 		if DisplayServer.get_name() != "headless":
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		if get_viewport() != null:
-			get_viewport().gui_release_focus()
+			var vp: Viewport = get_viewport()
+			if vp != null:
+				var sz: Vector2 = vp.get_visible_rect().size
+				if sz.x > 10.0 and sz.y > 10.0:
+					# Move cursor off the dead-center "Restart Section" button where MOUSE_MODE_CAPTURED parks it.
+					Input.warp_mouse(Vector2(sz.x * 0.5, maxf(40.0, sz.y * 0.5 - 210.0)))
+				vp.gui_release_focus()
+		call_deferred("_clear_stale_focus")
 
 	var run_state: Node = _get_run_state()
 	if run_state != null:
@@ -106,6 +112,11 @@ func set_paused(paused: bool) -> void:
 
 	_sync_ui_nodes()
 	pause_toggled.emit(is_paused_state)
+
+
+func _clear_stale_focus() -> void:
+	if is_paused_state and is_inside_tree() and get_viewport() != null:
+		get_viewport().gui_release_focus()
 
 
 func press_resume() -> void:
