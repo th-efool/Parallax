@@ -1119,6 +1119,7 @@ func _build_stage_01_entry() -> Node3D:
 	# the two R1 bastions (_build_routes).
 	var rg: Node3D = _roamer_group(root)
 	_add_roamer(rg, "phantom", "ForecourtPhantom", Vector3(3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
+	_add_roamer(rg, "phantom", "ForecourtPhantom_2", Vector3(-3.5, 0.0, -8.0), EncounterDirector.Section.ENTRY, Vector3(0, 0, -14))
 	# Gate stone guards: two enlarged Shielded Guards flanking the stepping-stone pit, a Grave Brute holding the
 	# forecourt and a Hexcaster on the north landing beside the gate stone.
 	for gw in [["GateWarden_W", -3.2], ["GateWarden_E", 3.2]]:
@@ -1185,7 +1186,10 @@ func _build_stage_02_hall() -> Node3D:
 		["shield", "HallShield_3", "hall_shield_3", Vector3(-24, 0, -6)],
 		["shield", "HallShield_4", "hall_shield_4", Vector3(24, 0, -14)],
 		["phantom", "PhantomTwin_1", "hall_phantom_1", Vector3(-18, 0, 22)],
+		["phantom", "PhantomTwin_2", "hall_phantom_2", Vector3(18, 0, 22)],
+		["phantom", "PhantomTwin_3", "hall_phantom_3", Vector3(-14, 0, -12)],
 		["phantom", "PhantomTwin_4", "hall_phantom_4", Vector3(-24, 0, 10)],
+		["phantom", "PhantomTwin_5", "hall_phantom_5", Vector3(24, 0, 10)],
 		["phantom", "PhantomTwin_6", "hall_phantom_6", Vector3(0, 0, -10)],
 		# Wave 3 (all 8 enlarged Shielded Guards — 6 encounter + 2 roamers below)
 		["shield", "HallShield_W3_1", "hall_shield_w3_1", Vector3(-20, 0, 18)],
@@ -1242,12 +1246,14 @@ func _build_stage_02_hall() -> Node3D:
 	_enlarge_enemy(hall_sh7, 1.35)
 	var hall_sh8: EnemyBase = _add_roamer(hrg, "shield", "HallShield_W3_8", c + Vector3(0, 0, 24), EncounterDirector.Section.HALL_COMBAT, Vector3(0, y, zs))
 	_enlarge_enemy(hall_sh8, 1.35)
-	# Three waves of eight: Waves 1-2 mix skeletons, phantoms, brutes & enlarged Shielded Guards; Wave 3 = all 8 enlarged Shielded Guards.
+	# Three waves: Waves 1-2 mix skeletons, phantoms (3 per wave), brutes & enlarged Shielded Guards; Wave 3 = all 8 enlarged Shielded Guards.
 	_add_waves(root, "HallWaves", EncounterDirector.Section.HALL_COMBAT, [
 		["Enemies/SkeletonGuard_1", "Enemies/SkeletonGuard_2", "Enemies/SkeletonGuard_3", "Enemies/HallShield_1",
-			"Enemies/HallShield_2", "Enemies/PhantomTwin_6", "Roamers/HallHexcaster_W", "Roamers/HallBrute_2"],
+			"Enemies/HallShield_2", "Enemies/PhantomTwin_6", "Enemies/PhantomTwin_2", "Enemies/PhantomTwin_3",
+			"Roamers/HallHexcaster_W", "Roamers/HallBrute_2"],
 		["Enemies/SkeletonGuard_4", "Enemies/SkeletonGuard_5", "Enemies/HallShield_3", "Enemies/HallShield_4",
-			"Enemies/PhantomTwin_1", "Enemies/PhantomTwin_4", "Roamers/HallHexcaster_E", "Roamers/HallStalker"],
+			"Enemies/PhantomTwin_1", "Enemies/PhantomTwin_4", "Enemies/PhantomTwin_5",
+			"Roamers/HallHexcaster_E", "Roamers/HallStalker"],
 		["Enemies/HallShield_W3_1", "Enemies/HallShield_W3_2", "Enemies/HallShield_W3_3", "Enemies/HallShield_W3_4",
 			"Enemies/HallShield_W3_5", "Enemies/HallShield_W3_6", "Roamers/HallShield_W3_7", "Roamers/HallShield_W3_8"],
 	])
@@ -1360,9 +1366,9 @@ func _build_hall_walls(root: Node3D, g: Array[Node3D], y: float) -> void:
 ## Bastion garrisons per bridge: [bastion 1 kinds, bastion 2 kinds] (roamer kinds of _add_roamer).
 const ROUTE_ENEMIES: Dictionary = {
 	"R1_PilgrimCauseway": [["skeleton", "skeleton", "hexcaster"], ["skeleton", "shield", "hexcaster"]],
-	"R2_SunlitBridges": [["phantom", "skeleton", "stalker"], ["skeleton", "skeleton", "hexcaster"]],
-	"R3_WindsweptRampart": [["skeleton", "stalker", "hexcaster"], ["brute", "skeleton", "phantom"]],
-	"R5_Processional": [["phantom", "skeleton", "hexcaster"], ["shield", "skeleton", "brute"]],
+	"R2_SunlitBridges": [["phantom", "phantom", "skeleton", "stalker"], ["skeleton", "phantom", "hexcaster"]],
+	"R3_WindsweptRampart": [["phantom", "skeleton", "stalker", "hexcaster"], ["brute", "phantom", "phantom"]],
+	"R5_Processional": [["phantom", "phantom", "skeleton", "hexcaster"], ["shield", "phantom", "brute"]],
 }
 
 
@@ -1809,6 +1815,7 @@ func _build_stage_04_mechanism() -> Node3D:
 	_add_roamer(rg, "skeleton", "TowerSkeleton_A", Vector3(10.0, y, cz + 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "skeleton", "TowerSkeleton_B", Vector3(-12.0, y, cz + 9.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "phantom", "TowerPhantom", Vector3(11.0, y, cz - 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "phantom", "TowerPhantom_3", Vector3(-11.0, y, cz - 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	var t_sh1: EnemyBase = _add_roamer(rg, "shield", "TowerShield_1", Vector3(-6.0, y, cz - 14.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_enlarge_enemy(t_sh1, 1.35)
 	var t_sh2: EnemyBase = _add_roamer(rg, "shield", "TowerShield_2", Vector3(14.0, y, cz - 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
@@ -1822,6 +1829,8 @@ func _build_stage_04_mechanism() -> Node3D:
 	var t_sh4: EnemyBase = _add_roamer(rg, "shield", "TowerShield_4", Vector3(-15.0, y, cz + 14.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_enlarge_enemy(t_sh4, 1.35)
 	_add_roamer(rg, "phantom", "TowerPhantom_2", Vector3(-8.0, y, cz + 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "phantom", "TowerPhantom_4", Vector3(8.0, y, cz + 6.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
+	_add_roamer(rg, "phantom", "TowerPhantom_5", Vector3(0.0, y, cz - 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_add_roamer(rg, "hexcaster", "TowerHexcaster_2", Vector3(15.0, y, cz + 10.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 
 	var t_b1: EnemyBase = _add_roamer(rg, "brute", "TowerBrute", Vector3(0.0, y, cz + 12.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
@@ -1833,11 +1842,12 @@ func _build_stage_04_mechanism() -> Node3D:
 	var t_sh6: EnemyBase = _add_roamer(rg, "shield", "TowerShield_6", Vector3(6.0, y, cz - 15.0), EncounterDirector.Section.MECHANISM_CHAMBER, door)
 	_enlarge_enemy(t_sh6, 1.35)
 	_add_waves(root, "ChamberWaves", EncounterDirector.Section.MECHANISM_CHAMBER, [
-		["Roamers/TowerSkeleton_A", "Roamers/TowerSkeleton_B", "Roamers/TowerPhantom", "Roamers/TowerShield_1",
-			"Roamers/TowerShield_2", "Roamers/TowerSkeleton_H"],
+		["Roamers/TowerSkeleton_A", "Roamers/TowerSkeleton_B", "Roamers/TowerPhantom", "Roamers/TowerPhantom_3",
+			"Roamers/TowerShield_1", "Roamers/TowerShield_2", "Roamers/TowerSkeleton_H"],
 		["Roamers/TowerSkeleton_C", "Roamers/TowerShield_3", "Roamers/TowerHexcaster", "Roamers/TowerShield_4",
-			"Roamers/TowerPhantom_2", "Roamers/TowerHexcaster_2"],
-		["Roamers/TowerBrute", "Roamers/TowerShield_5", "Roamers/TowerBrute_2", "Roamers/TowerShield_6"],
+			"Roamers/TowerPhantom_2", "Roamers/TowerPhantom_4", "Roamers/TowerHexcaster_2"],
+		["Roamers/TowerBrute", "Roamers/TowerShield_5", "Roamers/TowerBrute_2", "Roamers/TowerShield_6",
+			"Roamers/TowerPhantom_5"],
 	])
 	return root
 

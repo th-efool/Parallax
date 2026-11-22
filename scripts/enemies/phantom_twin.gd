@@ -55,13 +55,14 @@ func is_hittable_now() -> bool:
 	return _mirror_now()
 
 
+## Mirror enemies actively hunt and attack even while the player is in Reality — their realm advantage
+## forces the player to shift into Mirror to fight back and kill them.
 func can_attack_now() -> bool:
-	return _mirror_now()
+	return true
 
 
-## Hitbox3D veto: in Reality the phantom's strikes pass through everyone.
 func can_damage_target(_target: Node) -> bool:
-	return _mirror_now()
+	return true
 
 
 func _modify_incoming_damage(amount: int, _is_heavy: bool, source_type: String) -> int:
@@ -81,16 +82,6 @@ func _phase_shimmer() -> void:
 
 func on_realm_changed(_active_realm: int) -> void:
 	_apply_ghost_look()
-	if not _mirror_now():
-		_release_token()
-		if current_state == State.WINDUP or current_state == State.ATTACK:
-			_clear_telegraph_flash()
-			var hb: Hitbox3D = get_attack_hitbox()
-			if hb != null:
-				hb.end_swing()
-			velocity.x = 0.0
-			velocity.z = 0.0
-			_transition_to(State.CHASE, 0.0)
 
 
 func _apply_ghost_look() -> void:
@@ -105,10 +96,6 @@ func _apply_ghost_look() -> void:
 
 
 func start_windup(custom_windup: float = -1.0) -> void:
-	if not _mirror_now():
-		# A Mirror creature can't touch anyone in Reality: give the attack token back and keep stalking.
-		_release_token()
-		return
 	super.start_windup(custom_windup)
 
 

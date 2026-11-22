@@ -72,14 +72,25 @@ static func fade_in(node: CanvasItem, dur: float = 0.25) -> void:
 
 
 ## Horizontal shake for errors / rejected actions.
+## Cancels any in-flight shake and restores the true base rotation so rapid repeats never leave controls tilted.
 static func shake(node: Control, strength: float = 8.0, dur: float = 0.28) -> void:
 	if not is_instance_valid(node) or not node.is_inside_tree():
 		return
-	var base: float = node.rotation
+	var prev_tw: Variant = node.get_meta("ui_fx_shake_tween", null)
+	if prev_tw is Tween and is_instance_valid(prev_tw):
+		(prev_tw as Tween).kill()
+	var base: float = float(node.get_meta("ui_fx_shake_base_rot", node.rotation))
+	if not node.has_meta("ui_fx_shake_base_rot"):
+		node.set_meta("ui_fx_shake_base_rot", base)
+	node.rotation = base
 	var tw: Tween = node.create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	node.set_meta("ui_fx_shake_tween", tw)
 	var k: float = deg_to_rad(strength * 0.25)
 	for sign_v: float in [1.0, -1.0, 0.7, -0.7, 0.0]:
 		tw.tween_property(node, "rotation", base + k * sign_v, dur / 5.0)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(node):
+			node.rotation = base)
 
 
 ## Animated count-up for score-style labels.
