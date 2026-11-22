@@ -116,15 +116,22 @@ func _compute(player: Node3D) -> Dictionary:
 	if gate2 != null and not bool(gate2.get("is_open")):
 		if pz < 24.0:
 			return {"title": "Cross the Sunlit Bridges to the Hall of Echoes", "hint": "Through the gate and over the bridges, past both bastions, to the hall.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 4, 26)))}
-		var hall_fighting: Array[EnemyBase] = []
-		for he in hall_left:
-			if not he.is_wave_held:
-				hall_fighting.append(he)
-		if not hall_fighting.is_empty():
-			hall_left = hall_fighting
+		var hall_hint: String = "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) any column: it falls away from you and crushes everything in its path."
+		var hall_waves: WaveDirector = _n("Stage02_HallOfEchoes/HallWaves") as WaveDirector
+		if hall_waves != null and not hall_waves.finished:
+			var wave_alive: Array[EnemyBase] = hall_waves.get_current_wave_alive()
+			if not wave_alive.is_empty():
+				return {"title": "Clear the Hall of Echoes%s — %d left" % [_wave_tag("Stage02_HallOfEchoes/HallWaves"), wave_alive.size()],
+					"hint": hall_hint,
+					"target": _nearest(wave_alive, player).global_position}
+			if hall_waves.is_waiting_for_next_wave() or hall_waves.current_wave < hall_waves.get_total() - 1:
+				var next_w: int = hall_waves.get_display_wave() if hall_waves.is_waiting_for_next_wave() else mini(hall_waves.get_display_wave() + 1, hall_waves.get_total())
+				return {"title": "Clear the Hall of Echoes — Wave %d/%d incoming..." % [next_w, hall_waves.get_total()],
+					"hint": hall_hint,
+					"target": JourneyLayout.HALL_CENTER}
 		if not hall_left.is_empty():
 			return {"title": "Clear the Hall of Echoes%s — %d left" % [_wave_tag("Stage02_HallOfEchoes/HallWaves"), hall_left.size()],
-				"hint": "Tip: in the Mirror (Q) enemies show a glowing weak point and take +25% damage. Heavy (RMB) any column: it falls away from you and crushes everything in its path.",
+				"hint": hall_hint,
 				"target": _nearest(hall_left, player).global_position}
 	if pz < 64.0 and py < 5.5:
 		return {"title": "Cross the Windswept Rampart", "hint": "Through the opened gate and over the rampart bridges, past both bastions, to the gallery.", "target": JourneyLayout.guide_target(player.global_position, JourneyLayout.to_world(Vector3(0, 6, 62)))}

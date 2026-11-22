@@ -91,6 +91,12 @@ func set_paused(paused: bool) -> void:
 	if pause_scene_tree and is_inside_tree() and get_tree() != null:
 		get_tree().paused = is_paused_state
 
+	if is_paused_state:
+		if DisplayServer.get_name() != "headless":
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if get_viewport() != null:
+			get_viewport().gui_release_focus()
+
 	var run_state: Node = _get_run_state()
 	if run_state != null:
 		if is_paused_state and run_state.has_method("pause_timer"):
@@ -107,6 +113,16 @@ func press_resume() -> void:
 
 
 func press_save_checkpoint() -> Dictionary:
+	# Update EncounterDirector's checkpoint to the player's exact current position, facing, and realm
+	# so both Continue and death respawn return the player right where they saved.
+	if is_inside_tree() and get_tree() != null and EncounterDirector.instance != null:
+		var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+		if player != null and player.is_inside_tree() and int(player.get("current_state")) != PlayerController.State.DEAD:
+			var yaw: float = float(player.get("camera_yaw")) if "camera_yaw" in player else player.global_rotation.y
+			var live_xform := Transform3D(Basis.IDENTITY.rotated(Vector3.UP, yaw), player.global_position)
+			if EncounterDirector.instance.has_method("set_manual_save_checkpoint"):
+				EncounterDirector.instance.set_manual_save_checkpoint(EncounterDirector.instance.current_section, live_xform)
+
 	var store: Node = _get_leaderboard_store()
 	var saved: Dictionary = {}
 	if store != null and store.has_method("capture_and_save_world_state"):
@@ -198,7 +214,7 @@ func cancel_pending_action() -> void:
 
 
 func _build_default_ui() -> void:
-	var modal := MenuStyle.build_centered_modal(self, "PauseDimmer", "PausePanel", Vector2(460, 480), 0.78, 30, 26)
+	var modal := MenuStyle.build_centered_modal(self, "PauseDimmer", "PausePanel", Vector2(460, 560), 0.78, 30, 26)
 	var panel: PanelContainer = modal["panel"] as PanelContainer
 
 	var scroll := ScrollContainer.new()
@@ -344,11 +360,11 @@ func _on_restart_section_btn() -> void:
 
 
 func _on_restart_run_btn() -> void:
-	press_restart_run(false)
+	press_restart_run(true)
 
 
 func _on_main_menu_btn() -> void:
-	press_main_menu(false)
+	press_main_menu(true)
 
 
 func _connect_button(path: NodePath, callable_fn: Callable) -> void:

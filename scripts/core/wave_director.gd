@@ -36,6 +36,22 @@ func get_display_wave() -> int:
 	return 0 if finished or waves.is_empty() else current_wave + 1
 
 
+## True during the brief pause after one wave is cleared and before the next wave spawns.
+func is_waiting_for_next_wave() -> bool:
+	return not finished and _delay >= 0.0
+
+
+## Alive, active (non-held) enemies belonging to the currently active wave.
+func get_current_wave_alive() -> Array[EnemyBase]:
+	var out: Array[EnemyBase] = []
+	if finished or _delay >= 0.0:
+		return out
+	for e in _enemies(current_wave):
+		if is_instance_valid(e) and not e.is_dead and not e.is_wave_held:
+			out.append(e)
+	return out
+
+
 func _enemies(i: int) -> Array[EnemyBase]:
 	var out: Array[EnemyBase] = []
 	if i < 0 or i >= waves.size():

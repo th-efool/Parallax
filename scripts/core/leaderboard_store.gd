@@ -814,6 +814,7 @@ func capture_and_save_world_state(root_node: Node = null) -> Dictionary:
 						"position": hx.origin,
 						"rotation_y": hx.basis.get_euler().y,
 						"realm": int(hd.get("realm", 0)),
+						"manual": bool(hd.get("manual", false)),
 					})
 		snapshot["checkpoint_history"] = serialized_hist
 		if cur_sec == 5: # COMPLETE
@@ -929,6 +930,7 @@ func apply_saved_world_state(root_node: Node = null) -> bool:
 					"section": int(hd.get("section", 0)),
 					"transform": Transform3D(Basis.IDENTITY.rotated(Vector3.UP, h_rot), h_pos),
 					"realm": int(hd.get("realm", 0)),
+					"manual": bool(hd.get("manual", false)),
 				})
 
 	if ed != null:

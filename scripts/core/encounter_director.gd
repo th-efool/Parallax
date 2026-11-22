@@ -129,6 +129,35 @@ func set_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: in
 	_trigger_auto_save()
 
 
+func set_manual_save_checkpoint(section_id: Section, spawn_transform: Transform3D, realm: int = -1) -> void:
+	var resolved_realm: int = realm
+	if resolved_realm < 0:
+		var rm: RealmManager = RealmManager.instance as RealmManager
+		resolved_realm = int(rm.current_realm) if rm != null else checkpoint_realm
+	checkpoint_section = section_id
+	if spawn_transform != Transform3D.IDENTITY:
+		checkpoint_transform = spawn_transform
+	checkpoint_realm = resolved_realm
+
+	var new_cp: Dictionary = {
+		"section": section_id,
+		"transform": checkpoint_transform,
+		"realm": resolved_realm,
+		"manual": true,
+	}
+	if _checkpoint_history.is_empty() or _checkpoint_history.back().section != section_id:
+		_checkpoint_history.append(new_cp)
+		if _checkpoint_history.size() > MAX_HISTORY:
+			_checkpoint_history.remove_at(0)
+	else:
+		_checkpoint_history[_checkpoint_history.size() - 1] = new_cp
+
+	var run_state: Node = _get_run_state()
+	if run_state != null and run_state.has_method("bank_section_score"):
+		run_state.call("bank_section_score")
+	checkpoint_updated.emit(checkpoint_section, checkpoint_transform)
+
+
 func alert_section_enemies(section_id: Section) -> void:
 	if not _section_enemies.has(section_id):
 		return
@@ -198,14 +227,19 @@ func handle_player_death(player: Node = null) -> void:
 	current_encounter_id = ""
 	active_enemy_count = 0
 
-	# 3. Death Rewind: Respawn 2 checkpoints behind
+	# 3. Death Rewind: Respawn at exact manual save spot if saved manually; otherwise rewind 2 checkpoints behind
 	var default_spawn := Transform3D(Basis.IDENTITY.rotated(Vector3.UP, PI), Vector3(0.0, 0.0, -136.0))
 	if _checkpoint_history.is_empty():
 		_checkpoint_history.append({"section": Section.ENTRY, "transform": default_spawn, "realm": 0})
 
-	var target_idx: int = _checkpoint_history.size() - 3
-	if target_idx < 0:
-		target_idx = 0
+	var latest_cp: Dictionary = _checkpoint_history[_checkpoint_history.size() - 1]
+	var target_idx: int
+	if bool(latest_cp.get("manual", false)):
+		target_idx = _checkpoint_history.size() - 1
+	else:
+		target_idx = _checkpoint_history.size() - 3
+		if target_idx < 0:
+			target_idx = 0
 
 	var target_cp: Dictionary = _checkpoint_history[target_idx]
 	current_section = int(target_cp.get("section", Section.ENTRY)) as Section
