@@ -249,6 +249,22 @@ func _reload_for_new_run(continue_saved: bool) -> void:
 	pending_continue = continue_saved
 	if get_tree() != null:
 		get_tree().paused = false
+		# Clean up root-level lazy singletons & static FX caches before tearing down the scene so no
+		# freed object pointers or stale GPU resources survive into reload_current_scene().
+		if get_tree().root != null:
+			var sq: Node = get_tree().root.get_node_or_null("SquadCoordinator")
+			if sq != null and sq.has_method("clear_for_scene_reload"):
+				sq.call("clear_for_scene_reload")
+			var fd: Node = get_tree().root.get_node_or_null("FaunaDirector")
+			if fd != null and fd.has_method("reset_for_scene_reload"):
+				fd.call("reset_for_scene_reload")
+		var gore_script: GDScript = load("res://scripts/core/gore_fx.gd") as GDScript
+		if gore_script != null and gore_script.has_method("cleanup_all_fx"):
+			gore_script.call("cleanup_all_fx")
+		var game_feel: GDScript = load("res://scripts/core/game_feel.gd") as GDScript
+		if game_feel != null and game_feel.has_method("reset_time_scale"):
+			game_feel.call("reset_time_scale")
+		SquadAlly._ally_outline_mat = null
 		# Deferred: the old scene is still mid-call here, so the swap happens at the end of the frame.
 		get_tree().call_deferred("reload_current_scene")
 

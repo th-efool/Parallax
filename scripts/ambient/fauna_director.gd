@@ -69,6 +69,21 @@ func _ready() -> void:
 		RealmManager.instance.realm_changed.connect(_on_realm_changed)
 
 
+func reset_for_scene_reload() -> void:
+	creatures.clear()
+	flora.clear()
+	by_species.clear()
+	hunters.clear()
+	_enemies.clear()
+	_disturbances.clear()
+	_interest.clear()
+	_bound.clear()
+	_weather = null
+	_player = null
+	_env_ctrl = null
+	_lights_in_use = 0
+
+
 func register_creature(c: Node) -> void:
 	if not creatures.has(c):
 		creatures.append(c)

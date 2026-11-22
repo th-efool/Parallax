@@ -76,10 +76,11 @@ static func fade_in(node: CanvasItem, dur: float = 0.25) -> void:
 static func shake(node: Control, strength: float = 8.0, dur: float = 0.28) -> void:
 	if not is_instance_valid(node) or not node.is_inside_tree():
 		return
-	var prev_tw: Variant = node.get_meta("ui_fx_shake_tween", null)
-	if prev_tw is Tween and is_instance_valid(prev_tw):
-		(prev_tw as Tween).kill()
-	var base: float = float(node.get_meta("ui_fx_shake_base_rot", node.rotation))
+	if node.has_meta("ui_fx_shake_tween"):
+		var prev_tw: Variant = node.get_meta("ui_fx_shake_tween")
+		if prev_tw is Tween and is_instance_valid(prev_tw):
+			(prev_tw as Tween).kill()
+	var base: float = float(node.get_meta("ui_fx_shake_base_rot")) if node.has_meta("ui_fx_shake_base_rot") else node.rotation
 	if not node.has_meta("ui_fx_shake_base_rot"):
 		node.set_meta("ui_fx_shake_base_rot", base)
 	node.rotation = base

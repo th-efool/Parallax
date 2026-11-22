@@ -95,6 +95,11 @@ func reset() -> void:
 	_peak_engaged = 0
 
 
+func clear_for_scene_reload() -> void:
+	_members.clear()
+	reset()
+
+
 func get_members() -> Array[Node]:
 	return _members
 
@@ -180,8 +185,10 @@ func get_engaged(target: Node3D) -> Array[EnemyAI]:
 	var out: Array[EnemyAI] = []
 	var tid: int = target.get_instance_id() if target != null else 0
 	for m in _members:
+		if not is_instance_valid(m):
+			continue
 		var e: EnemyAI = m as EnemyAI
-		if e == null or not is_instance_valid(e) or e.is_dead or not e.is_active or not e.is_inside_tree():
+		if e == null or e.is_dead or not e.is_active or not e.is_inside_tree():
 			continue
 		if not e.is_aggroed():
 			continue
@@ -332,8 +339,10 @@ func get_ring_position(e: EnemyAI, target: Node3D, radius: float, orbit_sign: fl
 func get_separation(e: EnemyAI, radius: float = 1.6) -> Vector3:
 	var push := Vector3.ZERO
 	for m in _members:
+		if not is_instance_valid(m):
+			continue
 		var o: EnemyAI = m as EnemyAI
-		if o == null or o == e or not is_instance_valid(o) or o.is_dead or not o.is_active:
+		if o == null or o == e or o.is_dead or not o.is_active:
 			continue
 		var d: Vector3 = e.global_position - o.global_position
 		d.y = 0.0
@@ -346,8 +355,10 @@ func get_separation(e: EnemyAI, radius: float = 1.6) -> Vector3:
 ## The first enemy to see a target calls nearby squad-mates in (join) or over to investigate (alert).
 func alert(source: EnemyAI, target: Node3D) -> void:
 	for m in _members:
+		if not is_instance_valid(m):
+			continue
 		var e: EnemyAI = m as EnemyAI
-		if e == null or e == source or not is_instance_valid(e) or e.is_dead or not e.is_active:
+		if e == null or e == source or e.is_dead or not e.is_active:
 			continue
 		if e.current_state != EnemyAI.State.IDLE and e.current_state != EnemyAI.State.ALERT:
 			continue
@@ -362,8 +373,10 @@ func alert(source: EnemyAI, target: Node3D) -> void:
 ## A loud event (ally war-cry, detonation) makes idle enemies within `radius` investigate.
 func broadcast_noise(at: Vector3, radius: float) -> void:
 	for m in _members:
+		if not is_instance_valid(m):
+			continue
 		var e: EnemyAI = m as EnemyAI
-		if e == null or not is_instance_valid(e) or e.is_dead or not e.is_active:
+		if e == null or e.is_dead or not e.is_active:
 			continue
 		if e.global_position.distance_to(at) <= radius:
 			e.hear_noise(at)
@@ -393,8 +406,10 @@ func _on_player_attack(player: Node3D, is_heavy: bool, windup: float) -> void:
 	if player.has_method("get_facing_direction"):
 		pf = player.call("get_facing_direction")
 	for m in _members:
+		if not is_instance_valid(m):
+			continue
 		var e: EnemyAI = m as EnemyAI
-		if e == null or not is_instance_valid(e) or e.is_dead or not e.is_active:
+		if e == null or e.is_dead or not e.is_active:
 			continue
 		var rel: Vector3 = e.global_position - player.global_position
 		rel.y = 0.0
