@@ -3664,10 +3664,12 @@ func _process_action(delta: float) -> void:
 
 # ------------------------------------------------------------------ movement
 
+const ALLY_RUN_SPEED_SCALE: float = 0.75
+
 func _command_speed_mult() -> float:
-	var mult: float = 1.0
+	var mult: float = ALLY_RUN_SPEED_SCALE
 	if has_free_leash() or _retreating:
-		mult = 2.0
+		mult = 2.0 * ALLY_RUN_SPEED_SCALE
 		if _retreating or (current != null and current.verb in ["pull", "distract", "taunt", "advance", "kite", "flank"]):
 			mult *= 1.5
 		# Periodic 0.5 s sprint burst every 3.0 s while maneuvering under command or retreating to heal!
