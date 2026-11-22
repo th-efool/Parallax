@@ -86,6 +86,8 @@ var _dash_timer: float = 0.0
 var _dash_hit_cb: Callable = Callable()
 var _dash_target: EnemyAI = null
 var _regen_acc: float = 0.0
+var _sprint_burst_cd: float = 0.0
+var _sprint_burst_t: float = 0.0
 var _last_safe_pos: Vector3 = Vector3.ZERO
 var _has_safe_pos: bool = false
 # Skills & buffs.
@@ -655,6 +657,8 @@ func _tick_timers(delta: float) -> void:
 	_stagger_timer = maxf(0.0, _stagger_timer - delta)
 	_speak_cd = maxf(0.0, _speak_cd - delta)
 	_skill_gap = maxf(0.0, _skill_gap - delta)
+	_sprint_burst_cd = maxf(0.0, _sprint_burst_cd - delta)
+	_sprint_burst_t = maxf(0.0, _sprint_burst_t - delta)
 	for k in _skill_cd.keys():
 		_skill_cd[k] = maxf(0.0, float(_skill_cd[k]) - delta)
 	if _dmg_buff_t > 0.0:
@@ -680,7 +684,12 @@ func _tick_timers(delta: float) -> void:
 func _regen(delta: float) -> void:
 	if health >= max_health:
 		return
-	var rate: float = profile.regen_per_sec * (3.0 if _retreating else (1.0 if _combat_quiet > 4.0 else 0.0))
+	var rate: float = 0.0
+	if _retreating:
+		# Rapid recovery while disengaged & retreating so allies patch up and jump back to their old job.
+		rate = maxf(profile.regen_per_sec * 5.0, float(max_health) * 0.14)
+	elif _combat_quiet > 4.0:
+		rate = profile.regen_per_sec
 	if rate <= 0.0:
 		return
 	_regen_acc += rate * delta
@@ -728,6 +737,12 @@ func _run_command(cmd: SquadCommand, delta: float, player: Node3D) -> void:
 			_run_hold(delta, cmd)
 		"advance":
 			_run_advance(delta, player, cmd)
+		"pull":
+			_run_pull(delta, player, cmd)
+		"distract":
+			_run_distract(delta, player, cmd)
+		"flank":
+			_run_flank(delta, player, cmd)
 		"retreat":
 			_run_retreat_order(delta, player, cmd)
 		"attack":
@@ -940,24 +955,44 @@ func _run_hold(delta: float, cmd: SquadCommand) -> void:
 		_halt(delta)
 
 
-## March to a marked location (or ahead of the player), engaging and holding any enemies encountered along the way.
+func _enemies_near(pos: Vector3, radius: float) -> Array[EnemyAI]:
+	var out: Array[EnemyAI] = []
+	if not is_inside_tree() or get_tree() == null:
+		return out
+	for node in get_tree().get_nodes_in_group("enemy"):
+		var e: EnemyAI = node as EnemyAI
+		if e != null and _enemy_ok(e) and e.global_position.distance_to(pos) <= radius:
+			out.append(e)
+	return out
+
+
+func _resolve_marked_or_ahead_spot(player: Node3D, cmd: SquadCommand) -> Vector3:
+	if cmd.args.has("spot") and cmd.args["spot"] is Vector3:
+		return cmd.args["spot"] as Vector3
+	if is_inside_tree() and get_tree() != null:
+		var wi: Node = get_tree().get_first_node_in_group("world_intel")
+		if wi != null:
+			if wi.has_method("get_location_mark"):
+				var loc: Vector3 = wi.call("get_location_mark") as Vector3
+				if loc != Vector3.INF:
+					return loc
+			if wi.has_method("get_primary_marked_enemy"):
+				var me: Variant = wi.call("get_primary_marked_enemy")
+				if me is Node3D and is_instance_valid(me):
+					return (me as Node3D).global_position
+	if player != null:
+		var fwd: Vector3 = player.call("get_facing_direction") as Vector3 if player.has_method("get_facing_direction") else -player.global_transform.basis.z
+		fwd.y = 0.0
+		fwd = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
+		return player.global_position + fwd * 24.0
+	return global_position
+
+
+## Sprint straight to a marked location (or ahead of the player), bypassing distractions near the player
+## until arriving at the target area, then engage & hold enemies at the marked spot.
 func _run_advance(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 	if not cmd.data.has("spot"):
-		var base_spot: Vector3 = Vector3.INF
-		if cmd.args.has("spot") and cmd.args["spot"] is Vector3:
-			base_spot = cmd.args["spot"] as Vector3
-		if base_spot == Vector3.INF and get_tree() != null:
-			var wi: Node = get_tree().get_first_node_in_group("world_intel")
-			if wi != null and wi.has_method("get_location_mark"):
-				base_spot = wi.call("get_location_mark") as Vector3
-		if base_spot == Vector3.INF and player != null:
-			var fwd: Vector3 = player.call("get_facing_direction") as Vector3 if player.has_method("get_facing_direction") else -player.global_transform.basis.z
-			fwd.y = 0.0
-			fwd = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3.FORWARD
-			base_spot = player.global_position + fwd * 24.0
-		if base_spot == Vector3.INF:
-			base_spot = global_position
-		# Spread multiple allies laterally around the marked spot so they don't stack.
+		var base_spot: Vector3 = _resolve_marked_or_ahead_spot(player, cmd)
 		var to_spot: Vector3 = base_spot - global_position
 		to_spot.y = 0.0
 		var dir: Vector3 = to_spot.normalized() if to_spot.length_squared() > 0.01 else Vector3.FORWARD
@@ -966,19 +1001,138 @@ func _run_advance(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 		cmd.data["spot"] = slot_spot
 		cmd.args["spot"] = slot_spot
 	var spot: Vector3 = cmd.data["spot"]
+	var dist_to_spot: float = global_position.distance_to(spot)
+	# Bypass distractions near the player until we actually reach the marked area!
+	if dist_to_spot > 7.5 and not bool(cmd.data.get("arrived", false)):
+		cmd.step = "sprinting to mark"
+		_move_to(spot, profile.move_speed, delta, false)
+		return
+	cmd.data["arrived"] = true
 	var engage_r: float = float(cmd.args.get("engage_r", 14.0))
-	var near: EnemyAI = _nearest_enemy(global_position, engage_r)
+	var near: EnemyAI = _nearest_enemy(spot, engage_r)
 	if near != null:
-		cmd.step = "engaging ahead"
+		cmd.step = "engaging at mark"
 		_fight(near, delta, true)
 		return
-	if global_position.distance_to(spot) > 1.4:
-		cmd.step = "advancing to mark"
+	if dist_to_spot > 1.6:
+		cmd.step = "holding mark"
 		_move_to(spot, profile.move_speed, delta)
 	else:
-		cmd.data["arrived"] = true
 		cmd.step = "holding mark"
 		_halt(delta)
+
+
+## Bypass front enemies -> sprint to marked/far area -> area-taunt enemies there -> pull them back to the player!
+func _run_pull(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		var base_spot: Vector3 = _resolve_marked_or_ahead_spot(player, cmd)
+		cmd.data["spot"] = base_spot
+		cmd.args["spot"] = base_spot
+		cmd.data["phase"] = "transit"
+		cmd.data["taunt_t"] = 0.0
+	var spot: Vector3 = cmd.data["spot"] as Vector3
+	var phase: String = String(cmd.data.get("phase", "transit"))
+	if phase == "transit":
+		cmd.step = "sprinting to pull"
+		if global_position.distance_to(spot) > 5.0:
+			_move_to(spot, profile.move_speed, delta, false)
+			return
+		cmd.data["phase"] = "taunt"
+		phase = "taunt"
+	if phase == "taunt":
+		cmd.step = "pulling enemies"
+		var pulled: int = 0
+		for e in _enemies_near(global_position, 14.0):
+			e.apply_taunt(self, 260.0, 10.0)
+			pulled += 1
+		GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.2, 6.0, profile.color, 0.3, 0.2)
+		if pulled > 0:
+			say("Got %d on me — bringing them to you!" % pulled, "pull", 1)
+		else:
+			say("Nothing there to pull — heading back.", "pull", 1)
+		cmd.data["phase"] = "drag"
+		cmd.data["taunt_t"] = 3.2
+		return
+	# Phase "drag": sprint back toward the player so the taunted enemies follow straight into the player.
+	if player == null:
+		finish_current("pulled")
+		return
+	cmd.step = "dragging to player"
+	cmd.data["taunt_t"] = float(cmd.data.get("taunt_t", 0.0)) - delta
+	if float(cmd.data["taunt_t"]) <= 0.0:
+		cmd.data["taunt_t"] = 3.2
+		for e2 in _enemies_near(global_position, 14.0):
+			e2.apply_taunt(self, 220.0, 7.0)
+	var dist_p: float = global_position.distance_to(player.global_position)
+	if dist_p > 5.0:
+		_move_to(player.global_position, profile.move_speed, delta, false)
+	else:
+		say("Delivered — tear 'em apart!", "pull_done", 1)
+		finish_current("delivered")
+
+
+## Bypass front enemies -> sprint to marked area -> continuously taunt & kite enemies there away from the player.
+func _run_distract(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		var base_spot: Vector3 = _resolve_marked_or_ahead_spot(player, cmd)
+		cmd.data["spot"] = base_spot
+		cmd.args["spot"] = base_spot
+		cmd.data["phase"] = "transit"
+		cmd.data["taunt_t"] = 0.0
+	var spot: Vector3 = cmd.data["spot"] as Vector3
+	if String(cmd.data.get("phase", "transit")) == "transit":
+		cmd.step = "sprinting to distract"
+		if global_position.distance_to(spot) > 5.5:
+			_move_to(spot, profile.move_speed, delta, false)
+			return
+		cmd.data["phase"] = "hold_aggro"
+	cmd.step = "distracting"
+	cmd.data["taunt_t"] = float(cmd.data.get("taunt_t", 0.0)) - delta
+	if float(cmd.data["taunt_t"]) <= 0.0:
+		cmd.data["taunt_t"] = 2.8
+		var caught: int = 0
+		for e in _enemies_near(spot, 14.0):
+			e.apply_taunt(self, 240.0, 8.0)
+			caught += 1
+		if caught > 0:
+			GoreFXScript.shockwave_ring(self, global_position + Vector3.UP * 0.2, 5.0, profile.color, 0.25, 0.18)
+	# Orbit around the marked spot to kite and survive while keeping enemy aggro.
+	var ang: float = cmd.timer * 1.4 + float(slot_index) * TAU / 3.0
+	var orbit_pt: Vector3 = spot + Vector3(cos(ang), 0.0, sin(ang)) * 4.2
+	_move_to(orbit_pt, profile.move_speed, delta, false)
+
+
+## Bypass front enemies -> sprint wide around to the flank -> strike enemies at the marked area from behind.
+func _run_flank(delta: float, player: Node3D, cmd: SquadCommand) -> void:
+	if not cmd.data.has("spot"):
+		var target_pos: Vector3 = _resolve_marked_or_ahead_spot(player, cmd)
+		var to_t: Vector3 = target_pos - global_position
+		to_t.y = 0.0
+		var dir: Vector3 = to_t.normalized() if to_t.length_squared() > 0.01 else Vector3.FORWARD
+		var side_sign: float = -1.0 if (slot_index % 2 == 0) else 1.0
+		var side := Vector3(-dir.z, 0.0, dir.x) * side_sign
+		var mid_flank: Vector3 = global_position.lerp(target_pos, 0.55) + side * 8.5
+		cmd.data["spot"] = target_pos
+		cmd.data["flank_wp"] = mid_flank
+		cmd.data["phase"] = "wide"
+	var spot: Vector3 = cmd.data["spot"] as Vector3
+	if String(cmd.data.get("phase", "wide")) == "wide":
+		var wp: Vector3 = cmd.data["flank_wp"] as Vector3
+		cmd.step = "flanking wide"
+		if global_position.distance_to(wp) > 3.0 and cmd.timer < 5.0:
+			_move_to(wp, profile.move_speed, delta, false)
+			return
+		cmd.data["phase"] = "strike"
+	var near: EnemyAI = _nearest_enemy(spot, 14.0)
+	if near != null:
+		cmd.step = "striking flank"
+		_fight(near, delta, false)
+		return
+	if global_position.distance_to(spot) > 2.0:
+		cmd.step = "closing flank"
+		_move_to(spot, profile.move_speed, delta, false)
+	else:
+		finish_current("flank clear")
 
 
 func _run_retreat_order(delta: float, player: Node3D, cmd: SquadCommand) -> void:
@@ -3112,43 +3266,38 @@ func _run_circle(delta: float, player: Node3D, cmd: SquadCommand) -> void:
 
 # ------------------------------------------------------------------ self-preservation / downed
 
-## Priority ladder: PANIC orders > direct orders > self-preservation at critical HP > autonomous combat > idle.
-## Below `retreat_threshold` an ally on autonomous duty (follow / hold / no order) falls back; a direct order
-## or mission keeps it fighting until HP turns *critical* (half the threshold). Never during massacre / panic.
-## The interrupted command stays current and resumes once recovered.
+## Priority ladder: PANIC orders > self-preservation at low HP (preserves current job & resumes once healed!) > direct orders > autonomous combat.
 func _check_self_preservation() -> void:
 	if _is_massacre() or (current != null and current.priority >= SquadCommand.Priority.PANIC):
 		_retreating = false
 		return
 	var r: float = get_health_ratio()
-	var direct: bool = current != null and not (current.verb in ["follow", "hold"]) and current.priority >= SquadCommand.Priority.ORDER
-	var critical: bool = r < profile.retreat_threshold * 0.5
-	if not _retreating and (critical or (r < profile.retreat_threshold and not direct)):
+	var low_hp_cut: float = maxf(0.30, profile.retreat_threshold)
+	if not _retreating and r < low_hp_cut:
 		_retreating = true
-		say_event("retreat", 2)
-	elif _retreating and r > profile.retreat_threshold + 0.25:
+		say("Too low — pulling back to heal!", "retreat", 2)
+	elif _retreating and r >= 0.72:
 		_retreating = false
 		if current != null:
-			say("Back in it — resuming %s." % current.describe(), "resume", 1)
+			say("Patched up — back to %s!" % current.describe(), "resume", 1)
 
 
 func _run_retreat_self(delta: float, player: Node3D) -> void:
-	if player == null:
+	# Run cleanly away from the nearest threat centroid to safe ground while healing, then resume old job.
+	var c: Vector3 = _threat_centroid(global_position, 18.0)
+	if c == Vector3.INF:
 		_halt(delta)
 		return
-	# Cornered: something is right on us — swing back once instead of eating hits in the back.
-	var cornered: EnemyAI = _nearest_enemy(global_position, 1.8)
-	if cornered != null and cornered.get_current_target() == self and _attack_cd <= 0.0:
-		set_facing(cornered.global_position - global_position)
-		_melee(cornered)
-		return
-	var c: Vector3 = _threat_centroid(global_position, 14.0)
-	var anchor: Vector3 = player.global_position
-	var away: Vector3 = (anchor - c) if c != Vector3.INF else (global_position - anchor)
+	var away: Vector3 = global_position - c
 	away.y = 0.0
-	var goal: Vector3 = anchor + (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * 4.5
-	if global_position.distance_to(goal) > 1.0:
-		_move_to(goal, profile.move_speed * 1.15, delta)
+	if away.length_squared() < 0.01:
+		away = (global_position - player.global_position) if player != null else Vector3.BACK
+		away.y = 0.0
+	var away_dir: Vector3 = away.normalized() if away.length_squared() > 0.01 else Vector3.BACK
+	var dist_from_threat: float = global_position.distance_to(c)
+	if dist_from_threat < 14.0:
+		var goal: Vector3 = c + away_dir * 16.0
+		_move_to(goal, profile.move_speed * 1.25, delta, false)
 	else:
 		_halt(delta)
 
@@ -3516,7 +3665,20 @@ func _process_action(delta: float) -> void:
 # ------------------------------------------------------------------ movement
 
 func _command_speed_mult() -> float:
-	return 2.0 if has_free_leash() else 1.0
+	var mult: float = 1.0
+	if has_free_leash() or _retreating:
+		mult = 2.0
+		if _retreating or (current != null and current.verb in ["pull", "distract", "taunt", "advance", "kite", "flank"]):
+			mult *= 1.5
+		# Periodic 0.5 s sprint burst every 3.0 s while maneuvering under command or retreating to heal!
+		if _sprint_burst_t <= 0.0 and _sprint_burst_cd <= 0.0:
+			_sprint_burst_t = 0.5
+			_sprint_burst_cd = 3.0
+			if is_inside_tree():
+				GoreFXScript.dust_puff(self, global_position + Vector3.UP * 0.1, 0.5, 6, profile.color.lightened(0.35), 0.7)
+		if _sprint_burst_t > 0.0:
+			mult *= 1.65
+	return mult
 
 
 func _move_to(goal: Vector3, speed: float, delta: float, avoid_allies: bool = true) -> void:

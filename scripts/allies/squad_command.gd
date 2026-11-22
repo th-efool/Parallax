@@ -15,7 +15,10 @@ enum Priority { AUTO = 0, ORDER = 1, MISSION = 2, PANIC = 3 }
 const VERBS: Dictionary = {
 	"follow": [Priority.ORDER, false, true],
 	"hold": [Priority.ORDER, false, true],
-	"advance": [Priority.ORDER, false, true],     # move to marked location / ahead, engaging & holding enemies along the way
+	"advance": [Priority.ORDER, false, true],     # sprint to marked location / ahead (bypassing front distractions), then engage & hold
+	"pull": [Priority.MISSION, true, false],      # bypass front enemies -> sprint to marked area -> taunt -> drag enemies back to player
+	"distract": [Priority.MISSION, false, true],  # bypass front enemies -> sprint to marked area -> taunt & kite enemies away from player
+	"flank": [Priority.ORDER, true, false],       # bypass front enemies -> wide lateral route -> strike marked area / target from behind
 	"attack": [Priority.ORDER, true, false],
 	"retreat": [Priority.ORDER, false, true],
 	"auto_engage": [Priority.ORDER, true, false],
