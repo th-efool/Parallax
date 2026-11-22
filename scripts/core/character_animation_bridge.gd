@@ -289,6 +289,9 @@ func _on_player_state_changed(new_state: int) -> void:
 			_tl_active = false
 			if _anim_player != null:
 				_anim_player.speed_scale = 1.0
+			if current_clip_name.contains("Death"):
+				_action_lock_timer = 0.0
+				play_candidates(["Idle", "Idle_A"], -1.0, true, true)
 
 
 func _on_player_attack_started(attack_name: String, timing: Dictionary) -> void:
