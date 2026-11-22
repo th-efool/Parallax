@@ -259,7 +259,6 @@ func _build_body() -> void:
 			_tint(model, profile.tint)
 		if profile.role == "artillery":
 			_attach_staff(model, profile.color)
-		_apply_green_outline(model)
 	_bridge = CharacterAnimationBridge.new()
 	_bridge.name = "CharacterAnimationBridge"
 	_bridge.actor_path = NodePath("..")
@@ -321,12 +320,12 @@ void fragment() {
 	return _ally_outline_mat
 
 
-func _apply_green_outline(node: Node) -> void:
+func _apply_green_outline(node: Node, enabled: bool) -> void:
 	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 		var mi: MeshInstance3D = node as MeshInstance3D
-		mi.material_overlay = _get_green_outline_mat()
+		mi.material_overlay = _get_green_outline_mat() if enabled else null
 	for ch in node.get_children():
-		_apply_green_outline(ch)
+		_apply_green_outline(ch, enabled)
 
 
 func _tint(node: Node, c: Color) -> void:
@@ -434,6 +433,11 @@ func _sync_realm_mask() -> void:
 	if is_downed:
 		world |= RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR
 	collision_mask = world | RealmManager.LAYER_PLAYER_BLOCKER
+	# Green ally outline is visible only in the Mirror (or Merged) realm.
+	var in_mirror: bool = rm != null and (rm.is_merged or rm.current_realm == RealmManager.Realm.MIRROR)
+	var model: Node = get_node_or_null("VisualRoot/ModelRoot")
+	if model != null:
+		_apply_green_outline(model, in_mirror)
 
 
 func set_facing(dir: Vector3) -> void:
