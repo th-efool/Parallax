@@ -409,7 +409,7 @@ func _can_toggle_pause() -> bool:
 				if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
 					return false
 		var mc: Node = get_tree().get_first_node_in_group("main_controller")
-		if mc != null and (not bool(mc.get("level_ready")) or bool(mc.get("_building")) or mc.get("_loading") != null):
+		if mc != null and (mc.get("level_ready") != true or mc.get("_building") == true or mc.get("_loading") != null):
 			return false
 		var player: Node = get_tree().get_first_node_in_group("player")
 		if not is_paused_state and player != null:

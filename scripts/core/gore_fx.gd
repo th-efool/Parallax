@@ -48,9 +48,11 @@ static func blood_color_for(is_spectral: bool) -> Color:
 
 
 static func _free_after(node: Node, seconds: float) -> void:
-	if node == null or not node.is_inside_tree():
+	if node == null or not node.is_inside_tree() or node.get_tree() == null:
 		return
-	node.get_tree().create_timer(seconds, false, false, true).timeout.connect(node.queue_free)
+	node.get_tree().create_timer(seconds, false, false, true).timeout.connect(func() -> void:
+		if is_instance_valid(node):
+			node.queue_free())
 
 
 # ---------------------------------------------------------------- particles

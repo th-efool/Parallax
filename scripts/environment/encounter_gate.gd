@@ -142,7 +142,7 @@ func _set_colliders_disabled_recursive(node: Node, disable_collision: bool) -> v
 		var csg: CSGShape3D = node as CSGShape3D
 		if not csg.has_meta("_orig_use_collision"):
 			csg.set_meta("_orig_use_collision", csg.use_collision)
-		if bool(csg.get_meta("_orig_use_collision")):
+		if csg.get_meta("_orig_use_collision", false) == true:
 			csg.set_deferred("use_collision", not disable_collision)
 	for child in node.get_children():
 		_set_colliders_disabled_recursive(child, disable_collision)

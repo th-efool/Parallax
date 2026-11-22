@@ -187,7 +187,7 @@ func _sense() -> void:
 		if kind == Kind.SWAY_GRASS:
 			for sp in ["scurrier", "rat", "lizard", "fox", "deer", "dove", "crow", "raccoon"]:
 				for c in _director.by_species.get(sp, []):
-					if is_instance_valid(c) and not bool(c.get("flies")) and (c as Node3D).global_position.distance_squared_to(global_position) < 1.0:
+					if is_instance_valid(c) and c.get("flies") != true and (c as Node3D).global_position.distance_squared_to(global_position) < 1.0:
 						actors.append(c as Node3D)
 	if actors.is_empty() and kind != Kind.SWAY_GRASS:
 		return

@@ -192,7 +192,7 @@ func flockmates(c: Node3D, species: String, radius: float, group_id: int = -1) -
 		var oc: Node3D = o as Node3D
 		if group_id >= 0 and int(o.get("group_id")) != group_id:
 			continue
-		if not bool(o.get("is_present")):
+		if o.get("is_present") != true:
 			continue
 		if oc.global_position.distance_squared_to(c.global_position) <= r2:
 			out.append(oc)
@@ -235,9 +235,10 @@ func _process(delta: float) -> void:
 	if _enemy_scan <= 0.0:
 		_enemy_scan = 0.5
 		_enemies.clear()
-		for e in get_tree().get_nodes_in_group("enemy"):
-			if e is EnemyBase and (e as EnemyBase).is_active and not (e as EnemyBase).is_dead:
-				_enemies.append(e as Node3D)
+		if is_inside_tree() and get_tree() != null:
+			for e in get_tree().get_nodes_in_group("enemy"):
+				if is_instance_valid(e) and e is EnemyBase and (e as EnemyBase).is_active and not (e as EnemyBase).is_dead:
+					_enemies.append(e as Node3D)
 	_footstep_cd = maxf(0.0, _footstep_cd - delta)
 	_sweep_t -= delta
 	if _sweep_t <= 0.0:
@@ -256,7 +257,7 @@ func _activation_sweep() -> void:
 	var cp: Vector3 = cam.global_position
 	for list in [creatures, flora]:
 		for n in list:
-			if not is_instance_valid(n):
+			if not is_instance_valid(n) or not n.is_inside_tree():
 				continue
 			var lod: Variant = n.get("lod_distance")
 			var r: float = (float(lod) if lod != null else 45.0) * 1.1
@@ -338,14 +339,16 @@ func get_wetness() -> float:
 
 
 func _on_lightning(dist_m: float) -> void:
+	if not is_inside_tree() or get_tree() == null:
+		return
 	var p: Node3D = get_player()
-	if p == null:
+	if p == null or not is_instance_valid(p):
 		return
 	# Thunder arrives later with distance; a near strike is a big scare, a far one a flinch.
 	var k: float = clampf(1.0 - (dist_m - 250.0) / 1150.0, 0.25, 1.0)
 	var t: SceneTreeTimer = get_tree().create_timer(dist_m / 343.0, false)
 	t.timeout.connect(func() -> void:
-		if is_instance_valid(p):
+		if is_instance_valid(self) and is_inside_tree() and is_instance_valid(p) and p.is_inside_tree():
 			emit_disturbance(p.global_position, 45.0, 0.9 * k, "thunder"))
 
 

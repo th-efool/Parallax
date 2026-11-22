@@ -260,7 +260,7 @@ func _blocked_by_menu() -> bool:
 			if n is CanvasLayer and (n as CanvasLayer).visible:
 				return true
 	var mc: Node = get_tree().get_first_node_in_group("main_controller")
-	if mc != null and (mc.get("_loading") != null or not bool(mc.get("level_ready"))):
+	if mc != null and (mc.get("_loading") != null or mc.get("level_ready") != true):
 		return true
 	if get_tree().root != null:
 		for ch in get_tree().root.get_children():

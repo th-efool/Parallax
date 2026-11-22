@@ -236,7 +236,8 @@ func _try_blink_behind(t: Node3D) -> void:
 		flat_f = Vector3.FORWARD
 	var back_dir: Vector3 = -flat_f.normalized()
 	var spot: Vector3 = t.global_position + back_dir * 1.3
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var w3d: World3D = get_world_3d()
+	var space: PhysicsDirectSpaceState3D = w3d.direct_space_state if w3d != null else null
 	if space == null:
 		return
 	var floor_mask: int = collision_mask & (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY | RealmManager.LAYER_WORLD_MIRROR)
@@ -464,7 +465,11 @@ class HexBolt:
 			queue_free()
 			return
 		var step: Vector3 = _dir * _speed * delta
-		var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+		var w3d: World3D = get_world_3d()
+		var space: PhysicsDirectSpaceState3D = w3d.direct_space_state if w3d != null else null
+		if space == null:
+			queue_free()
+			return
 		var q := PhysicsRayQueryParameters3D.create(global_position, global_position + step, _mask)
 		if not space.intersect_ray(q).is_empty():
 			GoreFX.sparks(self, global_position, -_dir, _color, 14)

@@ -39,7 +39,7 @@ func _is_world_ready_for_trigger(player: Node = null) -> bool:
 	if not is_inside_tree() or get_tree() == null:
 		return false
 	var mc: Node = get_tree().get_first_node_in_group("main_controller")
-	if mc != null and not bool(mc.get("level_ready")):
+	if mc != null and mc.get("level_ready") != true:
 		return false
 	if player != null and player.process_mode == Node.PROCESS_MODE_DISABLED:
 		return false

@@ -295,10 +295,10 @@ func _apply_pillar_fall_hazard(explicit_candidates: Array[Node] = []) -> void:
 			var res: Variant = node.call("apply_damage", dmg, true, "environmental")
 			if typeof(res) != TYPE_BOOL or bool(res):
 				enemies_hit += 1
-				if is_splash and node.has_method("enter_stunned") and not bool(node.get("is_dead")):
+				if is_splash and node.has_method("enter_stunned") and node.get("is_dead") != true and node.get("is_downed") != true:
 					node.call("enter_stunned", 1.2)
 			# Push any surviving enemy clear of the newly enabled fallen pillar debris/stump so it never gets stuck inside.
-			if not bool(node.get("is_dead")) and dist <= damage_radius + 0.8:
+			if node.get("is_dead") != true and node.get("is_downed") != true and dist <= damage_radius + 0.8:
 				var fdir := Vector3(fall_zone_offset.x, 0.0, fall_zone_offset.z)
 				fdir = fdir.normalized() if fdir.length_squared() > 0.001 else Vector3.FORWARD
 				var side := Vector3(-fdir.z, 0.0, fdir.x)

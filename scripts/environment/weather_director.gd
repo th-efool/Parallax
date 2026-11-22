@@ -109,7 +109,7 @@ func bind_warden(warden_override: Node = null) -> bool:
 		w.connect("boss_phase_changed", _on_warden_phase_changed)
 	if w.has_signal("health_changed") and not w.is_connected("health_changed", _on_warden_health_changed):
 		w.connect("health_changed", _on_warden_health_changed)
-	warden_dead = bool(w.get("is_dead"))
+	warden_dead = w.get("is_dead") == true
 	warden_phase2 = int(w.get("current_phase")) >= 2
 	return true
 

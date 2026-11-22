@@ -127,7 +127,7 @@ func _set_subtree_active(node: Node, active: bool) -> void:
 		var csg: CSGShape3D = node as CSGShape3D
 		if not csg.has_meta("_orig_use_collision"):
 			csg.set_meta("_orig_use_collision", csg.use_collision)
-		if bool(csg.get_meta("_orig_use_collision")):
+		if csg.get_meta("_orig_use_collision", false) == true:
 			csg.use_collision = active
 	for child in node.get_children():
 		_set_subtree_active(child, active)

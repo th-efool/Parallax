@@ -109,7 +109,7 @@ func _apply_collision_state_recursive(node: Node, active: bool) -> void:
 		var csg: CSGShape3D = node as CSGShape3D
 		if not csg.has_meta("_orig_use_collision"):
 			csg.set_meta("_orig_use_collision", csg.use_collision)
-		if bool(csg.get_meta("_orig_use_collision")):
+		if csg.get_meta("_orig_use_collision", false) == true:
 			csg.use_collision = active
 	elif node is Area3D:
 		var area: Area3D = node as Area3D

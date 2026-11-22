@@ -568,6 +568,13 @@ func _is_massacre() -> bool:
 	return current != null and current.verb == "massacre"
 
 
+func _space() -> PhysicsDirectSpaceState3D:
+	if not is_inside_tree():
+		return null
+	var w3d: World3D = get_world_3d()
+	return w3d.direct_space_state if w3d != null else null
+
+
 ## Allies executing any non-passive command (anything other than follow / ceasefire) roam freely without
 ## distance-teleportation back to the player.
 func has_free_leash() -> bool:
@@ -842,7 +849,7 @@ func _formation_resolve(player: Node3D, want: Vector3, f: Vector3, r: Vector3) -
 func _slot_free(p: Vector3, player: Node3D) -> bool:
 	if not is_inside_tree():
 		return true
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var down := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 1.0, p + Vector3.DOWN * 1.8, mask, [get_rid()])
 	if space.intersect_ray(down).is_empty():
@@ -2931,7 +2938,7 @@ func _valid_spot_near(player: Node3D, want: Vector3, r: Vector3, cmd: SquadComma
 func _spot_standable(p: Vector3) -> bool:
 	if not is_inside_tree():
 		return true
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var down := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 1.0, p + Vector3.DOWN * 1.8, mask, [get_rid()])
 	if space.intersect_ray(down).is_empty():
@@ -3586,7 +3593,7 @@ func _steer_toward_dir(desired: Vector3, speed: float, delta: float, social: boo
 
 
 func _context_pick(desired: Vector3, speed: float, social: bool, goal_dist: float) -> Dictionary:
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var wall_mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var look: float = clampf(WALL_LOOK * (0.6 + speed / 6.0), 1.0, 2.6)
 	var me: Vector3 = global_position
@@ -3688,7 +3695,7 @@ func _halt(delta: float) -> void:
 func _side_open(dir: Vector3) -> bool:
 	if not is_inside_tree():
 		return false
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var from: Vector3 = global_position + Vector3.UP * 0.8
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 1.1, collision_mask, [get_rid()])
 	return space.intersect_ray(q).is_empty() and _floor_ahead(dir, 0.9)
@@ -3787,14 +3794,14 @@ func _separation() -> Vector3:
 
 
 func _floor_ahead(dir: Vector3, dist: float = 0.85) -> bool:
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var from: Vector3 = global_position + dir * dist + Vector3.UP * 0.7
 	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.4, collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER, [get_rid()])
 	return not space.intersect_ray(q).is_empty()
 
 
 func _point_walkable(p: Vector3) -> bool:
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	var mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 	var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 0.8, p + Vector3.DOWN * 2.0, mask, [get_rid()])
 	if space.intersect_ray(q).is_empty():
@@ -3847,7 +3854,7 @@ func _get_embed_cap() -> CapsuleShape3D:
 func _validate_stand_spot(cand: Vector3, ref_pos: Vector3 = Vector3.INF, require_los: bool = false, check_allies: bool = false, max_y_diff: float = 0.95, persistent_floor_only: bool = false, extra_excl: Array[RID] = []) -> Vector3:
 	if not is_inside_tree() or get_world_3d() == null:
 		return Vector3.INF
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	if space == null:
 		return Vector3.INF
 	var floor_mask: int = (RealmManager.LAYER_WORLD_SHARED | RealmManager.LAYER_WORLD_REALITY) if persistent_floor_only else (collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER)
@@ -3906,7 +3913,7 @@ func _validate_stand_spot(cand: Vector3, ref_pos: Vector3 = Vector3.INF, require
 func _is_embedded_in_world() -> bool:
 	if not is_inside_tree() or get_world_3d() == null:
 		return false
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	if space == null:
 		return false
 	var excl: Array[RID] = [get_rid()]
@@ -4041,7 +4048,7 @@ func _recover_from_embedded(player: Node3D) -> void:
 func _crosses_closed_gate(from_pos: Vector3, to_pos: Vector3) -> bool:
 	if not is_inside_tree() or get_world_3d() == null:
 		return false
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var space: PhysicsDirectSpaceState3D = _space()
 	if space == null:
 		return false
 	var q := PhysicsRayQueryParameters3D.create(from_pos + Vector3.UP * 1.0, to_pos + Vector3.UP * 1.0, collision_mask, [get_rid()])
@@ -4053,7 +4060,7 @@ func _crosses_closed_gate(from_pos: Vector3, to_pos: Vector3) -> bool:
 	var hops: int = 0
 	while cur != null and hops < 4:
 		if cur.is_in_group("encounter_gate"):
-			return not bool(cur.get("is_open"))
+			return cur.get("is_open") != true
 		cur = cur.get_parent()
 		hops += 1
 	return false
@@ -4188,7 +4195,7 @@ func _catch_up(player: Node3D) -> void:
 	if not fallen_pit:
 		var cam: Camera3D = get_viewport().get_camera_3d()
 		if cam != null and cam.is_position_in_frustum(global_position):
-			var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+			var space: PhysicsDirectSpaceState3D = _space()
 			if space != null:
 				var los_mask: int = collision_mask & ~RealmManager.LAYER_PLAYER_BLOCKER
 				var excl: Array[RID] = [get_rid()]
