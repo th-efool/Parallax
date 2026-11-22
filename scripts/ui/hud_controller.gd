@@ -58,6 +58,9 @@ var _boss_ref: Node = null
 # Visual element references for rich HUD styling
 var _section_title_label: Label = null
 var _stamina_bar: ProgressBar = null
+var _mirror_charge_bar: ProgressBar = null
+var _revive_overlay: Control = null
+var _revive_state: Dictionary = {}
 var _crest_badge: HudDiamondBadge = null
 var _weapon_badge: HudDiamondBadge = null
 var _swap_badge: HudDiamondBadge = null
@@ -281,6 +284,36 @@ func _wire_visuals() -> void:
 		var st_fill := StyleBoxFlat.new()
 		st_fill.bg_color = Color(0.82, 0.76, 0.58, 0.95)
 		_stamina_bar.add_theme_stylebox_override("fill", st_fill)
+		if _mirror_charge_bar == null and _stamina_bar.get_parent() != null:
+			_mirror_charge_bar = _stamina_bar.get_parent().get_node_or_null("MirrorChargeBar") as ProgressBar
+			if _mirror_charge_bar == null:
+				_mirror_charge_bar = ProgressBar.new()
+				_mirror_charge_bar.name = "MirrorChargeBar"
+				_mirror_charge_bar.custom_minimum_size = Vector2(180, 5)
+				_mirror_charge_bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+				_mirror_charge_bar.value = 100.0
+				_mirror_charge_bar.show_percentage = false
+				_mirror_charge_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				_stamina_bar.get_parent().add_child(_mirror_charge_bar)
+				_stamina_bar.get_parent().move_child(_mirror_charge_bar, _stamina_bar.get_index() + 1)
+	if _mirror_charge_bar != null:
+		var mc_bg := StyleBoxFlat.new()
+		mc_bg.bg_color = Color(0.06, 0.09, 0.16, 0.78)
+		var mc_fill := StyleBoxFlat.new()
+		mc_fill.bg_color = Color(0.22, 0.68, 1.0, 0.95)
+		_mirror_charge_bar.add_theme_stylebox_override("background", mc_bg)
+		_mirror_charge_bar.add_theme_stylebox_override("fill", mc_fill)
+	if _revive_overlay == null:
+		_revive_overlay = _root_ctrl.get_node_or_null("ReviveTimerOverlay") as Control
+		if _revive_overlay == null:
+			_revive_overlay = Control.new()
+			_revive_overlay.name = "ReviveTimerOverlay"
+			_revive_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			_revive_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_revive_overlay.visible = false
+			_root_ctrl.add_child(_revive_overlay)
+		if not _revive_overlay.draw.is_connected(_draw_revive_timer):
+			_revive_overlay.draw.connect(_draw_revive_timer)
 
 	# --- Realm chips (painted by _paint_chip) ---
 	for entry2: Array in [[_reality_pill_panel, "reality"], [_mirror_pill_panel, "mirror"]]:
@@ -407,6 +440,11 @@ func _process(delta: float) -> void:
 			var stamina: float = float(_player_ref.get("stamina")) if _player_ref.get("stamina") != null else 100.0
 			var max_stamina: float = float(_player_ref.get("max_stamina")) if _player_ref.get("max_stamina") != null else 100.0
 			_stamina_bar.value = (stamina / max_stamina) * 100.0
+	if _mirror_charge_bar != null and RealmManager.instance != null:
+		var rm: RealmManager = RealmManager.instance as RealmManager
+		if rm != null:
+			_mirror_charge_bar.value = rm.get_mirror_charge_ratio() * 100.0
+	_poll_ally_revive_timer()
 
 
 func bind_singletons() -> void:
@@ -418,6 +456,10 @@ func bind_singletons() -> void:
 			rm.shift_rejected.connect(_on_shift_rejected)
 		if not rm.realms_merged.is_connected(_on_realms_merged):
 			rm.realms_merged.connect(_on_realms_merged)
+		if rm.has_signal("mirror_charge_changed") and not rm.mirror_charge_changed.is_connected(_on_mirror_charge_changed):
+			rm.mirror_charge_changed.connect(_on_mirror_charge_changed)
+		if _mirror_charge_bar != null:
+			_mirror_charge_bar.value = rm.get_mirror_charge_ratio() * 100.0
 		if rm.is_merged:
 			active_realm_chip = "REALMS MERGED"
 		else:
@@ -618,11 +660,85 @@ func _start_chip_sweep() -> void:
 		_chip_sweep[key] = 0.0
 
 
+func _on_mirror_charge_changed(current: float, max_val: float) -> void:
+	if _mirror_charge_bar != null:
+		_mirror_charge_bar.value = clampf(current / maxf(1.0, max_val), 0.0, 1.0) * 100.0
+
+
+func show_toast(message: String, duration: float = 1.5) -> void:
+	active_toast_text = message
+	toast_timer = maxf(0.2, duration)
+	_sync_ui_nodes()
+
+
+func _poll_ally_revive_timer() -> void:
+	if _revive_overlay == null or not is_inside_tree() or get_tree() == null:
+		return
+	var found: Dictionary = {}
+	for ally in get_tree().get_nodes_in_group("squad_ally"):
+		if ally != null and is_instance_valid(ally) and ally.has_method("is_player_reviving") and bool(ally.call("is_player_reviving")):
+			if ally.has_method("get_revive_progress"):
+				found = ally.call("get_revive_progress") as Dictionary
+			break
+	if bool(found.get("active", false)):
+		_revive_state = found
+		_revive_overlay.visible = true
+		_revive_overlay.queue_redraw()
+	elif _revive_overlay.visible:
+		_revive_state = {}
+		_revive_overlay.visible = false
+
+
+func _draw_revive_timer() -> void:
+	if _revive_overlay == null or not bool(_revive_state.get("active", false)):
+		return
+	var vp_size: Vector2 = _revive_overlay.size
+	if vp_size.x < 10.0 or vp_size.y < 10.0:
+		return
+	var center := Vector2(vp_size.x * 0.5, vp_size.y * 0.64)
+	var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() != null else null
+	if cam != null and _revive_state.has("world_pos"):
+		var wp: Vector3 = _revive_state["world_pos"] as Vector3
+		if not cam.is_position_behind(wp):
+			var sp: Vector2 = cam.unproject_position(wp)
+			center = Vector2(
+				clampf(sp.x, 70.0, vp_size.x - 70.0),
+				clampf(sp.y, 90.0, vp_size.y - 110.0)
+			)
+	var progress: float = clampf(float(_revive_state.get("progress", 0.0)), 0.0, 1.0)
+	var remaining: float = maxf(0.0, float(_revive_state.get("remaining", 0.0)))
+	var ally_name: String = String(_revive_state.get("ally_name", "ALLY")).to_upper()
+	var radius: float = 24.0
+	_revive_overlay.draw_circle(center, radius + 7.0, Color(0.04, 0.06, 0.11, 0.86))
+	_revive_overlay.draw_arc(center, radius + 7.0, 0.0, TAU, 36, Color(0.22, 0.68, 1.0, 0.35), 1.5, true)
+	_revive_overlay.draw_arc(center, radius, 0.0, TAU, 36, Color(0.18, 0.28, 0.42, 0.65), 4.5, true)
+	if progress > 0.001:
+		var start_ang: float = -PI * 0.5
+		var end_ang: float = start_ang + progress * TAU
+		_revive_overlay.draw_arc(center, radius, start_ang, end_ang, 40, Color(0.22, 0.72, 1.0, 0.98), 4.8, true)
+	var font: Font = UITheme.body_font()
+	if font != null:
+		var num_str: String = str(maxi(1, int(ceil(remaining))))
+		var num_size: int = 20
+		var num_sz: Vector2 = font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_CENTER, -1, num_size)
+		_revive_overlay.draw_string(font, center + Vector2(-num_sz.x * 0.5, num_sz.y * 0.28), num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_size, Color(0.92, 0.97, 1.0, 1.0))
+		var lbl_str: String = "REVIVING %s" % ally_name
+		var lbl_size: int = 13
+		var lbl_sz: Vector2 = font.get_string_size(lbl_str, HORIZONTAL_ALIGNMENT_CENTER, -1, lbl_size)
+		var lbl_pos := Vector2(center.x - lbl_sz.x * 0.5, center.y + radius + 24.0)
+		_revive_overlay.draw_string(font, lbl_pos + Vector2(1.0, 1.0), lbl_str, HORIZONTAL_ALIGNMENT_LEFT, -1, lbl_size, Color(0.0, 0.0, 0.0, 0.88))
+		_revive_overlay.draw_string(font, lbl_pos, lbl_str, HORIZONTAL_ALIGNMENT_LEFT, -1, lbl_size, Color(0.68, 0.88, 1.0, 0.98))
+
+
 func _on_shift_rejected(reason: String) -> void:
 	last_shift_rejection_reason = reason
 	shift_rejection_flash_timer = 0.35
-	active_toast_text = "SHIFT LOCKED"
-	toast_timer = 0.9
+	if reason == "no_charge":
+		active_toast_text = "NO MIRROR CHARGE — KILL ENEMIES TO REFILL"
+		toast_timer = 1.6
+	else:
+		active_toast_text = "SHIFT LOCKED"
+		toast_timer = 0.9
 	if _reality_pill_panel != null and _mirror_pill_panel != null and is_inside_tree():
 		for p: PanelContainer in [_reality_pill_panel, _mirror_pill_panel]:
 			p.pivot_offset = p.size * 0.5
@@ -1110,6 +1226,7 @@ func _update_action_slot(action_name: String, key_str: String) -> void:
 func _discover_styled_nodes() -> void:
 	_section_title_label = get_node_or_null("RootControl/TopHeaderBand/HeaderMargin/HeaderHBox/SectionTitleLabel") as Label
 	_stamina_bar = get_node_or_null("RootControl/TopLeftVitality/BarsVBox/StaminaBar") as ProgressBar
+	_mirror_charge_bar = get_node_or_null("RootControl/TopLeftVitality/BarsVBox/MirrorChargeBar") as ProgressBar
 	_crest_badge = get_node_or_null("RootControl/TopLeftVitality/CrestBadge") as HudDiamondBadge
 	_weapon_badge = get_node_or_null("RootControl/BottomLeftWeapon/WeaponDiamond") as HudDiamondBadge
 	_swap_badge = get_node_or_null("RootControl/TopCenterRealmCluster/PillsRow/SwapMedallion") as HudDiamondBadge
@@ -1285,6 +1402,21 @@ func _build_styled_hud_tree() -> void:
 	_stamina_bar.add_theme_stylebox_override("background", st_bg)
 	_stamina_bar.add_theme_stylebox_override("fill", st_fill)
 	bars_vbox.add_child(_stamina_bar)
+
+	_mirror_charge_bar = ProgressBar.new()
+	_mirror_charge_bar.name = "MirrorChargeBar"
+	_mirror_charge_bar.custom_minimum_size = Vector2(180, 5)
+	_mirror_charge_bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_mirror_charge_bar.value = 100.0
+	_mirror_charge_bar.show_percentage = false
+	_mirror_charge_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mc_bg := StyleBoxFlat.new()
+	mc_bg.bg_color = Color(0.06, 0.09, 0.16, 0.78)
+	var mc_fill := StyleBoxFlat.new()
+	mc_fill.bg_color = Color(0.22, 0.68, 1.0, 0.95)
+	_mirror_charge_bar.add_theme_stylebox_override("background", mc_bg)
+	_mirror_charge_bar.add_theme_stylebox_override("fill", mc_fill)
+	bars_vbox.add_child(_mirror_charge_bar)
 
 	# 3. Top-Center Dual Realm Switcher ([ REALITY ] <-> [ MIRROR ] + [Q])
 	var top_center := VBoxContainer.new()

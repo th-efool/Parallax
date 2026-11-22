@@ -71,6 +71,8 @@ var _entries: Array[Dictionary] = []
 var _settings: Dictionary = {}
 var _save_data: Dictionary = {}
 var _muted_by_focus: bool = false
+var _build_fingerprint_cache: String = ""
+var _build_fingerprint_override: String = ""
 var last_save_error: Error = OK
 
 
@@ -705,6 +707,7 @@ func _apply_keybindings_to_input_map() -> void:
 func get_default_save_data() -> Dictionary:
 	return {
 		"has_active_run": false,
+		"build_fingerprint": "",
 		"timestamp": "",
 		"current_section": 0,
 		"checkpoint_section": 0,
@@ -742,8 +745,42 @@ func get_default_save_data() -> Dictionary:
 	}
 
 
+func _file_size(path: String) -> int:
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return 0
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return 0
+	var sz: int = f.get_length()
+	f.close()
+	return sz
+
+
+## Stable identity for the currently running build binary (.exe + .pck size & modified time).
+## Prevents a freshly downloaded/exported build from showing Continue for an older build's save.
+func get_build_fingerprint() -> String:
+	if not _build_fingerprint_override.is_empty():
+		return _build_fingerprint_override
+	if not _build_fingerprint_cache.is_empty():
+		return _build_fingerprint_cache
+	if not OS.has_feature("standalone"):
+		_build_fingerprint_cache = "editor_dev"
+		return _build_fingerprint_cache
+	var exe_path: String = OS.get_executable_path()
+	var exe_mtime: int = FileAccess.get_modified_time(exe_path) if FileAccess.file_exists(exe_path) else 0
+	var exe_size: int = _file_size(exe_path)
+	var pck_path: String = exe_path.get_basename() + ".pck"
+	var pck_mtime: int = FileAccess.get_modified_time(pck_path) if FileAccess.file_exists(pck_path) else 0
+	var pck_size: int = _file_size(pck_path)
+	_build_fingerprint_cache = "%s|%d|%d|%d|%d" % [exe_path.get_file(), exe_size, exe_mtime, pck_size, pck_mtime]
+	return _build_fingerprint_cache
+
+
 func has_saved_run() -> bool:
-	return bool(_save_data.get("has_active_run", false))
+	if not bool(_save_data.get("has_active_run", false)):
+		return false
+	var saved_fp: String = String(_save_data.get("build_fingerprint", ""))
+	return not saved_fp.is_empty() and saved_fp == get_build_fingerprint()
 
 
 func get_saved_run_data() -> Dictionary:
@@ -764,6 +801,7 @@ func save_run_checkpoint(checkpoint_dict: Dictionary) -> Dictionary:
 		else:
 			_save_data[k] = checkpoint_dict[k]
 
+	_save_data["build_fingerprint"] = get_build_fingerprint()
 	_save_data["timestamp"] = Time.get_datetime_string_from_system(false, true)
 	var err: Error = _save_savegame_to_disk()
 	var saved_copy: Dictionary = get_saved_run_data()

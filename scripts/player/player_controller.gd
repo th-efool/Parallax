@@ -185,11 +185,18 @@ const FINISHER_BY_INPUT: Dictionary = {
 @export var dodge_iframe_start: float = 0.03
 @export var dodge_iframe_duration: float = 0.26
 @export var dodge_cooldown: float = 0.70
-## Maximum number of consecutive dodges allowed (stacked charges).
+## Maximum number of consecutive dodges allowed in Reality (stacked charges).
 @export var max_dodge_charges: int = 2
 @export var allow_air_dash: bool = true
 @export var perfect_dodge_slowmo_scale: float = 0.3
 @export var perfect_dodge_slowmo_time: float = 0.55
+
+@export_group("Mirror Mode Buffs")
+## Active ONLY while in the Mirror (Night) realm: +50% crit rate, infinite dodge at 2x speed and 1.4x distance.
+@export var mirror_crit_rate_mult: float = 1.5
+@export var mirror_infinite_dodge: bool = true
+@export var mirror_dodge_speed_mult: float = 2.0
+@export var mirror_dodge_distance_mult: float = 1.4
 
 @export_group("Combat Tuning")
 @export var light_combo_damages: PackedInt32Array = PackedInt32Array([20, 22, 26, 30, 44])
@@ -271,6 +278,10 @@ var _lunge_distance: float = 0.0
 var _dodge_elapsed: float = 0.0
 var _dodge_cooldown_timer: float = 0.0
 var _dodge_direction: Vector3 = Vector3.BACK
+var _active_dodge_duration: float = 0.42
+var _active_dodge_speed: float = 10.5
+var _active_dodge_iframe_start: float = 0.03
+var _active_dodge_iframe_duration: float = 0.26
 var _perfect_dodge_spent: bool = false
 var _dodge_charges: int = 2
 var _air_dash_used: bool = false
@@ -611,7 +622,8 @@ func _release_heavy_charge() -> void:
 	_aim_attack(true)
 	_attack_damage = int(round(float(heavy_attack_damage) * lerpf(1.0, heavy_charge_max_damage_mult, ratio)))
 	# `finisher: true` on an attack def means "this hit opens the critical-hit window".
-	current_attack["finisher"] = ratio >= 0.999 or randf() < lerpf(heavy_charge_min_crit_chance, 1.0, ratio)
+	var min_crit: float = heavy_charge_min_crit_chance * (mirror_crit_rate_mult if _is_in_mirror_mode() else 1.0)
+	current_attack["finisher"] = ratio >= 0.999 or randf() < minf(1.0, lerpf(min_crit, 1.0, ratio))
 	current_attack["crack"] = float(current_attack.get("crack", 4.2)) * (1.0 + 0.5 * ratio)
 	current_attack["trauma"] = minf(1.0, float(current_attack.get("trauma", 0.62)) * (1.0 + 0.6 * ratio))
 	current_attack["hitstop"] = float(current_attack.get("hitstop", 0.12)) * (1.0 + 0.5 * ratio)
@@ -692,7 +704,7 @@ func is_invulnerable() -> bool:
 	if _finisher_invuln_timer > 0.0:
 		return true
 	if current_state == State.DODGE:
-		return _dodge_elapsed >= dodge_iframe_start and _dodge_elapsed <= (dodge_iframe_start + dodge_iframe_duration)
+		return _dodge_elapsed >= _active_dodge_iframe_start and _dodge_elapsed <= (_active_dodge_iframe_start + _active_dodge_iframe_duration)
 	return false
 
 func _apply_regen(delta: float) -> void:
@@ -1127,6 +1139,8 @@ func _try_open_finisher_window(target: Node3D) -> void:
 	if not finisher_window_enabled():
 		return
 	var chance: float = crit_chance_flow if bool(current_attack.get("flow", false)) else crit_chance_light
+	if _is_in_mirror_mode():
+		chance = minf(1.0, chance * mirror_crit_rate_mult)
 	var crit: bool = bool(current_attack.get("finisher", false)) or randf() < chance
 	if not crit:
 		return
@@ -1312,8 +1326,27 @@ func on_attack_deflected(is_heavy: bool, _contact: Vector3 = Vector3.ZERO) -> vo
 
 # ------------------------------------------------------------------ dodge / plunge
 
+func _is_in_mirror_mode() -> bool:
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	return rm != null and not rm.is_merged and rm.current_realm == RealmManager.Realm.MIRROR
+
+
+func _is_infinite_dodge_active() -> bool:
+	return mirror_infinite_dodge and _is_in_mirror_mode()
+
+
+func _effective_dodge_speed() -> float:
+	return dodge_speed * (mirror_dodge_speed_mult if _is_in_mirror_mode() else 1.0)
+
+
+func _effective_dodge_duration() -> float:
+	if _is_in_mirror_mode():
+		return dodge_duration * (mirror_dodge_distance_mult / maxf(0.1, mirror_dodge_speed_mult))
+	return dodge_duration
+
+
 func _can_dodge_from(allow_attack_cancel: bool = false) -> bool:
-	if _dodge_charges <= 0:
+	if not _is_infinite_dodge_active() and _dodge_charges <= 0:
 		return false
 	var valid_state: bool = (current_state == State.LOCOMOTION or current_state == State.DODGE)
 	if allow_attack_cancel and (current_state == State.LIGHT_ATTACK or current_state == State.HEAVY_ATTACK):
@@ -1329,10 +1362,12 @@ func _can_dodge_from(allow_attack_cancel: bool = false) -> bool:
 func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 	if not _can_dodge_from(false):
 		return false
+	var in_mirror: bool = _is_in_mirror_mode()
 	var airborne: bool = is_currently_airborne() and _coyote_timer <= 0.0
-	_dodge_charges -= 1
-	if _dodge_cooldown_timer <= 0.0:
-		_dodge_cooldown_timer = dodge_cooldown
+	if not _is_infinite_dodge_active():
+		_dodge_charges -= 1
+		if _dodge_cooldown_timer <= 0.0:
+			_dodge_cooldown_timer = dodge_cooldown
 	if airborne:
 		_air_dash_used = true
 
@@ -1341,12 +1376,16 @@ func start_dodge(input_dir: Vector3 = Vector3.ZERO) -> bool:
 		_dodge_direction = Vector3(input_dir.x, 0.0, input_dir.z).normalized()
 	else:
 		_dodge_direction = get_facing_direction()
+	_active_dodge_speed = _effective_dodge_speed()
+	_active_dodge_duration = _effective_dodge_duration()
+	_active_dodge_iframe_start = dodge_iframe_start * (0.7 if in_mirror else 1.0)
+	_active_dodge_iframe_duration = dodge_iframe_duration * (0.85 if in_mirror else 1.0)
 	velocity.y = 0.0 if airborne else minf(velocity.y, 0.0)
 	_dodge_elapsed = 0.0
 	_perfect_dodge_spent = false
-	_set_state(State.DODGE, dodge_duration)
-	_update_hurtbox_invulnerability(dodge_iframe_start <= 0.0)
-	dodge_started.emit(_dodge_direction, dodge_duration)
+	_set_state(State.DODGE, _active_dodge_duration)
+	_update_hurtbox_invulnerability(_active_dodge_iframe_start <= 0.0)
+	dodge_started.emit(_dodge_direction, _active_dodge_duration)
 	return true
 
 
@@ -1726,10 +1765,10 @@ func _track_landing() -> void:
 func _process_dodge_state(delta: float) -> void:
 	_dodge_elapsed += delta
 	_state_timer = maxf(0.0, _state_timer - delta)
-	var in_iframes: bool = _dodge_elapsed >= dodge_iframe_start and _dodge_elapsed <= (dodge_iframe_start + dodge_iframe_duration)
+	var in_iframes: bool = _dodge_elapsed >= _active_dodge_iframe_start and _dodge_elapsed <= (_active_dodge_iframe_start + _active_dodge_iframe_duration)
 	_update_hurtbox_invulnerability(in_iframes)
 
-	var dur: float = maxf(0.01, dodge_duration)
+	var dur: float = maxf(0.01, _active_dodge_duration)
 	var t_norm: float = clampf(_dodge_elapsed / dur, 0.0, 1.0)
 	if not is_on_floor():
 		# Air-dash holds altitude for the burst, then gravity returns.
@@ -1739,7 +1778,7 @@ func _process_dodge_state(delta: float) -> void:
 			velocity.y = 0.0
 
 	# Explosive start, long ease-out into a run so the dodge flows into movement.
-	var burst: float = dodge_speed * 1.3
+	var burst: float = _active_dodge_speed * 1.3
 	var cur_speed: float = burst
 	if t_norm > 0.45:
 		var ease_out: float = (t_norm - 0.45) / 0.55
@@ -1749,8 +1788,8 @@ func _process_dodge_state(delta: float) -> void:
 	if is_inside_tree():
 		move_and_slide()
 
-	# Chained dodge: cancel into a second dodge once past the early i-frame window if charges remain.
-	if t_norm > 0.45 and _buffer_action == "dodge" and _dodge_charges > 0:
+	# Chained dodge: cancel into a second dodge once past the early i-frame window if charges remain (or Mirror infinite).
+	if t_norm > 0.45 and _buffer_action == "dodge" and (_is_infinite_dodge_active() or _dodge_charges > 0):
 		var d_dir: Vector3 = _read_move_dir()
 		if start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction):
 			_consume_buffer()
@@ -1772,7 +1811,7 @@ func _process_dodge_state(delta: float) -> void:
 		_update_hurtbox_invulnerability(false)
 		run_time = sprint_ramp_time * 0.8  # come out of a roll already moving fast
 		_set_state(State.LOCOMOTION, 0.0)
-		if _buffer_action == "dodge" and _dodge_charges > 0:
+		if _buffer_action == "dodge" and (_is_infinite_dodge_active() or _dodge_charges > 0):
 			var d_dir: Vector3 = _read_move_dir()
 			if start_dodge(d_dir if d_dir.length_squared() > 0.001 else _dodge_direction):
 				_consume_buffer()

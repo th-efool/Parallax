@@ -12,6 +12,7 @@ signal realm_changed(new_realm: int)
 signal shift_rejected(reason: String)
 signal realms_merged()
 signal shift_cooldown_updated(remaining: float, duration: float)
+signal mirror_charge_changed(current: float, max_val: float)
 
 const LAYER_PLAYER: int = 1 << 0
 const LAYER_ENEMY: int = 1 << 1
@@ -30,6 +31,11 @@ const LAYER_PLAYER_BLOCKER: int = 1 << 7
 @export var handle_input_directly: bool = true
 @export var player_capsule_radius: float = 0.38
 @export var player_capsule_height: float = 1.75
+@export var max_mirror_charge: float = 100.0
+@export var mirror_drain_per_sec: float = 10.0
+@export var mirror_kill_refill_min: float = 5.0
+@export var mirror_kill_refill_max: float = 30.0
+@export var revive_charge_cost: float = 25.0
 
 static var instance = null
 
@@ -37,6 +43,7 @@ var current_realm: Realm = Realm.REALITY
 var shift_locked: bool = false
 var is_merged: bool = false
 var cooldown_timer: float = 0.0
+var mirror_charge: float = 100.0
 var player_ref: CharacterBody3D = null
 
 
@@ -59,6 +66,71 @@ func _process(delta: float) -> void:
 	if cooldown_timer > 0.0:
 		cooldown_timer = maxf(0.0, cooldown_timer - delta)
 		shift_cooldown_updated.emit(cooldown_timer, shift_cooldown_duration)
+	if current_realm == Realm.MIRROR and not is_merged and mirror_drain_per_sec > 0.0:
+		var active_play: bool = true
+		if is_inside_tree() and get_tree() != null:
+			if get_tree().paused:
+				active_play = false
+			else:
+				var mc: Node = get_tree().get_first_node_in_group("main_controller")
+				if mc != null and mc.has_method("is_gameplay_active") and not bool(mc.call("is_gameplay_active")):
+					active_play = false
+		var p: CharacterBody3D = _resolve_player()
+		if p != null and p.get("is_dead") == true:
+			active_play = false
+		if active_play:
+			var prev: float = mirror_charge
+			mirror_charge = maxf(0.0, mirror_charge - mirror_drain_per_sec * delta)
+			if not is_equal_approx(mirror_charge, prev):
+				mirror_charge_changed.emit(mirror_charge, max_mirror_charge)
+			if mirror_charge <= 0.0:
+				_try_auto_exit_mirror()
+
+
+func get_mirror_charge_ratio() -> float:
+	return clampf(mirror_charge / maxf(1.0, max_mirror_charge), 0.0, 1.0)
+
+
+func has_mirror_charge(amount: float) -> bool:
+	return mirror_charge + 0.001 >= amount
+
+
+func add_mirror_charge(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	var next: float = clampf(mirror_charge + amount, 0.0, max_mirror_charge)
+	if not is_equal_approx(next, mirror_charge):
+		mirror_charge = next
+		mirror_charge_changed.emit(mirror_charge, max_mirror_charge)
+
+
+func consume_mirror_charge(amount: float) -> bool:
+	if amount <= 0.0:
+		return true
+	if not has_mirror_charge(amount):
+		return false
+	mirror_charge = maxf(0.0, mirror_charge - amount)
+	mirror_charge_changed.emit(mirror_charge, max_mirror_charge)
+	return true
+
+
+func refill_mirror_charge() -> void:
+	mirror_charge = max_mirror_charge
+	mirror_charge_changed.emit(mirror_charge, max_mirror_charge)
+
+
+func _try_auto_exit_mirror() -> void:
+	if current_realm != Realm.MIRROR or is_merged:
+		return
+	var saved_cd: float = cooldown_timer
+	var saved_lock: bool = shift_locked
+	cooldown_timer = 0.0
+	shift_locked = false
+	var safety: Dictionary = _check_shift_safety(Realm.REALITY)
+	cooldown_timer = saved_cd
+	shift_locked = saved_lock
+	if bool(safety.get("safe", false)):
+		force_realm(Realm.REALITY, saved_lock)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -179,6 +251,8 @@ func _check_shift_safety(target: Realm) -> Dictionary:
 		return {"safe": false, "reason": "paused"}
 	if cooldown_timer > 0.0:
 		return {"safe": false, "reason": "cooldown"}
+	if target == Realm.MIRROR and mirror_charge <= 0.0:
+		return {"safe": false, "reason": "no_charge"}
 
 	var p: CharacterBody3D = _resolve_player()
 	if p == null or not p.is_inside_tree() or p.get_world_3d() == null:

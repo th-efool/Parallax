@@ -469,6 +469,9 @@ func _die(source_type: String) -> void:
 		if run_state != null and run_state.has_method("record_enemy_kill"):
 			run_state.call("record_enemy_kill", get_enemy_unique_id(), in_mirror, is_env)
 
+	if RealmManager.instance != null and RealmManager.instance.has_method("add_mirror_charge"):
+		RealmManager.instance.call("add_mirror_charge", get_mirror_kill_refill())
+
 	if not encounter_id.is_empty() and EncounterDirector.instance != null:
 		EncounterDirector.instance.register_enemy_kill(encounter_id)
 
@@ -480,6 +483,22 @@ func _die(source_type: String) -> void:
 		"source_type": source_type,
 	}
 	died.emit(self, context)
+
+
+func get_mirror_kill_refill() -> float:
+	var min_hp: float = 70.0 * HEALTH_SCALE
+	var max_hp: float = 260.0 * HEALTH_SCALE
+	var t: float = clampf((float(max_health) - min_hp) / maxf(1.0, max_hp - min_hp), 0.0, 1.0)
+	var min_refill: float = 5.0
+	var max_refill: float = 30.0
+	if RealmManager.instance != null:
+		var rmin: Variant = RealmManager.instance.get("mirror_kill_refill_min")
+		var rmax: Variant = RealmManager.instance.get("mirror_kill_refill_max")
+		if rmin != null:
+			min_refill = float(rmin)
+		if rmax != null:
+			max_refill = float(rmax)
+	return lerpf(min_refill, max_refill, t)
 
 
 func _refresh_active_state() -> void:

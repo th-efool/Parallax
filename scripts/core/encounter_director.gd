@@ -286,6 +286,8 @@ func handle_player_death(player: Node = null) -> void:
 	# 5. Restore realm to checkpoint realm AFTER Warden/puzzle resets so checkpoint_realm is authoritative
 	if RealmManager.instance != null:
 		RealmManager.instance.force_realm(checkpoint_realm as RealmManager.Realm, false)
+		if RealmManager.instance.has_method("refill_mirror_charge"):
+			RealmManager.instance.call("refill_mirror_charge")
 
 	# 6. Respawn player at checkpoint transform with full health
 	if player != null and player.has_method("respawn_at"):
@@ -388,6 +390,8 @@ func restart_full_run() -> void:
 
 	if RealmManager.instance != null:
 		RealmManager.instance.force_realm(RealmManager.Realm.REALITY, false)
+		if RealmManager.instance.has_method("refill_mirror_charge"):
+			RealmManager.instance.call("refill_mirror_charge")
 
 	_update_section_enemy_activation()
 	if is_inside_tree() and get_tree() != null:

@@ -28,6 +28,8 @@ const LEASH_RADIUS: float = 8.5
 const FOLLOW_LEASH: float = 19.5
 const KITE_RADIUS: float = 5.5
 const REVIVE_CHANNEL: float = 2.2
+const PLAYER_REVIVE_DURATION: float = 5.0
+const PLAYER_REVIVE_RANGE: float = 3.2
 
 var profile: AllyProfile = null
 var manager: Node = null
@@ -74,6 +76,8 @@ var _combat_quiet: float = 0.0
 var _speak_cd: float = 0.0
 var _idle_chatter: float = 0.0
 var _player_near_prompt: bool = false
+var _reviving_by_player: bool = false
+var _revive_channel_t: float = 0.0
 var _mine: Node3D = null
 var _cast_ring: MeshInstance3D = null
 var _cast_ring_mat: StandardMaterial3D = null
@@ -3138,6 +3142,8 @@ func _run_retreat_self(delta: float, player: Node3D) -> void:
 
 func _go_down() -> void:
 	is_downed = true
+	_reviving_by_player = false
+	_revive_channel_t = 0.0
 	_retreating = false
 	_action = ""
 	_action_timer = 0.0
@@ -3162,6 +3168,8 @@ func revive(ratio: float = 0.45) -> void:
 	if not is_downed:
 		return
 	is_downed = false
+	_reviving_by_player = false
+	_revive_channel_t = 0.0
 	_sync_realm_mask()
 	health = maxi(1, int(round(float(max_health) * clampf(ratio, 0.05, 1.0))))
 	_low_hp_warned = false
@@ -3178,12 +3186,41 @@ func revive(ratio: float = 0.45) -> void:
 
 
 ## Manual revive: the player presses Interact next to a downed ally (PlayerController.try_interact scans
-## the `interactable_switch` group within 2.6 m).
+## the `interactable_switch` group within 2.6 m). Channels for 5.0 s and consumes Mirror Charge on completion.
 func interact() -> bool:
 	if not is_downed:
 		return false
-	revive(0.5)
+	if _reviving_by_player:
+		return true
+	var rm: RealmManager = RealmManager.instance as RealmManager
+	if rm != null and not rm.has_mirror_charge(rm.revive_charge_cost):
+		var hud: Node = get_tree().get_first_node_in_group("hud") if is_inside_tree() and get_tree() != null else null
+		if hud != null and hud.has_method("show_toast"):
+			hud.call("show_toast", "NEED MIRROR CHARGE TO REVIVE", 1.6)
+		return false
+	_reviving_by_player = true
+	_revive_channel_t = 0.0
+	if _player_near_prompt:
+		_player_near_prompt = false
+		prompt_changed.emit(false, "")
+	GameFeelScript.play_sound(self, "whoosh_light", global_position + Vector3.UP, -8.0, 0.9)
 	return true
+
+
+func is_player_reviving() -> bool:
+	return is_downed and _reviving_by_player
+
+
+func get_revive_progress() -> Dictionary:
+	var prog: float = clampf(_revive_channel_t / maxf(0.01, PLAYER_REVIVE_DURATION), 0.0, 1.0)
+	var rem: float = maxf(0.0, PLAYER_REVIVE_DURATION - _revive_channel_t)
+	return {
+		"active": is_downed and _reviving_by_player,
+		"progress": prog,
+		"remaining": rem,
+		"ally_name": get_display_name(),
+		"world_pos": global_position + Vector3.UP * 1.45,
+	}
 
 
 func _is_point_in_pit_kill_zone(pos: Vector3) -> bool:
@@ -3208,12 +3245,29 @@ func _process_downed(delta: float) -> void:
 	var pit_or_void: bool = _in_pit_kill_zone() or global_position.y < -20.0
 	if pit_or_void:
 		_rescue_from_pit(pl)
+	if _reviving_by_player:
+		var pl_alive: bool = pl != null and pl.get("is_dead") != true
+		var in_range: bool = pl_alive and pl.global_position.distance_to(global_position) <= PLAYER_REVIVE_RANGE
+		var rm: RealmManager = RealmManager.instance as RealmManager
+		var has_charge: bool = rm == null or rm.has_mirror_charge(rm.revive_charge_cost)
+		if not in_range or not has_charge:
+			_reviving_by_player = false
+			_revive_channel_t = 0.0
+		else:
+			_revive_channel_t += delta
+			if _revive_channel_t >= PLAYER_REVIVE_DURATION:
+				_reviving_by_player = false
+				_revive_channel_t = 0.0
+				if rm != null:
+					rm.consume_mirror_charge(rm.revive_charge_cost)
+				revive(0.65)
+				return
 	_update_revive_prompt()
 
 
 func _update_revive_prompt() -> void:
 	var p: Node3D = _player()
-	var near: bool = is_downed and p != null and p.global_position.distance_to(global_position) <= 2.6
+	var near: bool = is_downed and not _reviving_by_player and p != null and p.global_position.distance_to(global_position) <= 2.6
 	if near != _player_near_prompt:
 		_player_near_prompt = near
 		var key: String = "E"
@@ -3226,6 +3280,8 @@ func _update_revive_prompt() -> void:
 ## Full restore (player respawn / new run).
 func reset_full(at: Vector3) -> void:
 	is_downed = false
+	_reviving_by_player = false
+	_revive_channel_t = 0.0
 	_sync_realm_mask()
 	remove_from_group("interactable_switch")
 	health = max_health

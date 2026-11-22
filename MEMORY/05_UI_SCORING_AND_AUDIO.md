@@ -56,7 +56,8 @@ Three combat encounters track separate no-hit flags (`begin_encounter()` when ga
 
 | Anchor | Element | Visibility | Behavior |
 | :--- | :--- | :--- | :--- |
-| **Top-Left** | Emblem + Health bar + `100 / 100` numeric text + combo pips | Always | Decreases on damage with brief red hit flash; never color-only. |
+| **Top-Left** | Emblem + Health bar + `100 / 100` numeric text + Stamina bar + blue **Mirror Charge bar** (`MirrorChargeBar`, directly below `StaminaBar`) | Always | HP decreases on damage with brief red hit flash; Mirror Charge bar (`Color(0.22, 0.68, 1.0, 0.95)`) drains over `10 s` in Mirror realm (`10/s`), refills on enemy kills (`5` weakest -> `30` strongest), and powers 5 s ally revives. |
+| **World / Lower-Center** | **Ally Revive Circular Loading Timer** (`ReviveTimerOverlay` in `HUDController`) | While channeling ally revive (`5.0 s`) | Blue circular progress ring (`draw_arc`) + numeric countdown (`5..1`) + `REVIVING <NAME>` projected above the downed ally (clamped inside viewport). |
 | **Top-Center** | `REALITY` chip / swap icon / `MIRROR` chip + `Q` keycap | Always | Active chip illuminated (Amber `#E69938` vs Cobalt `#33B5FF`). Rejected shift pulses chip amber/red. Boss Phase 2 switches display to `REALMS MERGED`. |
 | **Top-Right** | `SCORE 001250`, `COMBO x3`, `⏱ 02:34` elapsed timer | Always | Score ticks pop briefly; timer freezes when paused or on run completion. |
 | **Bottom-Left** | Weapon diamond slot (Sword icon) | Always | Single sword weapon only (no weapon wheel). |
